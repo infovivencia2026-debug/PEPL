@@ -9,9 +9,13 @@ npm run verify     # the whole chain, in order — use this before claiming anyt
   npm run typecheck    tsc --noEmit
   npm run db:setup     roles + database + extensions (superuser, idempotent)
   npm run migrate      forward-only SQL migrations (owner role)
-  npm run gate:rls     structural isolation gate — fails the build on an unprotected table
-  npm test             vitest: cross-tenant behavioural suite
+  npm run gate:rls     structural isolation gate — fails on an unprotected table
+  npm run gate:config  registry invariants — labels, defaults, deps, cycles, risk classes
+  npm test             vitest: cross-tenant + config suites
 ```
+
+`npm run db:reset` drops the dev database so migrations re-apply from scratch. **Pre-launch only.**
+Once PEPL has a deployment, migrations are forward-only and a schema change is a NEW numbered file.
 
 `npm run verify` is what a CI job runs. Nothing is "done" until it is green **in one run after the final edit**.
 
@@ -84,7 +88,35 @@ context yields **zero rows, never all rows**. Do not invert that default.
   psql ... -c "DROP TABLE forgotten_table;"
   ```
 
+  The config layer was mutation-tested the same way: removing the entitlement check in
+  `resolver.ts` fails exactly the two tests that assert a tenant setting cannot widen an
+  entitlement.
+
   Re-run these whenever the isolation model changes.
+
+## Config layer
+
+`src/config-registry/` holds the DEFINITIONS (typed, in code). `tenant_settings` and
+`tenant_setting_overrides` hold the VALUES (per tenant, RLS-isolated). Never invert that.
+
+- **`effective_from` is nullable and NULL means "immediate".** The table uses
+  `UNIQUE NULLS NOT DISTINCT` (PG15+) rather than a primary key, because a PK forces
+  `NOT NULL` and would destroy that semantic. Caught by the test suite the hard way.
+- Any key declaring `affects: ['payroll']` **must** be high risk and **must** carry an
+  effective date; `gate:config` enforces the first, `setSetting` the second.
+- `setSetting` bumps `tenant_config_versions` in the **caller's transaction**, so a new
+  version can never be observed alongside stale values, and a rollback undoes both.
+- Entitlements are written by the control plane only. The app role has SELECT and an
+  explicit REVOKE on INSERT/UPDATE/DELETE — a tenant cannot grant itself a module.
+
+## Adding a config setting
+
+1. Add the definition to the right module block in `src/config-registry/index.ts`.
+2. Give it a label, help text, a default correct for a standard Indian company, and a
+   risk class. `gate:config` fails the build without them.
+3. If it changes money, declare `affects: ['payroll']` and `risk: 'high'`.
+4. If it varies by department/location/grade, declare `scopable`.
+5. Add a resolver test for the precedence you expect.
 
 ## Adding a table
 
