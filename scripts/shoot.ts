@@ -1,3 +1,4 @@
+/// <reference lib="dom" />
 /**
  * Screenshot rig.
  *
@@ -49,6 +50,26 @@ async function main(): Promise<void> {
     if (!only || only === 'dashboard') {
       await page.screenshot({ path: `${OUT}/verify-dashboard.png` })
       console.log(`${OUT}/verify-dashboard.png`)
+    }
+
+    if (!only || only === 'fit') {
+      // A glance surface that needs scrolling is a report. Measure it rather
+      // than judging by eye.
+      for (const [w, h] of [[1920, 1080], [1440, 900], [1366, 768]] as const) {
+        await page.setViewportSize({ width: w, height: h })
+        await page.waitForTimeout(500)
+        const m = await page.evaluate(() => ({
+          scroll: document.documentElement.scrollHeight,
+          view: window.innerHeight,
+        }))
+        const overflow = m.scroll - m.view
+        console.log(
+          `${w}x${h}: content ${m.scroll}px vs viewport ${m.view}px -> ` +
+          (overflow <= 2 ? 'FITS' : `${overflow}px over`),
+        )
+        await page.screenshot({ path: `${OUT}/fit-${w}.png` })
+      }
+      await page.setViewportSize({ width: 1440, height: 900 })
     }
 
     if (!only || only === 'widgets') {

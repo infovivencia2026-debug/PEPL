@@ -16,6 +16,8 @@ export const GLOBAL_TABLES: ReadonlySet<string> = new Set([
   // to the application role; a tenant deviates by acknowledged override.
   'statutory_configs',
   'pt_slabs',
+  'tax_slabs',
+  'tax_rules',
   // Written BEFORE any tenant is known — it is what rate-limits the login that
   // would resolve the tenant. Holds an email, an IP and a success flag; no
   // tenant data.

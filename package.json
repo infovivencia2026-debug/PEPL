@@ -23,7 +23,8 @@
     "start": "node --experimental-strip-types src/http/server.ts",
     "typecheck:web": "tsc -p web/tsconfig.json",
     "job": "node --experimental-strip-types scripts/run-job.ts",
-    "shoot": "node --experimental-strip-types scripts/shoot.ts"
+    "shoot": "node --experimental-strip-types scripts/shoot.ts",
+    "check:responsive": "node --experimental-strip-types scripts/responsive-check.ts"
   },
   "dependencies": {
     "@dnd-kit/core": "^6.3.1",

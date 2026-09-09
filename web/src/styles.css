@@ -2713,7 +2713,7 @@ tbody tr:hover {
     font-size: 11px;
   }
   .brand small {
-    font-size: 9px;
+    font-size: 11px;
   }
   .dashboard-top {
     grid-template-columns: 1fr 2fr;
@@ -3188,7 +3188,7 @@ tbody tr:hover {
     width: 23px;
   }
   .brand small {
-    font-size: 8px;
+    font-size: 11px;
     margin-top: 5px;
   }
   .brand {
@@ -4025,24 +4025,30 @@ body { background: radial-gradient(ellipse at 0 0, #538575 0, transparent 48%), 
 .dashboard-toolbar > div:first-child { display: flex; gap: 8px; align-items: center; font-size: 12px; color: var(--muted); }
 .dashboard-toolbar-actions { display: flex; gap: 8px; align-items: center; }
 .dashboard-toolbar .btn { min-height: 36px; font-size: 11px; padding: 8px 12px; }
-.widget-feedback { font-size: 12px; color: var(--primary); margin-bottom: 12px; }
+.widget-feedback { font-size: 12px; color: var(--primary); margin-bottom: 8px; }
 .widget-feedback:empty { display: none; }
-.widget-grid { display: grid; grid-template-columns: repeat(12,minmax(0,1fr)); gap: 20px; align-items: stretch; }
-.dashboard-widget { grid-column: span var(--widget-width); min-width: 0; position: relative; border-radius: 25px; }
-.widget-hero { grid-row: span 2; }
+/* Single-viewport density. Same graphics, tighter geometry: the dashboard is a
+   glance surface, and a glance that needs scrolling is a report. Sizes are set
+   here rather than per-component so the whole grid stays in proportion. */
+.widget-grid { display: grid; grid-template-columns: repeat(12,minmax(0,1fr)); gap: 14px; align-items: stretch; }
+.dashboard-widget { grid-column: span var(--widget-width); min-width: 0; position: relative; border-radius: 20px; }
+/* The hero sits in the first row alongside the stats, not across two rows. */
+.widget-hero { grid-row: span 1; }
 .widget-content { height: 100%; min-width: 0; }
 .widget-content > .card, .widget-content > .stat, .widget-content > section { height: 100%; margin: 0; }
-.widget-content > .welcome-card { min-height: 360px; padding: 30px; }
-.widget-content > .welcome-card h2 { font-size: clamp(32px, 3vw, 44px); font-weight: 500; }
-.widget-content > .stat { min-height: 170px; padding: 20px 22px; }
-.widget-content > .stat .stat-top { margin-bottom: 9px; }
-.widget-content > .stat > strong { font-size: 34px; margin: 3px 0; }
+.widget-content > .welcome-card { min-height: 172px; padding: 20px 22px; }
+.widget-content > .welcome-card h2 { font-size: clamp(23px, 1.9vw, 30px); font-weight: 500; line-height: 1.12; }
+.widget-content > .welcome-card p { font-size: 12px; line-height: 1.45; }
+.widget-content > .stat { min-height: 172px; padding: 15px 17px; }
+.widget-content > .stat .stat-top { margin-bottom: 6px; }
+.widget-content > .stat > strong { font-size: 27px; margin: 2px 0; }
 .widget-content > .stat > p { font-size: 12px; }
 .widget-content > .stat > small { font-size: 11px; }
-.widget-content > .card:not(.stat) { min-height: 270px; }
-.widget-content .donut-layout { gap: 18px; }
-.widget-content .donut { width: 140px; }
-.widget-content .legend { gap: 10px; }
+.widget-content > .card:not(.stat) { min-height: 206px; }
+.widget-content > .card:not(.stat) > .card-head { margin-bottom: 10px; }
+.widget-content .donut-layout { gap: 13px; }
+.widget-content .donut { width: 104px; }
+.widget-content .legend { gap: 6px; }
 .widget-content .legend > div, .widget-content .legend b { font-size: 11px; }
 .widget-library { background: #e8eee5; border: 1px solid #bfd2c2; border-radius: 20px; padding: 22px; margin-bottom: 20px; }
 .widget-library strong { font-size: 15px; }
@@ -4154,3 +4160,148 @@ body { background: radial-gradient(ellipse at 0 0, #538575 0, transparent 48%), 
   .widget-content .donut { width: 135px; }
 }
 .widget-content .donut small { max-width: 76px; font-size: 8px; line-height: 1.3; white-space: normal; text-align: center; } .widget-content .donut strong { font-size: 26px; } .dashboard-heading .date-chip { white-space: nowrap; } @media(max-width:540px) { .dashboard-heading .date-chip { font-size: 9px; max-width: none; } }
+
+
+/* ---------------------------------------------------------------------------
+   Device pass.
+
+   Two rules that only bite on real hardware, applied last so they win:
+
+   1. TOUCH TARGETS. A pointer:coarse device has no hover and no pixel accuracy,
+      so every interactive element gets 44px of height — the size a fingertip
+      actually hits. Desktop keeps its tighter geometry, because a mouse does
+      not need the room.
+   2. TYPOGRAPHY FLOOR. Metadata may be quiet, but 8-10px is not readable on a
+      phone held at arm's length. Small text lifts to 12px on touch devices and
+      never drops below 11px anywhere.
+   --------------------------------------------------------------------------- */
+
+@media (pointer: coarse) {
+  .btn,
+  .nav a,
+  .brand,
+  .global-search,
+  .icon-link,
+  .text-link,
+  .dropdown > a,
+  .dropdown > button,
+  .widget-tools button,
+  .widget-tools select,
+  input,
+  select,
+  textarea {
+    min-height: 44px;
+  }
+
+  /* An inline link needs to become a box before a min-height means anything. */
+  .text-link,
+  .icon-link {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 10px 4px;
+  }
+
+  /* Fingertips need separation as much as size. */
+  .header-actions,
+  .card-head,
+  .widget-tools {
+    gap: 10px;
+  }
+
+  /* Specificity has to match the density rules above, which are scoped under
+     .widget-content — a bare .stat selector loses to them. */
+  .widget-content > .stat > p,
+  .widget-content > .stat > small,
+  .widget-content .legend > div,
+  .widget-content .legend b,
+  .card small,
+  .card p,
+  small {
+    font-size: 12px;
+  }
+
+  /* Buttons and links inside dense toolbars and lists still need a fingertip. */
+  .dashboard-toolbar-actions .btn,
+  .header-actions .btn,
+  .workspace-footer button,
+  .card a,
+  .card button,
+  li a,
+  li button {
+    min-height: 44px;
+    display: inline-flex;
+    align-items: center;
+  }
+
+  .eyebrow {
+    font-size: 11px;
+  }
+
+  /* Same specificity as the desktop floor below, lifted for fingertips. */
+  .widget-content > .stat.card > small,
+  .topbar-actions > .global-search > kbd,
+  .widget-content > .stat.card > p {
+    font-size: 12px;
+  }
+
+  /* Every header control, including the overflow menu trigger. */
+  .topbar-actions button,
+  .main-nav button,
+  header button {
+    min-height: 44px;
+  }
+}
+
+/* The brand tagline is set as fine print by design; 8px is unreadable on any
+   screen, so it lifts to the floor without changing the lockup. */
+.brand small {
+  font-size: 11px;
+}
+
+@media (pointer: coarse) {
+  /* Whole-tile links (a new joiner, an announcement row) are the targets people
+     actually aim at on a phone. */
+  .joiner-grid > a,
+  .list-row,
+  .list-row > a,
+  .welcome-card a,
+  .main-nav a,
+  nav a,
+  header nav a,
+  .top-nav a {
+    min-height: 44px;
+    display: flex;
+    align-items: center;
+  }
+
+  /* The caption lives INSIDE the ring, so the text floor needs the ring to grow
+     with it — lifting the type alone would spill it over the stroke. There is
+     room on a phone, where the chart is already single-column. */
+  .widget-content .donut,
+  .donut {
+    width: 136px;
+  }
+  .donut small {
+    font-size: 11px;
+  }
+}
+
+/* Nothing anywhere is smaller than this. 8px was unreadable on every device. */
+small,
+.badge,
+.legend > div,
+.legend b,
+kbd,
+.date-chip,
+.eyebrow {
+  font-size: max(11px, 1em);
+}
+
+/* These two carry more specific declarations earlier in the sheet, so the floor
+   has to match their specificity to hold. Chart captions inside .donut are
+   deliberately exempt: the text sits within the ring. */
+.widget-content > .stat.card > small,
+.topbar-actions > .global-search > kbd {
+  font-size: 11px;
+}

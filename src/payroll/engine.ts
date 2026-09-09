@@ -13,7 +13,7 @@
  *   6  PF   on PF wages, capped at the ceiling unless the tenant contributes on full wages
  *   7  ESI  only below the threshold
  *   8  PT   by state slab
- *   9  TDS  (projected annual, simplified here)
+ *   9  TDS  (projected annual: slabs, 87A rebate, surcharge, cess)
  *  10  -> NET
  *
  * Rounding: every component rounds to the nearest rupee as it is written, and
@@ -52,8 +52,15 @@ export interface EngineOptions {
   pfOnFullWage: boolean
   /** payroll.lop_basis */
   lopBasis: 'calendar_days' | 'fixed_30' | 'working_days'
-  /** Simplified flat effective rate; the real TDS projection lands with tax slabs. */
-  tdsRate?: number
+  /**
+   * Real TDS: projects the year, applies slabs, 87A, surcharge and cess.
+   * Supplied by the caller so the engine stays pure and the slab data stays
+   * snapshotted on the run. Falls back to no deduction when unconfigured.
+   */
+  computeTds?: (args: {
+    monthlyTaxableGrossPaise: bigint
+    regime: 'old' | 'new'
+  }) => { monthlyTdsPaise: bigint; trace: Record<string, unknown> }
 }
 
 export interface Line {
@@ -165,13 +172,21 @@ export function computePayroll(input: PayrollInput, opts: EngineOptions): Comput
     lines.push({ code: 'PT', type: 'deduction', amountPaise: pt, note: { state: input.stateCode } })
   }
 
-  // 9. TDS.
-  let tds = 0n
-  if (opts.tdsRate && opts.tdsRate > 0) {
+  // 9. TDS. Taxable gross excludes the employee's own PF contribution, which is
+  // deductible; the projection and slab work live in payroll/tds.ts.
+  if (opts.computeTds) {
     const taxableGross = grossPaise - pfEmployee
-    tds = toRupee(Number(taxableGross) * opts.tdsRate)
-    if (tds > 0n) {
-      lines.push({ code: 'TDS', type: 'deduction', amountPaise: tds, note: { regime: input.taxRegime, rate: opts.tdsRate } })
+    const result = opts.computeTds({
+      monthlyTaxableGrossPaise: taxableGross,
+      regime: input.taxRegime,
+    })
+    if (result.monthlyTdsPaise > 0n) {
+      lines.push({
+        code: 'TDS',
+        type: 'deduction',
+        amountPaise: result.monthlyTdsPaise,
+        note: result.trace,
+      })
     }
   }
 

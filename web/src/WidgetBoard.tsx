@@ -15,7 +15,7 @@ function readLayout(key: string): Layout {
     return {
       order: [...new Set<string>(value.order.filter((id: unknown) => typeof id === 'string'))],
       hidden: value.hidden.filter((id: unknown) => typeof id === 'string'),
-      widths: Object.fromEntries(Object.entries(value.widths ?? {}).filter(([, width]) => [3, 4, 6, 12].includes(width as number)).map(([id, width]) => [id, Number(width)])),
+      widths: Object.fromEntries(Object.entries(value.widths ?? {}).filter(([, width]) => [2, 3, 4, 6, 12].includes(width as number)).map(([id, width]) => [id, Number(width)])),
     }
   } catch { return emptyLayout() }
 }
@@ -34,7 +34,8 @@ function SortableWidget({ widget, width, editing, resize, move, first, last }: {
         <button aria-label={`Move ${widget.title} earlier`} disabled={first} onClick={() => move(-1)}><ArrowUp size={14} /></button>
         <button aria-label={`Move ${widget.title} later`} disabled={last} onClick={() => move(1)}><ArrowDown size={14} /></button>
         <select aria-label={`Width of ${widget.title}`} value={width} onChange={event => resize(Number(event.target.value))}>
-          {(widget.width === 3 ? [3, 6, 12] : widget.hero ? [6, 12] : [4, 6, 12]).map(size => <option key={size} value={size}>{size === 12 ? 'Full' : size === 6 ? 'Half' : 'Compact'}</option>)}
+          {[...new Set([widget.width, 3, 4, 6, 12])].filter(size => size >= widget.width).sort((a, b) => a - b)
+            .map(size => <option key={size} value={size}>{size === 12 ? 'Full' : size === 6 ? 'Half' : size <= 3 ? 'Small' : 'Compact'}</option>)}
         </select>
       </div>
     </div>}
@@ -86,8 +87,11 @@ export function WidgetBoard({ children, account }: { children: ReactNode; accoun
       <SortableContext items={visible} strategy={rectSortingStrategy}>
         <div className="widget-grid">{visible.map((id, index) => {
           const widget = available.get(id)!
+          // The width a widget declares is its readable MINIMUM. A hardcoded
+          // floor here silently overrode narrower declarations (a 2-span stat
+          // became 4), which is why the grid never matched the layout.
           const requested = layout.widths[id] ?? widget.width
-          const width = Math.max(widget.width === 3 ? 3 : widget.hero ? 6 : 4, requested)
+          const width = Math.max(widget.width, requested)
           return <SortableWidget key={id} widget={widget} editing={editing} width={width} first={index === 0} last={index === visible.length - 1}
             resize={size => setLayout(current => ({ ...current, widths: { ...current.widths, [id]: size } }))}
             move={direction => { const target = visible[index + direction]; if (target) reorder(id, target) }} />

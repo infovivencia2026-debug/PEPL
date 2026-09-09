@@ -83,7 +83,7 @@ export function Dashboard({
       </div>
       
         <WidgetBoard key={data.user.id} account={data.user.id}>
-<Widget id="welcome" title="Welcome" width={6} hero><section className="welcome-card">
+<Widget id="welcome" title="Welcome" width={4} hero><section className="welcome-card">
           <div>
             <span className="welcome-tag">
               <Sun size={16} /> A good day to grow
@@ -109,7 +109,7 @@ export function Dashboard({
         </section></Widget>
         
           {has('employee.read') && (
-            <Widget id="people" title="People" width={3}><Stat
+            <Widget id="people" title="People" width={2}><Stat
               label={
                 data.user.scope === 'all'
                   ? 'People in your company'
@@ -122,7 +122,7 @@ export function Dashboard({
             /></Widget>
           )}
           {data.modules.leave && has('leave.read') && (
-            <Widget id="leave" title="On leave" width={3}><Stat
+            <Widget id="leave" title="On leave" width={2}><Stat
               label="On leave today"
               value={onLeave.length}
               note="Approved time away"
@@ -132,7 +132,7 @@ export function Dashboard({
             /></Widget>
           )}
           {has('employee.read') && (
-            <Widget id="new-faces" title="New faces" width={3}><Stat
+            <Widget id="new-faces" title="New faces" width={2}><Stat
               label="New faces this month"
               value={joiners.length}
               note={dateLabel(data.today, { month: 'short', year: 'numeric' })}
@@ -144,7 +144,7 @@ export function Dashboard({
           {data.modules.payroll &&
           has('payroll.read') &&
           data.user.scope === 'all' ? (
-            <Widget id="payroll" title="Payroll" width={3}><Stat
+            <Widget id="payroll" title="Payroll" width={2}><Stat
               label="Payroll this month"
               value={money(payroll?.net_paise)}
               note={payroll ? pretty(payroll.status) : 'No run for this month'}
@@ -166,7 +166,7 @@ export function Dashboard({
       
       
         {has('employee.read') && (
-          <Widget id="departments" title="Teams" width={4}><Card
+          <Widget id="departments" title="Teams" width={3}><Card
             title="A team, many talents"
             subtitle="Your people by department"
             href="#/people"
@@ -187,7 +187,7 @@ export function Dashboard({
           </Card></Widget>
         )}
         {data.modules.attendance && has('attendance.read') && (
-          <Widget id="attendance" title="Attendance" width={4}><Card
+          <Widget id="attendance" title="Attendance" width={3}><Card
             title="Showing up, together"
             subtitle="Attendance today"
             href="#/attendance"
@@ -234,7 +234,7 @@ export function Dashboard({
             </div>
           </Card></Widget>
         )}
-        <Widget id="approvals" title="Approvals" width={4}><Card
+        <Widget id="approvals" title="Approvals" width={3}><Card
           title="A little attention"
           subtitle="Your approval inbox"
           href={has('approval.act') ? '#/approvals' : undefined}
@@ -281,7 +281,7 @@ export function Dashboard({
         </Card></Widget>
       
       
-        <Widget id="joiners" title="New joiners" width={4}><Card
+        <Widget id="joiners" title="New joiners" width={3}><Card
           title="Make them feel at home"
           subtitle="New joiners this month"
           href="#/people"
@@ -309,7 +309,7 @@ export function Dashboard({
             />
           )}
         </Card></Widget>
-        <Widget id="tasks" title="My tasks" width={4}><Card
+        <Widget id="tasks" title="My tasks" width={3}><Card
           title="On your list"
           subtitle="Small steps, meaningful progress"
           href={has('task.read') ? '#/tasks' : undefined}
@@ -345,7 +345,7 @@ export function Dashboard({
             />
           )}
         </Card></Widget>
-        <Widget id="inspiration" title="A little inspiration" width={4}><section className="insight-card">
+        <Widget id="inspiration" title="A little inspiration" width={3}><section className="insight-card">
           <Sparkles size={30} />
           <h2>
             Good things

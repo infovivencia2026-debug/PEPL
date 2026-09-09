@@ -6,6 +6,7 @@
  */
 import type { PoolClient } from 'pg'
 import type { StatutoryConfig } from './engine.ts'
+import { fiscalYearOf, type TaxRules, type TaxSlab } from './tds.ts'
 
 export class StatutoryError extends Error {
   readonly code: string
@@ -28,6 +29,9 @@ export interface LoadedStatutory {
   id: string
   config: StatutoryConfig
   ptSlabs: PtSlab[]
+  taxSlabs: Record<'old' | 'new', TaxSlab[]>
+  taxRules: Partial<Record<'old' | 'new', TaxRules>>
+  fiscalYear: string
 }
 
 export async function loadStatutory(tx: PoolClient, asOf?: string): Promise<LoadedStatutory> {
@@ -61,8 +65,30 @@ export async function loadStatutory(tx: PoolClient, asOf?: string): Promise<Load
     [date],
   )
 
+  const fiscalYear = fiscalYearOf(new Date(date))
+
+  const { rows: slabRows } = await tx.query<TaxSlab & { regime: 'old' | 'new' }>(
+    `SELECT regime, income_from_paise::text, income_to_paise::text, rate::text
+       FROM tax_slabs WHERE fiscal_year = $1 ORDER BY regime, income_from_paise`,
+    [fiscalYear],
+  )
+  const taxSlabs: Record<'old' | 'new', TaxSlab[]> = { old: [], new: [] }
+  for (const r of slabRows) taxSlabs[r.regime].push(r)
+
+  const { rows: ruleRows } = await tx.query<TaxRules & { regime: 'old' | 'new' }>(
+    `SELECT regime, standard_deduction_paise::text, rebate_limit_paise::text,
+            rebate_max_paise::text, cess_rate::text, surcharge_bands
+       FROM tax_rules WHERE fiscal_year = $1`,
+    [fiscalYear],
+  )
+  const taxRules: Partial<Record<'old' | 'new', TaxRules>> = {}
+  for (const r of ruleRows) taxRules[r.regime] = r
+
   return {
     id: row.id,
+    fiscalYear,
+    taxSlabs,
+    taxRules,
     config: {
       pf_employee_rate: Number(row.pf_employee_rate),
       pf_employer_rate: Number(row.pf_employer_rate),

@@ -59,6 +59,12 @@ const PEOPLE: Person[] = [
   { number: 'ACM-008', first: 'Kavya', last: 'Reddy', email: 'kavya@acme.test', role: 'employee',
     department: 'Sales', designation: 'Sales Executive',
     ctc: 600_000, basic: 20_000, hra: 10_000, special: 20_000 },
+  { number: 'ACM-009', first: 'Deepa', last: 'Menon', email: 'finance@acme.test', role: 'finance',
+    department: 'Finance', designation: 'Finance Controller',
+    ctc: 1_500_000, basic: 50_000, hra: 25_000, special: 50_000 },
+  { number: 'ACM-010', first: 'Ravi', last: 'Kulkarni', email: 'auditor@acme.test', role: 'auditor',
+    department: 'Finance', designation: 'Internal Auditor',
+    ctc: 1_100_000, basic: 36_000, hra: 18_000, special: 37_000 },
 ]
 
 /**
@@ -137,6 +143,40 @@ async function main(): Promise<void> {
        VALUES ('TS', DATE '2026-04-01', $1, $2, $3)`,
       [String(from), to === null ? null : String(to), String(amount)])
   }
+
+  // Income tax reference data. REPRESENTATIVE FIGURES: reconcile against the
+  // Finance Act in force before paying anyone. They live as data precisely so a
+  // compliance owner can correct them without a deploy.
+  await controlDb.query(`DELETE FROM tax_slabs WHERE fiscal_year = '2026-27'`)
+  await controlDb.query(`DELETE FROM tax_rules WHERE fiscal_year = '2026-27'`)
+  const newRegime: [number, number | null, number][] = [
+    [0, 400_000, 0], [400_000, 800_000, 0.05], [800_000, 1_200_000, 0.10],
+    [1_200_000, 1_600_000, 0.15], [1_600_000, 2_000_000, 0.20],
+    [2_000_000, 2_400_000, 0.25], [2_400_000, null, 0.30],
+  ]
+  const oldRegime: [number, number | null, number][] = [
+    [0, 250_000, 0], [250_000, 500_000, 0.05], [500_000, 1_000_000, 0.20],
+    [1_000_000, null, 0.30],
+  ]
+  for (const [regime, rows] of [['new', newRegime], ['old', oldRegime]] as const) {
+    for (const [from, to, rate] of rows) {
+      await controlDb.query(
+        `INSERT INTO tax_slabs (regime, fiscal_year, income_from_paise, income_to_paise, rate)
+         VALUES ($1, '2026-27', $2, $3, $4)`,
+        [regime, String(L(from)), to === null ? null : String(L(to)), rate])
+    }
+  }
+  const surcharge = JSON.stringify([
+    { above_paise: L(5_000_000), rate: 0.10 },
+    { above_paise: L(10_000_000), rate: 0.15 },
+  ])
+  await controlDb.query(
+    `INSERT INTO tax_rules
+       (regime, fiscal_year, standard_deduction_paise, rebate_limit_paise, rebate_max_paise, cess_rate, surcharge_bands)
+     VALUES ('new','2026-27',$1,$2,$3,0.04,$4::jsonb),
+            ('old','2026-27',$5,$6,$7,0.04,$4::jsonb)`,
+    [String(L(75_000)), String(L(1_200_000)), String(L(60_000)), surcharge,
+     String(L(50_000)), String(L(500_000)), String(L(12_500))])
 
   const ids: Record<string, string> = {}
 
@@ -257,21 +297,35 @@ async function main(): Promise<void> {
       [tenantId])
   }, { userId: undefined })
 
+  const width = 22
+  const rows: [string, string, string][] = [
+    ['admin@acme.test', 'org_admin', 'Everything, including settings and roles'],
+    ['priya@acme.test', 'hr_admin', 'People, attendance, leave, tickets — NOT salary'],
+    ['anil@acme.test', 'payroll_admin', 'Payroll, compensation, bank export'],
+    ['finance@acme.test', 'finance', 'Payroll read, bank export, approvals'],
+    ['arjun@acme.test', 'manager', 'His own reports only — no compensation'],
+    ['rahul@acme.test', 'employee', 'His own record only'],
+    ['auditor@acme.test', 'auditor', 'Read-only across the company, incl. the log'],
+  ]
+
+  const table = rows
+    .map(([e, r, d]) => `  ${e.padEnd(width)}${r.padEnd(16)}${d}`)
+    .join('\n')
+
   console.log(`
-Demo tenant seeded.
+Demo tenant seeded into "${process.env.PEPL_DB ?? 'pepl_dev'}".
 
   Company    ${COMPANY}
   Employees  ${PEOPLE.length}
-  Password   ${PASSWORD}   (every account)
+  Password   ${PASSWORD}      <- the same for every account below
 
-  admin@acme.test    org_admin       sees everything
-  priya@acme.test    hr_admin        people, attendance, leave — NOT salary
-  anil@acme.test     payroll_admin   payroll and compensation
-  arjun@acme.test    manager         his own reports only
-  rahul@acme.test    employee        his own record only
+  ${'EMAIL'.padEnd(width)}${'ROLE'.padEnd(16)}SEES
+  ${'-'.repeat(width + 16 + 44)}
+${table}
 
-  API:  npm run api      -> http://localhost:4010
-  Docs: npm run openapi  -> openapi.json
+  Sign in at http://127.0.0.1:3100  (npm start), or http://127.0.0.1:5173 (npm run dev).
+
+  NOTE: \`npm test\` owns a SEPARATE database (pepl_test) and cannot wipe this one.
 `)
   await closePools()
   await controlDb.end()

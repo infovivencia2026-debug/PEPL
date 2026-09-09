@@ -39,8 +39,34 @@ import {
 } from '../comms/index.ts'
 import { activity, emit, myRecordAccess, verifyChain } from '../audit/index.ts'
 import { loadStatutory, ptFor } from '../payroll/statutory.ts'
+import { computeTds, monthsRemainingInFY } from '../payroll/tds.ts'
 
 export const router = new Router()
+
+/**
+ * Binds the run's snapshotted slab data to the engine's TDS hook. Returns
+ * undefined when no slabs are configured, so payroll runs without a tax line
+ * rather than silently deducting a wrong figure.
+ */
+function tdsFor(statutory: Awaited<ReturnType<typeof loadStatutory>>) {
+  return (args: { monthlyTaxableGrossPaise: bigint; regime: 'old' | 'new' }) => {
+    const rules = statutory.taxRules[args.regime]
+    const slabs = statutory.taxSlabs[args.regime]
+    if (!rules || slabs.length === 0) {
+      return { monthlyTdsPaise: 0n, trace: { reason: 'no tax slabs configured' } }
+    }
+    const r = computeTds(
+      {
+        monthlyTaxableGrossPaise: args.monthlyTaxableGrossPaise,
+        monthsRemaining: monthsRemainingInFY(new Date()),
+        regime: args.regime,
+      },
+      slabs,
+      rules,
+    )
+    return { monthlyTdsPaise: r.monthlyTdsPaise, trace: r.trace }
+  }
+}
 
 // ---------------------------------------------------------------------------
 // Health and identity
@@ -701,6 +727,7 @@ router.post('/api/v1/payroll/runs/:id/calculate',
       ptAmountPaise: (state, gross) => ptFor(statutory.ptSlabs, state, gross),
       pfOnFullWage: ctx.config.get<boolean>('payroll.pf_on_full_wage'),
       lopBasis: ctx.config.get<'calendar_days' | 'fixed_30' | 'working_days'>('payroll.lop_basis'),
+      computeTds: tdsFor(statutory),
     })
     return ok({
       grossPaise: String(totals.gross),
@@ -718,6 +745,7 @@ router.get('/api/v1/payroll/runs/:id/validation',
       ptAmountPaise: (state, gross) => ptFor(statutory.ptSlabs, state, gross),
       pfOnFullWage: ctx.config.get<boolean>('payroll.pf_on_full_wage'),
       lopBasis: ctx.config.get<'calendar_days' | 'fixed_30' | 'working_days'>('payroll.lop_basis'),
+      computeTds: tdsFor(statutory),
       variancePct: ctx.config.get<number>('payroll.variance_warning_pct'),
     })
     return ok(result)
