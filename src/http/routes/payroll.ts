@@ -1,5 +1,6 @@
 /** Payroll. */
 import type { Router } from '../router.ts'
+import { payslipPdf } from '../../payroll/payslip-pdf.ts'
 import {
   HttpError,
   authed,
@@ -200,5 +201,30 @@ export function register(router: Router): void {
           ORDER BY component_type, component_code`,
         [slip[0].run_id, slip[0].employee_id])
       return ok({ lines: rows })
+    }))
+
+  router.get('/api/v1/payslips/:id/pdf',
+    { summary: 'The payslip as a PDF, base64 encoded', tag: 'payroll',
+      permission: 'payroll.read' },
+    authed('payroll.read', async (ctx) => {
+      const id = asUuid(ctx.req.params.id, 'id')
+      const { rows } = await ctx.tx.query<{ employee_id: string }>(
+        `SELECT employee_id FROM payslips WHERE id = $1`, [id])
+      if (!rows[0]) throw new HttpError(404, 'NOT_FOUND', 'no such payslip')
+      assertScope(ctx.auth, rows[0].employee_id)
+
+      const pdf = await payslipPdf(ctx.tx, id)
+      // A payslip carries net pay, so reading one is a tier-3 reveal.
+      await emit(ctx.tx, {
+        action: 'access.tier3.revealed', entityType: 'payslip', entityId: id,
+        actorUserId: ctx.session.userId, subjectEmployeeId: rows[0].employee_id,
+        metadata: { format: 'pdf' },
+      })
+      return ok({
+        fileName: pdf.fileName,
+        contentType: 'application/pdf',
+        sizeBytes: pdf.bytes.length,
+        contentBase64: pdf.bytes.toString('base64'),
+      })
     }))
 }

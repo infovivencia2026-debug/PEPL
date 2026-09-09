@@ -5,6 +5,7 @@ import { createHandler } from '../src/http/router.ts'
 import { buildRouter } from '../src/http/app.ts'
 import { closePools } from '../src/db/pool.ts'
 import { controlDb, provisionTenant } from '../src/control-plane/index.ts'
+import { REGISTRY_KEYS } from '../src/config-registry/index.ts'
 import { withTenant } from '../src/db/tenant-tx.ts'
 import { createUser } from '../src/auth/index.ts'
 import { changeCompensation } from '../src/people/history.ts'
@@ -283,7 +284,8 @@ describe('configuration over HTTP', () => {
     const r = await api<{ settings: { key: string; label: string; value: unknown; changedFromDefault: boolean }[] }>(
       'GET', '/api/v1/config', { token })
     expect(r.status).toBe(200)
-    expect(r.body.settings.length).toBe(25)
+    // the whole registry, not a number that goes stale every time a setting is added
+    expect(r.body.settings.length).toBe(REGISTRY_KEYS.length)
     expect(r.body.settings.every((s) => s.label.length > 0)).toBe(true)
   })
 
