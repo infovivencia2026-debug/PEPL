@@ -7,3 +7,6 @@
  */
 export * from './accounts.ts'
 export * from './messages.ts'
+export * from './outbox.ts'
+export * from './smtp.ts'
+export * from './mime.ts'

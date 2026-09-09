@@ -16,6 +16,7 @@ import { accrueMonthly, rollover } from '../leave/ledger.ts'
 import { evaluateBreaches } from '../work/helpdesk.ts'
 import { resolveConfig } from '../config/resolver.ts'
 import { emit } from '../audit/index.ts'
+import { runOutbox } from '../mail/outbox.ts'
 
 export interface JobResult {
   job: string
@@ -200,11 +201,35 @@ export async function runAuditSeal(): Promise<JobResult> {
   })
 }
 
+/**
+ * Drains queued outbound mail.
+ *
+ * Runs per tenant like every other job, so one company with an unreachable
+ * mail server cannot hold up delivery for the rest. The encryption key comes
+ * from the environment: without it the job does nothing rather than failing
+ * loudly on every tenant, because a missing key is a deployment problem, not a
+ * per-tenant one.
+ */
+export async function runMailOutbox(): Promise<JobResult> {
+  const master = process.env.PEPL_MAIL_KEY
+  if (!master) {
+    return { job: 'mail.outbox', tenants: 0, affected: 0, durationMs: 0,
+      errors: [{ tenantId: '-', message: 'PEPL_MAIL_KEY is not set; outbound mail is not being sent' }] }
+  }
+  return perTenant('mail.outbox', async (tenantId) => {
+    const cfg = await withTenant(tenantId, (tx) => resolveConfig(tx, tenantId))
+    if (!cfg.isEnabled('mail.enabled')) return 0
+    const result = await runOutbox(tenantId, { master })
+    return result.sent
+  })
+}
+
 export const JOBS = {
   'leave.accrual': () => runLeaveAccrual(),
   'helpdesk.sla': runSlaBreaches,
   'data.retention': runRetentionPurge,
   'audit.seal': runAuditSeal,
+  'mail.outbox': runMailOutbox,
 } as const
 
 export type JobName = keyof typeof JOBS
