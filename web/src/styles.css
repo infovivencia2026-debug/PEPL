@@ -4305,3 +4305,42 @@ kbd,
 .topbar-actions > .global-search > kbd {
   font-size: 11px;
 }
+
+
+/* ---------------------------------------------------------------------------
+   Whole-tile links.
+
+   A card reads as one object, so the whole thing is the target. The anchor sits
+   on the title and stretches over the card, which keeps it a REAL link — focus,
+   middle-click and copy-address all behave — rather than a div with an onClick.
+   Inner links and buttons raise themselves above the overlay so they still work.
+   --------------------------------------------------------------------------- */
+.card-linked {
+  position: relative;
+}
+.card-target {
+  color: inherit;
+  text-decoration: none;
+}
+.card-target::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+}
+.card-linked:hover {
+  border-color: #c2d3c4;
+}
+.card-linked:has(.card-target:focus-visible) {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+}
+.card-target:focus-visible {
+  outline: none;
+}
+/* Anything interactive inside the tile stays clickable above the overlay. */
+.card-linked a:not(.card-target),
+.card-linked button {
+  position: relative;
+  z-index: 1;
+}

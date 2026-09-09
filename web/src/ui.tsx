@@ -73,35 +73,44 @@ export function Badge({ children }: { children: string }) {
     </span>
   )
 }
+/**
+ * A dashboard tile.
+ *
+ * When `href` is given the WHOLE tile is the target, not a small "View all"
+ * link in the corner: the card already reads as one object, so the entire thing
+ * should behave like one. A stretched overlay keeps the anchor a real link —
+ * middle-click, copy address and keyboard focus all still work — while inner
+ * links and buttons stay clickable because they sit above it.
+ */
 export function Card({
   title,
-  link,
   href,
   children,
   className = '',
   subtitle,
 }: {
   title?: string
-  link?: string
   href?: string
   children: ReactNode
   className?: string
   subtitle?: string
 }) {
   return (
-    <section className={`card ${className}`}>
+    <section className={`card ${href ? 'card-linked' : ''} ${className}`}>
       {title && (
         <header className="card-head">
           <div>
-            <h2>{title}</h2>
+            <h2>
+              {href ? (
+                <a className="card-target" href={href}>
+                  {title}
+                </a>
+              ) : (
+                title
+              )}
+            </h2>
             {subtitle && <p>{subtitle}</p>}
           </div>
-          {href && (
-            <a className="text-link" href={href}>
-              {link ?? 'View all'}
-              <ArrowUpRight size={16} />
-            </a>
-          )}
         </header>
       )}
       {children}
@@ -145,17 +154,23 @@ export function Stat({
   variant?: string
   href?: string
 }) {
+  // The whole tile is the link, so there is no corner arrow: the label carries
+  // the anchor and a stretched overlay takes the click. The accessible name is
+  // the label itself, which is what a screen reader user needs to hear.
   return (
-    <div className={`stat card ${variant}`}>
+    <div className={`stat card ${href ? 'card-linked' : ''} ${variant}`}>
       <div className="stat-top">
         <span className="icon-box">{icon}</span>
-        {href && (
-          <a href={href} className="icon-link" aria-label={`View ${label}`}>
-            <ArrowUpRight size={18} />
-          </a>
-        )}
       </div>
-      <p>{label}</p>
+      <p>
+        {href ? (
+          <a className="card-target" href={href}>
+            {label}
+          </a>
+        ) : (
+          label
+        )}
+      </p>
       <strong>{value}</strong>
       <small>{note}</small>
     </div>
