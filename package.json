@@ -11,9 +11,10 @@
     "typecheck": "tsc --noEmit",
     "gate:rls": "node --experimental-strip-types scripts/gate-rls.ts",
     "test": "vitest run",
-    "verify": "npm run typecheck && npm run db:setup && npm run migrate && npm run gate:rls && npm run gate:config && npm test",
+    "verify": "npm run typecheck && npm run db:setup && npm run migrate && npm run gate:rls && npm run gate:config && npm test && npm run gate:launch",
     "gate:config": "node --experimental-strip-types scripts/gate-config.ts",
-    "db:reset": "node --experimental-strip-types scripts/reset-db.ts"
+    "db:reset": "node --experimental-strip-types scripts/reset-db.ts",
+    "gate:launch": "node --experimental-strip-types scripts/gate-launch.ts"
   },
   "dependencies": {
     "dotenv": "^16.4.5",

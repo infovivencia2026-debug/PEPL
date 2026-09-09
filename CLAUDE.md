@@ -11,7 +11,8 @@ npm run verify     # the whole chain, in order — use this before claiming anyt
   npm run migrate      forward-only SQL migrations (owner role)
   npm run gate:rls     structural isolation gate — fails on an unprotected table
   npm run gate:config  registry invariants — labels, defaults, deps, cycles, risk classes
-  npm test             vitest: cross-tenant + config suites
+  npm test             vitest: all suites
+  npm run gate:launch  launch readiness — 19 checks against the live database
 ```
 
 `npm run db:reset` drops the dev database so migrations re-apply from scratch. **Pre-launch only.**
@@ -64,6 +65,11 @@ context yields **zero rows, never all rows**. Do not invert that default.
 - **Heredocs in the Bash tool** choke on TypeScript containing nested quotes and template literals.
   Write source files with the Write tool; keep heredocs for short SQL and shell.
 - `--experimental-strip-types` runs the `.ts` entrypoints directly on Node 24; no build step.
+- **No TypeScript parameter properties** (`constructor(readonly code: string)`) in `src/`.
+  Strip-only mode ERASES types, it does not transform, so a parameter property is a syntax
+  error there — while vitest (esbuild) accepts it happily. The failure therefore appears
+  only when a `scripts/` gate imports the module, long after the tests were green. Declare
+  the field and assign it in the constructor body.
 
 ## Testing discipline
 

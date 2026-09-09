@@ -10,8 +10,10 @@ import { getDefinition } from '../config-registry/index.ts'
 import type { ConfigValue, ScopeDimension } from '../config-registry/types.ts'
 
 export class ConfigError extends Error {
-  constructor(readonly code: string, message: string) {
+  readonly code: string
+  constructor(code: string, message: string) {
     super(message)
+    this.code = code
     this.name = 'ConfigError'
   }
 }

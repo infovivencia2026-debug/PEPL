@@ -228,8 +228,9 @@ describe('mail credential custody', () => {
 
   it('tampering with the ciphertext is detected', () => {
     const blob = encryptSecret('hunter2', A.id, MASTER)
-    blob[blob.length - 1] ^= 0xff
-    expect(() => decryptSecret(blob, A.id, MASTER)).toThrow()
+    const tampered = Buffer.from(blob)
+    tampered.writeUInt8(tampered.readUInt8(tampered.length - 1) ^ 0xff, tampered.length - 1)
+    expect(() => decryptSecret(tampered, A.id, MASTER)).toThrow()
   })
 
   it('the stored credential is never plaintext', async () => {
