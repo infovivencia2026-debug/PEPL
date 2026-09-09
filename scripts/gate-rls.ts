@@ -15,19 +15,7 @@
 import pg from 'pg'
 import { config } from '../src/config.ts'
 
-/**
- * Tables that legitimately hold no tenant_id. Every addition here is a deliberate
- * decision that the data is NOT customer data — statutory rates are the law, not
- * a tenant preference — and is the review point this gate exists to force.
- */
-const GLOBAL_TABLES = new Set([
-  '_migrations',
-  'statutory_configs',   // PF/ESI rates: platform reference data, read-only to tenants
-  'pt_slabs',            // professional tax slabs per state
-])
-
-/** Tenant-scoped tables keyed on their own id rather than a tenant_id column. */
-const TENANT_ROOT_TABLES = new Set(['tenants'])
+import { GLOBAL_TABLES, TENANT_ROOT_TABLES } from '../src/db/table-classification.ts'
 
 type Row = Record<string, unknown>
 const failures: string[] = []

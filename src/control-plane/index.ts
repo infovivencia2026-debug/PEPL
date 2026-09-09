@@ -237,6 +237,26 @@ async function seedDefaults(client: pg.PoolClient, tenantId: string): Promise<vo
     )
   }
 
+  // Policies, not just types: without an accrual policy the monthly job credits
+  // nothing, and a tenant that "configured nothing" would silently never accrue.
+  // Defaults follow the common Indian baseline (standard-company-model.md §5).
+  const ACCRUAL: Record<string, { monthly: number; carry: number; encashable: boolean }> = {
+    EL: { monthly: 1.5, carry: 15, encashable: true },   // ~18/year
+    CL: { monthly: 0.583, carry: 0, encashable: false }, // ~7/year, lapses
+    SL: { monthly: 1.0, carry: 0, encashable: false },   // 12/year, lapses
+  }
+  for (const [code, rule] of Object.entries(ACCRUAL)) {
+    await client.query(
+      `INSERT INTO leave_policies
+         (tenant_id, leave_type_id, version, accrual_method, accrual_units_per_period,
+          carry_forward_limit, encashable, effective_from)
+       SELECT $1, lt.id, 1, 'monthly', $3, $4, $5, DATE '2025-04-01'
+         FROM leave_types lt WHERE lt.tenant_id = $1 AND lt.code = $2
+       ON CONFLICT (tenant_id, leave_type_id, version) DO NOTHING`,
+      [tenantId, code, rule.monthly, rule.carry, rule.encashable],
+    )
+  }
+
   for (const [name, confidential] of [
     ['Payroll', false], ['Leave', false], ['Attendance', false],
     ['IT', false], ['Facilities', false], ['Grievance', true],

@@ -208,9 +208,20 @@ export const REGISTRY: Readonly<Record<string, Definition>> = Object.freeze({
   ...helpdesk,
 })
 
+/** A typed error so the transport can classify it, rather than returning a 500. */
+export class UnknownConfigKeyError extends Error {
+  readonly code = 'UNKNOWN_CONFIG_KEY'
+  readonly key: string
+  constructor(key: string) {
+    super(`unknown config key "${key}" — every key must be declared in the registry`)
+    this.key = key
+    this.name = 'UnknownConfigKeyError'
+  }
+}
+
 export function getDefinition(key: string): Definition {
   const def = REGISTRY[key]
-  if (!def) throw new Error(`unknown config key "${key}" — every key must be declared in the registry`)
+  if (!def) throw new UnknownConfigKeyError(key)
   return def
 }
 

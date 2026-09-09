@@ -159,6 +159,28 @@ holds resolved amounts, not a pointer to a structure that can later change.
   away from putting it in a manager's queue — and with no user context pinned, the rows
   correctly disappear entirely.
 
+## HTTP API
+
+`npm run api` (port 4010) · `npm run seed:demo` · `npm run openapi` · `npm run job <name>`
+
+- `src/http/context.ts` `authed()` is the ONLY way a route reaches the database. It
+  resolves the session, opens the tenant transaction, loads the authz context and
+  asserts the verb permission. Scope is asserted inside the handler, where the target
+  employee is known.
+- **`server.ts` starts a listener at import time.** Tests must build their own server
+  from `createHandler(buildRouter())` in `src/http/app.ts`, never import `server.ts`.
+- Domain modules throw typed errors with a stable `code`; `STATUS_BY_CODE` in
+  `router.ts` maps it to a status. An untyped `Error` becomes a 500 — if a client
+  mistake is returning 500, the fix is to give that error a code, not to catch it.
+- A single `PoolClient` runs ONE query at a time. `Promise.all` over the same `tx`
+  only queues them behind a pg deprecation warning; write them sequentially.
+
+## Gate allowlists live in ONE place
+
+`src/db/table-classification.ts`. Both `gate:rls` and `gate:launch` import it. They
+used to keep separate inline copies, which drifted the moment a table was added —
+a real finding in one gate masked by a stale list in the other.
+
 ## Adding a table
 
 1. New migration in `db/migrations/` (forward-only, numbered).

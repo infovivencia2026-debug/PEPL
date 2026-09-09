@@ -10,6 +10,7 @@ import pg from 'pg'
 import { config } from '../src/config.ts'
 import { REGISTRY } from '../src/config-registry/index.ts'
 import { ACTIONS } from '../src/audit/index.ts'
+import { GLOBAL_TABLES } from '../src/db/table-classification.ts'
 
 type Row = Record<string, unknown>
 
@@ -37,8 +38,9 @@ async function main(): Promise<void> {
       FROM pg_class c
       JOIN pg_namespace n ON n.oid = c.relnamespace
      WHERE n.nspname = 'public' AND c.relkind = 'r'
-       AND c.relname NOT IN ('_migrations','statutory_configs','pt_slabs')
-       AND (NOT c.relrowsecurity OR NOT c.relforcerowsecurity)`)
+       AND NOT (c.relname = ANY($1))
+       AND (NOT c.relrowsecurity OR NOT c.relforcerowsecurity)`,
+    [[...GLOBAL_TABLES]])
   record('tenant isolation: every table has RLS + FORCE', unprotected.length === 0,
     unprotected.length === 0 ? 'all tables protected' : `unprotected: ${unprotected.map((r) => r.name).join(', ')}`)
 

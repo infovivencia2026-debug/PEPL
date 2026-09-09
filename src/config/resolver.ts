@@ -44,16 +44,17 @@ export async function resolveConfig(
 ): Promise<ResolvedConfig> {
   const asOf = iso(opts.asOf ?? new Date())
 
-  const [{ rows: verRows }, { rows: entRows }, { rows: settingRows }, { rows: overrideRows }] =
-    await Promise.all([
-      tx.query<{ version: string }>('SELECT version FROM tenant_config_versions'),
-      tx.query<{ features: Record<string, boolean>; limits: Record<string, number>; status: string }>(
-        'SELECT features, limits, status FROM tenant_entitlements'),
-      tx.query<SettingRow>('SELECT key, value, effective_from::text FROM tenant_settings ORDER BY key, effective_from NULLS FIRST'),
-      tx.query<OverrideRow>(
-        `SELECT key, value, effective_from::text, scope_type, scope_id, priority
-           FROM tenant_setting_overrides ORDER BY key, priority ASC, effective_from NULLS FIRST`),
-    ])
+  // Sequential, not Promise.all: a single PoolClient runs one query at a time,
+  // and issuing them concurrently only queues them behind a deprecation warning.
+  const { rows: verRows } = await tx.query<{ version: string }>(
+    'SELECT version FROM tenant_config_versions')
+  const { rows: entRows } = await tx.query<{ features: Record<string, boolean>; limits: Record<string, number>; status: string }>(
+    'SELECT features, limits, status FROM tenant_entitlements')
+  const { rows: settingRows } = await tx.query<SettingRow>(
+    'SELECT key, value, effective_from::text FROM tenant_settings ORDER BY key, effective_from NULLS FIRST')
+  const { rows: overrideRows } = await tx.query<OverrideRow>(
+    `SELECT key, value, effective_from::text, scope_type, scope_id, priority
+       FROM tenant_setting_overrides ORDER BY key, priority ASC, effective_from NULLS FIRST`)
 
   const version = BigInt(verRows[0]?.version ?? '0')
   const entitlements = entRows[0]?.features ?? {}

@@ -14,16 +14,31 @@
     "verify": "npm run typecheck && npm run db:setup && npm run migrate && npm run gate:rls && npm run gate:config && npm test && npm run gate:launch",
     "gate:config": "node --experimental-strip-types scripts/gate-config.ts",
     "db:reset": "node --experimental-strip-types scripts/reset-db.ts",
-    "gate:launch": "node --experimental-strip-types scripts/gate-launch.ts"
+    "gate:launch": "node --experimental-strip-types scripts/gate-launch.ts",
+    "api": "node --experimental-strip-types src/http/server.ts",
+    "seed:demo": "node --experimental-strip-types scripts/seed-demo.ts",
+    "openapi": "node --experimental-strip-types scripts/openapi.ts",
+    "dev": "node --experimental-strip-types scripts/dev.ts",
+    "build": "tsc --noEmit && tsc -p web/tsconfig.json && vite build",
+    "start": "node --experimental-strip-types src/http/server.ts",
+    "typecheck:web": "tsc -p web/tsconfig.json",
+    "job": "node --experimental-strip-types scripts/run-job.ts"
   },
   "dependencies": {
     "dotenv": "^16.4.5",
-    "pg": "^8.13.1"
+    "lucide-react": "^1.43.0",
+    "pg": "^8.13.1",
+    "react": "^19.2.8",
+    "react-dom": "^19.2.8"
   },
   "devDependencies": {
     "@types/node": "^22.10.2",
     "@types/pg": "^8.11.10",
+    "@types/react": "^19.2.18",
+    "@types/react-dom": "^19.2.7",
+    "@vitejs/plugin-react": "^4.7.0",
     "typescript": "^5.7.2",
+    "vite": "^6.4.3",
     "vitest": "^2.1.8"
   }
 }

@@ -62,6 +62,8 @@ export const ACTIONS: Readonly<Record<string, ActionDef>> = Object.freeze({
 
   'data.export.completed': { category: 'data', severity: 'warning' },
   'data.erasure.completed': { category: 'data', severity: 'critical', requiresReason: true },
+  'data.retention.purged': { category: 'data', severity: 'notice' },
+  'data.import.committed': { category: 'data', severity: 'notice' },
 })
 
 /** Fields never written in full, whatever the caller passes. */
