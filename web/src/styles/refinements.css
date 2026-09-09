@@ -1,0 +1,476 @@
+/* Later passes: density, the single-viewport work, and the accessibility floors. */
+
+body { background: radial-gradient(ellipse at 0 0, #538575 0, transparent 48%), radial-gradient(ellipse at 100% 100%, #427467, transparent 50%), #173f37; }
+.app-shell { box-shadow: 0 30px 100px #092b3655, inset 0 1px 0 #ffffffb0; border: 1px solid #ffffff70; }
+.dashboard-heading h1 { font-size: clamp(32px, 3vw, 44px); letter-spacing: -1.8px; font-weight: 550; }
+.eyebrow { letter-spacing: 1.5px; text-transform: uppercase; font-size: 10px; }
+.card, .stat { box-shadow: var(--shadow-card); border-color: #234b3c12; transition: transform .3s ease, box-shadow .3s ease, border-color .3s ease; }
+.stat { position: relative; overflow: hidden; background-image: linear-gradient(130deg, #ffffff65, transparent 70%); }
+.stat::after { content: ''; position: absolute; width: 110px; height: 110px; right: -38px; bottom: -48px; border: 1px solid #467d5715; border-radius: 50%; box-shadow: 0 0 0 15px #467d5706, 0 0 0 30px #467d5704; pointer-events: none; }
+.stat > strong { font-weight: 500; letter-spacing: -1.8px; font-variant-numeric: tabular-nums; }
+.stat-icon { box-shadow: inset 0 1px 0 #ffffffaa, 0 4px 12px #284d3810; }
+.welcome-card { background: radial-gradient(ellipse at 82% 18%, #477b60 0, transparent 57%), linear-gradient(125deg, #123f36, #245948); box-shadow: inset 0 1px 0 #c4dec640, 0 18px 30px -20px #123f3690; isolation: isolate; }
+.welcome-card::after { content: ''; position: absolute; inset: 0; pointer-events: none; opacity: .12; background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 180 180' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.8' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Cpath fill='%23fff' filter='url(%23n)' opacity='.45' d='M0 0h180v180H0z'/%3E%3C/svg%3E"); z-index: -1; }
+.welcome-card > div:first-child { pointer-events: none; max-width: 61%; }
+.welcome-card a { pointer-events: auto; border-top: 1px solid #c7dec333; padding-top: 17px; }
+.welcome-tag { text-transform: uppercase; letter-spacing: 1.3px; font-size: 9px; }
+.ambient-sculpture { position: absolute; width: 53%; height: 100%; right: -6%; top: 0; pointer-events: none; z-index: -1; }
+.ambient-sculpture canvas { display: block; width: 100%; height: 100%; }
+.sculpture-fallback { position: absolute; inset: 20%; }
+.sculpture-fallback i { position: absolute; inset: 8%; border: 17px solid #9aba95; border-radius: 50%; transform: rotate(-35deg) scaleX(.65); box-shadow: inset 2px 2px 6px #e8e2bd66, 8px 10px 18px #082d3333; }
+.sculpture-fallback i:nth-child(2) { transform: rotate(35deg) scaleX(.65); border-color: #c5c39c; }
+.sculpture-fallback i:nth-child(3) { transform: rotate(90deg) scaleX(.65); border-color: #60937b; }
+.webgl-ready .sculpture-fallback { display: none; }
+.motion-toggle { position: absolute; right: 18px; bottom: 15px; display: flex; gap: 8px; align-items: center; font-size: 9px; letter-spacing: .4px; color: #d2e4d0; padding: 8px 10px; border-radius: 20px; border: 1px solid #d2e4d025; background: #103e372b; }
+.motion-toggle:hover { background: #d2e4d01c; }
+.donut { filter: drop-shadow(0 6px 9px #19463210); }
+.btn { transition: transform .2s, box-shadow .2s, background-color .2s; }
+.btn:active { transform: translateY(1px) scale(.98); }
+@media (hover: hover) {
+  a.stat:hover { transform: translateY(-4px); box-shadow: 0 16px 32px -18px #19463355; border-color: #4c7b5840; }
+  .card:hover { border-color: #234b3c24; }
+  .main-nav a:hover svg { transform: translateY(-2px); }
+  .main-nav svg { transition: transform .2s ease; }
+}
+@media (min-width: 1101px) {
+  .dashboard-top { grid-template-columns: 1.1fr 1fr; gap: 22px; margin-bottom: 22px; }
+  .dashboard-top .welcome-card { min-height: 322px; padding: 32px; }
+  .dashboard-top .welcome-card h2 { font-size: clamp(34px, 3vw, 46px); line-height: 1.18; font-weight: 500; margin-top: 24px; }
+  .dashboard-top .welcome-card p { font-size: 13px; }
+  .dashboard-top .welcome-card a { margin-top: 24px; }
+  .kpi-grid { grid-template-columns: repeat(2, minmax(0,1fr)); gap: 16px; }
+  .kpi-grid .stat { min-height: 150px; padding: 18px 22px; }
+  .kpi-grid .stat-top { margin-bottom: 8px; }
+  .kpi-grid .stat > strong { font-size: 34px; margin: 3px 0; }
+  .kpi-grid .stat > p { font-size: 12px; }
+  .kpi-grid .stat > small { font-size: 11px; }
+}
+@media (max-width: 1100px) {
+  .welcome-card { min-height: 280px; }
+  .ambient-sculpture { width: 48%; right: 0; }
+}
+@media (max-width: 540px) {
+  .welcome-card > div:first-child { max-width: 75%; }
+  .ambient-sculpture { width: 58%; right: -15%; opacity: .7; }
+  .welcome-card h2 { font-size: 32px; }
+  .motion-toggle { bottom: 10px; right: 12px; font-size: 8px; }
+}
+@media (prefers-reduced-motion: no-preference) {
+  .dashboard-heading, .dashboard-top, .dashboard-middle, .dashboard-bottom { animation: pepl-arrive .65s cubic-bezier(.16,1,.3,1) both; }
+  .dashboard-top { animation-delay: .07s; }
+  .dashboard-middle { animation-delay: .14s; }
+  .dashboard-bottom { animation-delay: .2s; }
+  dialog[open] { animation: pepl-arrive .25s ease both; }
+  @keyframes pepl-arrive { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: translateY(0); } }
+}
+@media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation: none !important; transition: none !important; scroll-behavior: auto !important; } }
+@media (min-width: 821px) and (max-width: 1100px) {
+  .dashboard-top { grid-template-columns: 1fr 1fr; }
+  .welcome-card > div:first-child { max-width: 65%; }
+  .ambient-sculpture { width: 47%; right: -7%; }
+  .welcome-card h2 { font-size: 32px; }
+}
+@media (min-width: 541px) and (max-width: 820px) {
+  .dashboard-top { grid-template-columns: 1fr; }
+  .welcome-card > div:first-child { max-width: 60%; }
+  .ambient-sculpture { width: 42%; right: 0; }
+  .welcome-card h2 { font-size: 36px; }
+  .welcome-card a { max-width: 270px; }
+}
+/* Workspace transitions and the customizable widget canvas. */
+.route-transition { position: relative; }
+.route-accent { position: absolute; right: 0; top: -27px; width: 60px; height: 27px; pointer-events: none; z-index: 2; }
+.dashboard-toolbar { display: flex; justify-content: space-between; gap: 16px; align-items: center; margin: -4px 0 20px; }
+.dashboard-toolbar > div:first-child { display: flex; gap: 8px; align-items: center; font-size: 12px; color: var(--muted); }
+.dashboard-toolbar-actions { display: flex; gap: 8px; align-items: center; }
+.dashboard-toolbar .btn { min-height: 36px; font-size: 11px; padding: 8px 12px; }
+.widget-feedback { font-size: 12px; color: var(--primary); margin-bottom: 8px; }
+.widget-feedback:empty { display: none; }
+/* Single-viewport density. Same graphics, tighter geometry: the dashboard is a
+   glance surface, and a glance that needs scrolling is a report. Sizes are set
+   here rather than per-component so the whole grid stays in proportion. */
+.widget-grid { display: grid; grid-template-columns: repeat(12,minmax(0,1fr)); gap: 14px; align-items: stretch; }
+.dashboard-widget { grid-column: span var(--widget-width); min-width: 0; position: relative; border-radius: 20px; }
+/* The hero sits in the first row alongside the stats, not across two rows. */
+.widget-hero { grid-row: span 1; }
+.widget-content { height: 100%; min-width: 0; }
+.widget-content > .card, .widget-content > .stat, .widget-content > section { height: 100%; margin: 0; }
+.widget-content > .welcome-card { min-height: 172px; padding: 20px 22px; }
+.widget-content > .welcome-card h2 { font-size: clamp(23px, 1.9vw, 30px); font-weight: 500; line-height: 1.12; }
+.widget-content > .welcome-card p { font-size: 12px; line-height: 1.45; }
+.widget-content > .stat { min-height: 172px; padding: 15px 17px; }
+.widget-content > .stat .stat-top { margin-bottom: 6px; }
+.widget-content > .stat > strong { font-size: 27px; margin: 2px 0; }
+.widget-content > .stat > p { font-size: 12px; }
+.widget-content > .stat > small { font-size: 11px; }
+.widget-content > .card:not(.stat) { min-height: 206px; }
+.widget-content > .card:not(.stat) > .card-head { margin-bottom: 10px; }
+.widget-content .donut-layout { gap: 13px; }
+.widget-content .donut { width: 104px; }
+.widget-content .legend { gap: 6px; }
+.widget-content .legend > div, .widget-content .legend b { font-size: 11px; }
+.widget-library { background: #e8eee5; border: 1px solid #bfd2c2; border-radius: 20px; padding: 22px; margin-bottom: 20px; }
+.widget-library strong { font-size: 15px; }
+.widget-library p { margin: 5px 0 16px; font-size: 12px; color: #5f7367; line-height: 1.6; }
+.widget-choices { display: flex; flex-wrap: wrap; gap: 8px; }
+.widget-choices label { display: flex; align-items: center; gap: 7px; padding: 8px 11px; border-radius: 10px; background: #ffffffbb; font-size: 11px; cursor: pointer; }
+.widget-choices input { accent-color: var(--primary); width: 15px; height: 15px; }
+.widget-editing { background: #eef2e9; border: 1px dashed #7d9b82; padding: 7px; }
+.widget-controls { display: flex; flex-wrap: wrap; align-items: center; gap: 5px; justify-content: space-between; padding: 4px 3px 10px; }
+.widget-grip { cursor: grab; touch-action: none; display: flex; align-items: center; gap: 6px; min-height: 32px; font-size: 11px; min-width: 0; }
+.widget-grip span { max-width: 140px; text-overflow: ellipsis; overflow: hidden; white-space: nowrap; }
+.widget-tools { display: flex; gap: 3px; align-items: center; }
+.widget-tools button { display: grid; place-items: center; width: 27px; height: 30px; border-radius: 7px; background: #ffffffaa; }
+.widget-tools select { min-width: 65px; padding: 4px; font-size: 10px; border: 1px solid #ced9ce; border-radius: 7px; background: white; height: 30px; }
+.widget-editing .widget-content { height: calc(100% - 47px); pointer-events: none; }
+.widget-dragging { z-index: 30; box-shadow: 0 24px 60px #173f3745; border: 2px solid #376c52; opacity: .94; }
+.widget-dragging .widget-grip { cursor: grabbing; }
+.widget-empty { padding: 80px 20px; text-align: center; border: 1px dashed #9fb1a0; border-radius: 24px; }
+.widget-empty p { margin-top: 10px; color: var(--muted); }
+@media (min-width: 1101px) { .widget-content .card-head h2 { font-size: 17px; } }
+@media (max-width: 1100px) and (min-width: 821px) {
+  .dashboard-widget:not(.widget-hero) { grid-column: span 6; }
+  .widget-hero { grid-column: span 12; grid-row: auto; }
+  .widget-content > .welcome-card { min-height: 280px; }
+}
+@media (max-width: 820px) {
+  .widget-grid { grid-template-columns: repeat(2,minmax(0,1fr)); gap: 14px; }
+  .dashboard-widget { grid-column: span 2; }
+  .dashboard-widget:has(.stat) { grid-column: span 1; }
+  .widget-hero { grid-row: auto; }
+  .widget-content > .welcome-card { min-height: 285px; padding: 25px; }
+  .widget-content .donut { width: 150px; }
+  .widget-content > .card:not(.stat) { min-height: 230px; }
+  .dashboard-toolbar { align-items: flex-start; flex-direction: column; gap: 10px; }
+  .dashboard-toolbar-actions { flex-wrap: wrap; }
+  .widget-tools button { width: 32px; min-height: 34px; }
+  .widget-controls { align-items: flex-start; }
+  .widget-grip { min-height: 40px; }
+  .widget-editing .widget-content { height: auto; }
+}
+@media (max-width: 540px) {
+  .widget-content > .welcome-card h2 { font-size: 32px; }
+  .widget-content > .stat { padding: 18px 16px; }
+  .widget-content .donut-layout { flex-direction: column; align-items: center; }
+  .widget-content .legend { width: 100%; }
+  .widget-content .legend > div, .widget-content .legend b { font-size: 12px; }
+  .widget-tools { flex-wrap: wrap; }
+  .widget-library { padding: 16px; }
+}
+@media (prefers-reduced-motion: no-preference) {
+  .route-content { animation: workspace-switch .38s cubic-bezier(.2,.8,.2,1) both; }
+  .dropdown, .mobile-open, .widget-library { transform-origin: top right; animation: options-open .22s cubic-bezier(.2,.8,.2,1) both; }
+  dialog[open] { animation: dialog-open .28s cubic-bezier(.2,.8,.2,1) both; }
+  dialog::backdrop { animation: backdrop-open .22s ease both; }
+  .tabs > button, .tabs > a { transition: background .2s, box-shadow .2s, color .2s, transform .2s; }
+  @keyframes workspace-switch { from { opacity: 0; transform: translateY(10px) scale(.995); } to { opacity: 1; transform: none; } }
+  @keyframes options-open { from { opacity: 0; transform: perspective(900px) rotateX(-7deg) translateY(-7px) scale(.98); } to { opacity: 1; transform: none; } }
+  @keyframes dialog-open { from { opacity: 0; transform: translateY(18px) scale(.975); } to { opacity: 1; transform: none; } }
+  @keyframes backdrop-open { from { opacity: 0; } to { opacity: 1; } }
+}
+
+.route-sweep { position: absolute; inset: 0 0 auto; height: 160px; pointer-events: none; z-index: 3; overflow: hidden; }
+/* Compact editorial refinement: work first, quiet decorative detail. */
+:root { --radius-lg: 21px; --shadow-card: 0 1px 2px #23463105, 0 10px 28px -22px #183b362b; }
+.dashboard-heading { min-height: 38px; margin-bottom: 20px; align-items: center; }
+.dashboard-heading .eyebrow { display: none; }
+.dashboard-heading h1 { font-size: 28px; line-height: 1.2; font-weight: 600; letter-spacing: -1px; margin: 0; }
+.dashboard-heading .date-chip { font-size: 11px; gap: 8px; }
+.widget-workspace { position: relative; }
+.dashboard-toolbar > div:first-child { display: none; }
+.dashboard-toolbar { justify-content: flex-end; margin-bottom: 16px; }
+.widget-grid { gap: 16px; }
+.dashboard-widget { border-radius: 21px; }
+.widget-content > .welcome-card { min-height: 294px; padding: 26px; border-radius: 21px; background: linear-gradient(115deg,#16473e,#275b4b); box-shadow: inset 0 1px 0 #ffffff20, 0 8px 22px -16px #163c3570; }
+.widget-content > .welcome-card h2 { font-size: 32px; letter-spacing: -1px; line-height: 1.2; margin: 22px 0 13px; }
+.widget-content > .welcome-card p { font-size: 12px; }
+.widget-content > .welcome-card a { margin-top: 22px; padding-top: 13px; font-size: 11px; }
+.widget-content > .welcome-card > div:first-child { max-width: 80%; }
+.welcome-tag { font-size: 8px; letter-spacing: 1.4px; }
+.welcome-contours { position: absolute; width: 150px; height: 210px; right: 0; bottom: -10px; pointer-events: none; opacity: .55; z-index: -1; }
+.welcome-contours svg { width: 100%; height: 100%; }
+.widget-content > .stat { min-height: 139px; padding: 16px 18px; }
+.widget-content > .stat .stat-top { margin-bottom: 6px; }
+.widget-content > .stat .icon-box { width: 30px; height: 30px; border-radius: 10px; }
+.widget-content > .stat .icon-box svg { width: 17px; height: 17px; }
+.widget-content > .stat > strong { font-size: 29px; letter-spacing: -1px; margin: 2px 0; }
+.widget-content > .stat > p { font-size: 11px; }
+.widget-content > .stat > small { font-size: 10px; }
+.stat::after { opacity: .4; }
+.widget-content > .card:not(.stat) { min-height: 238px; padding: 20px; }
+.widget-content .card-head { margin-bottom: 18px; }
+.widget-content .card-head h2 { font-size: 15px; font-weight: 650; }
+.widget-content .donut { width: 125px; }
+.widget-content .insight-card { padding: 23px; border-radius: 21px; }
+.widget-content .insight-card h2 { font-size: 27px; }
+@media (min-width: 1101px) {
+  .widget-workspace:not(.is-customizing) .dashboard-toolbar { position: absolute; right: 0; top: -58px; margin: 0; }
+  .dashboard-heading .date-chip { margin-right: 207px; }
+  .workspace-main { padding-top: 24px; }
+}
+@media (max-width: 820px) {
+  .dashboard-heading { margin-bottom: 12px; }
+  .dashboard-heading h1 { font-size: 26px; }
+  .dashboard-toolbar { align-items: flex-end; margin-bottom: 14px; }
+  .is-customizing .dashboard-toolbar { align-items: flex-start; }
+  .widget-content > .welcome-card { min-height: 260px; padding: 23px; }
+  .widget-content > .welcome-card h2 { font-size: 30px; }
+  .widget-content > .stat { min-height: 145px; }
+  .widget-content .donut { width: 135px; }
+}
+.widget-content .donut small { max-width: 76px; font-size: 8px; line-height: 1.3; white-space: normal; text-align: center; } .widget-content .donut strong { font-size: 26px; } .dashboard-heading .date-chip { white-space: nowrap; } @media(max-width:540px) { .dashboard-heading .date-chip { font-size: 9px; max-width: none; } }
+
+
+/* ---------------------------------------------------------------------------
+   Device pass.
+
+   Two rules that only bite on real hardware, applied last so they win:
+
+   1. TOUCH TARGETS. A pointer:coarse device has no hover and no pixel accuracy,
+      so every interactive element gets 44px of height — the size a fingertip
+      actually hits. Desktop keeps its tighter geometry, because a mouse does
+      not need the room.
+   2. TYPOGRAPHY FLOOR. Metadata may be quiet, but 8-10px is not readable on a
+      phone held at arm's length. Small text lifts to 12px on touch devices and
+      never drops below 11px anywhere.
+   --------------------------------------------------------------------------- */
+
+@media (pointer: coarse) {
+  .btn,
+  .nav a,
+  .brand,
+  .global-search,
+  .icon-link,
+  .text-link,
+  .dropdown > a,
+  .dropdown > button,
+  .widget-tools button,
+  .widget-tools select,
+  input,
+  select,
+  textarea {
+    min-height: 44px;
+  }
+
+  /* An inline link needs to become a box before a min-height means anything. */
+  .text-link,
+  .icon-link {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 10px 4px;
+  }
+
+  /* Fingertips need separation as much as size. */
+  .header-actions,
+  .card-head,
+  .widget-tools {
+    gap: 10px;
+  }
+
+  /* Specificity has to match the density rules above, which are scoped under
+     .widget-content — a bare .stat selector loses to them. */
+  .widget-content > .stat > p,
+  .widget-content > .stat > small,
+  .widget-content .legend > div,
+  .widget-content .legend b,
+  .card small,
+  .card p,
+  small {
+    font-size: 12px;
+  }
+
+  /* Buttons and links inside dense toolbars and lists still need a fingertip. */
+  .dashboard-toolbar-actions .btn,
+  .header-actions .btn,
+  .workspace-footer button,
+  .card a,
+  .card button,
+  li a,
+  li button {
+    min-height: 44px;
+    display: inline-flex;
+    align-items: center;
+  }
+
+  .eyebrow {
+    font-size: 12px;
+  }
+
+  /* Same specificity as the desktop floor below, lifted for fingertips. */
+  .widget-content > .stat.card > small,
+  .topbar-actions > .global-search > kbd,
+  .widget-content > .stat.card > p {
+    font-size: 12px;
+  }
+
+  /* Every header control, including the overflow menu trigger. */
+  .topbar-actions button,
+  .main-nav button,
+  header button,
+  /* An inactive tab carries no class at all, so it fell through every
+     class-based rule above. */
+  .tabs button {
+    min-height: 44px;
+  }
+}
+
+/* The brand tagline is set as fine print by design; 8px is unreadable on any
+   screen, so it lifts to the floor without changing the lockup. */
+.brand small {
+  font-size: 11px;
+}
+
+@media (pointer: coarse) {
+  /* Whole-tile links (a new joiner, an announcement row) are the targets people
+     actually aim at on a phone. */
+  .joiner-grid > a,
+  .list-row,
+  .list-row > a,
+  .welcome-card a,
+  .main-nav a,
+  nav a,
+  header nav a,
+  .top-nav a {
+    min-height: 44px;
+    display: flex;
+    align-items: center;
+  }
+
+  /* The caption lives INSIDE the ring, so the text floor needs the ring to grow
+     with it — lifting the type alone would spill it over the stroke. There is
+     room on a phone, where the chart is already single-column. */
+  .widget-content .donut,
+  .donut {
+    width: 136px;
+  }
+  .donut small {
+    font-size: 11px;
+  }
+}
+
+/* Nothing anywhere is smaller than this. 8px was unreadable on every device. */
+small,
+.badge,
+.legend > div,
+.legend b,
+kbd,
+.date-chip,
+.eyebrow {
+  font-size: max(11px, 1em);
+}
+
+/* These two carry more specific declarations earlier in the sheet, so the floor
+   has to match their specificity to hold. Chart captions inside .donut are
+   deliberately exempt: the text sits within the ring. */
+.widget-content > .stat.card > small,
+.topbar-actions > .global-search > kbd {
+  font-size: 11px;
+}
+
+
+/* ---------------------------------------------------------------------------
+   Whole-tile links.
+
+   A card reads as one object, so the whole thing is the target. The anchor sits
+   on the title and stretches over the card, which keeps it a REAL link — focus,
+   middle-click and copy-address all behave — rather than a div with an onClick.
+   Inner links and buttons raise themselves above the overlay so they still work.
+   --------------------------------------------------------------------------- */
+.card-linked {
+  position: relative;
+}
+.card-target {
+  color: inherit;
+  text-decoration: none;
+}
+.card-target::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+}
+.card-linked:hover {
+  border-color: #c2d3c4;
+}
+.card-linked:has(.card-target:focus-visible) {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+}
+.card-target:focus-visible {
+  outline: none;
+}
+/* Anything interactive inside the tile stays clickable above the overlay. */
+.card-linked a:not(.card-target),
+.card-linked button {
+  position: relative;
+  z-index: 1;
+}
+
+/* ---------------------------------------------------------------------------
+   The touch typography floor.
+
+   A probe of a real phone viewport found thirteen distinct runs under 12px —
+   the donut captions at 8px, the date chip and footer at 9px, the role label at
+   10px. Each was set deliberately at some point, and each is unreadable at
+   arm's length on a handset. This block lifts every one of them to the floor,
+   and only on coarse pointers, so the desktop composition is untouched.
+
+   Avatar initials are excluded on purpose: they are a graphic inside a 44px
+   circle, not text anyone reads.
+   --------------------------------------------------------------------------- */
+@media (pointer: coarse) {
+  .brand small,
+  .global-search kbd,
+  .profile-button small,
+  .profile-name small,
+  .date-chip span,
+  .donut small,
+  .donut-layout .legend span,
+  .workspace-footer span,
+  .card-foot,
+  .card-foot .subtle,
+  .stat small,
+  .stat > p,
+  .widget-content .stat > small,
+  .compact-list small,
+  .person-line small,
+  .activity-list small,
+  .announcement-mini small,
+  .task-mini small,
+  .joiner-grid small,
+  .joiner-grid span {
+    font-size: 12px;
+  }
+}
+
+/* The three that needed the same specificity as the rules they override:
+   the stat caption, the search hint, and the donut caption inside the ring. */
+@media (pointer: coarse) {
+  .widget-content > .stat.card > small,
+  .widget-content > .stat > small,
+  .topbar-actions > .global-search > kbd,
+  .widget-content .donut small,
+  .donut small {
+    font-size: 12px;
+  }
+
+  /* At 12px the caption needs the room the 8px version did not. */
+  .widget-content .donut small {
+    max-width: 92px;
+  }
+}
+
+/* The overflow trigger and the bell: both sit inside .main-nav / .topbar-actions
+   and carry more specific sizing earlier in the sheet, so the touch minimum has
+   to match that specificity to apply. 41px and 34px wide are both under the
+   fingertip target, and both are controls people reach for constantly. */
+@media (pointer: coarse) {
+  .main-nav > .more-wrap > button {
+    min-height: 44px;
+  }
+  .topbar-actions > .notification-button {
+    min-width: 44px;
+    min-height: 44px;
+  }
+}

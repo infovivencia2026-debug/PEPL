@@ -54,67 +54,8 @@ import {
 } from './Operations'
 import { PayrollPage } from './Payroll'
 import { PageTransition } from './PageTransition'
-const NAV = [
-  { id: 'dashboard', label: 'Overview', icon: LayoutDashboard },
-  { id: 'people', label: 'People', icon: Users, permission: 'employee.read' },
-  {
-    id: 'attendance',
-    label: 'Attendance',
-    icon: CalendarDays,
-    permission: 'attendance.read',
-    module: 'attendance',
-  },
-  {
-    id: 'leave',
-    label: 'Leave',
-    icon: CalendarDays,
-    permission: 'leave.read',
-    module: 'leave',
-  },
-  {
-    id: 'payroll',
-    label: 'Payroll',
-    icon: Wallet,
-    permission: 'payroll.read',
-    module: 'payroll',
-  },
-  {
-    id: 'reports',
-    label: 'Reports',
-    icon: ChartNoAxesCombined,
-    permission: 'report.read',
-  },
-]
-const MORE = [
-  {
-    id: 'approvals',
-    label: 'Approvals',
-    icon: CheckCheck,
-    permission: 'approval.act',
-  },
-  { id: 'tasks', label: 'My tasks', icon: ListTodo, permission: 'task.read' },
-  {
-    id: 'announcements',
-    label: 'Announcements',
-    icon: Megaphone,
-    permission: 'announcement.read',
-  },
-  {
-    id: 'activity',
-    label: 'Activity log',
-    icon: Activity,
-    permission: 'audit.read',
-  },
-  {
-    id: 'settings',
-    label: 'Settings',
-    icon: Settings2,
-    permission: 'settings.write',
-  },
-]
-function getRoute() {
-  return location.hash.replace(/^#\/?/, '') || 'dashboard'
-}
+import { NAV, MORE, getRoute } from './app/nav'
+import { screenFor } from './app/screen'
 export function App() {
   const [data, setData] = useState<Workspace | null>(null),
     [loggedOut, setLoggedOut] = useState(false),
@@ -244,55 +185,16 @@ export function App() {
     section = route.split('/')[0]
   const permitted = all.some((n) => n.id === section)
   const props = data ? { data, open: setForm, act } : null
-  let page = null
-  if (data && props) {
-    if (!permitted)
-      page = (
-        <Card>
-          <Empty
-            title="This page isn’t available"
-            text="Choose a page from your navigation to continue."
-            action={
-              <a href="#/dashboard" className="btn primary">
-                Back to overview
-              </a>
-            }
-          />
-        </Card>
-      )
-    else if (section === 'dashboard') page = <Dashboard data={data} act={act} />
-    else if (section === 'people')
-      page = route.split('/')[1] ? (
-        <EmployeeProfile
-          id={route.split('/')[1]}
-          data={data}
-          open={setForm}
-          revision={revision}
-        />
-      ) : (
-        <People data={data} open={setForm} />
-      )
-    else if (section === 'attendance')
-      page = (
-        <AttendancePage
-          {...props}
-          onDate={(s) => {
-            date.current = s
-            void load()
-          }}
-        />
-      )
-    else if (section === 'leave') page = <LeavePage {...props} />
-    else if (section === 'approvals') page = <ApprovalsPage {...props} />
-    else if (section === 'payroll')
-      page = <PayrollPage {...props} refresh={load} />
-    else if (section === 'tasks') page = <TasksPage {...props} />
-    else if (section === 'announcements')
-      page = <AnnouncementsPage {...props} />
-    else if (section === 'reports') page = <ReportsPage {...props} />
-    else if (section === 'activity') page = <ActivityPage {...props} />
-    else if (section === 'settings') page = <SettingsPage {...props} />
-  }
+  const page = data && props
+    ? screenFor({
+        data, props, route, section, permitted, revision, setForm,
+        load,
+        onDate: (s) => {
+          date.current = s
+          void load()
+        },
+      })
+    : null
   return (
     <>
       <a

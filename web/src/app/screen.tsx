@@ -1,0 +1,88 @@
+/**
+ * Which screen the current route shows.
+ *
+ * Route to element and nothing else: no data loading, no state. Keeping the
+ * decision in one place means an unreachable route fails the same way
+ * everywhere — with the page that explains it, not a blank panel.
+ */
+import type { ReactElement } from 'react'
+import { Card, Empty } from '../ui'
+import { Dashboard } from '../Dashboard'
+import { People, EmployeeProfile } from '../People'
+import { AttendancePage, ApprovalsPage, LeavePage } from '../Workforce'
+import {
+  TasksPage,
+  AnnouncementsPage,
+  SettingsPage,
+  ReportsPage,
+  ActivityPage,
+} from '../Operations'
+import { PayrollPage } from '../Payroll'
+import type { Workspace } from '../types'
+import type { FormSpec } from '../forms'
+
+export interface ScreenArgs {
+  data: Workspace
+  props: {
+    data: Workspace
+    open: (s: FormSpec | null) => void
+    act: (path: string, body: unknown, message: string) => Promise<void>
+  }
+  route: string
+  section: string
+  permitted: boolean
+  revision: number
+  setForm: (s: FormSpec | null) => void
+  load: () => Promise<void>
+  onDate: (s: string) => void
+}
+
+export function screenFor({
+  data, props, route, section, permitted, revision, setForm, load, onDate,
+}: ScreenArgs): ReactElement | null {
+  let page: ReactElement | null = null
+  if (!permitted)
+    page = (
+      <Card>
+        <Empty
+          title="This page isn’t available"
+          text="Choose a page from your navigation to continue."
+          action={
+            <a href="#/dashboard" className="btn primary">
+              Back to overview
+            </a>
+          }
+        />
+      </Card>
+    )
+  else if (section === 'dashboard') page = <Dashboard data={data} act={props.act} />
+  else if (section === 'people')
+    page = route.split('/')[1] ? (
+      <EmployeeProfile
+        id={route.split('/')[1]}
+        data={data}
+        open={setForm}
+        revision={revision}
+      />
+    ) : (
+      <People data={data} open={setForm} />
+    )
+  else if (section === 'attendance')
+    page = (
+      <AttendancePage
+        {...props}
+        onDate={onDate}
+      />
+    )
+  else if (section === 'leave') page = <LeavePage {...props} />
+  else if (section === 'approvals') page = <ApprovalsPage {...props} />
+  else if (section === 'payroll')
+    page = <PayrollPage {...props} refresh={load} />
+  else if (section === 'tasks') page = <TasksPage {...props} />
+  else if (section === 'announcements')
+    page = <AnnouncementsPage {...props} />
+  else if (section === 'reports') page = <ReportsPage {...props} />
+  else if (section === 'activity') page = <ActivityPage {...props} />
+  else if (section === 'settings') page = <SettingsPage {...props} />
+  return page
+}
