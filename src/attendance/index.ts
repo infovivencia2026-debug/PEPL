@@ -176,6 +176,7 @@ export async function recomputeDay(
         break
       case 'mark_leave':
         status = 'on_leave'
+        dayFraction = c.after.dayFraction === 0.5 ? 0.5 : 1
         fractionSource = 'leave'
         break
       case 'clear_leave':

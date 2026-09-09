@@ -1,30 +1,672 @@
-import {useState} from 'react'
-import {CalendarDays,Check,CheckCheck,ChevronLeft,ChevronRight,Clock3,Download,House,Plus,Users,ArrowUpRight,Undo2} from 'lucide-react'
-import {fullName,dateLabel,exportCsv,pretty} from './api'
+import { useState } from 'react'
+import {
+  CalendarDays,
+  Check,
+  CheckCheck,
+  ChevronLeft,
+  ChevronRight,
+  Clock3,
+  Download,
+  House,
+  Plus,
+  Users,
+  Undo2,
+} from 'lucide-react'
+import { fullName, dateLabel, exportCsv, pretty } from './api'
 import type { Workspace } from './types'
 import type { FormSpec } from './forms'
-import {Avatar,Badge,Button,Card,Empty,PageHeader,SearchBox,Stat,Tabs} from './ui'
-type Props={data:Workspace;open:(s:FormSpec)=>void}
-export function AttendancePage({data,open,onDate}:{onDate:(s:string)=>void}&Props){
- const [search,setSearch]=useState(''),[status,setStatus]=useState('')
- const rows=data.attendance.filter(a=>fullName(a).toLowerCase().includes(search.toLowerCase())&&(!status||a.status===status))
- const time=(s:string|null)=>s?new Date(s).toLocaleTimeString('en-IN',{hour:'2-digit',minute:'2-digit'}):'—'
- function move(n:number){const d=new Date(data.date+'T12:00:00');d.setDate(d.getDate()+n);onDate(`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`)}
- return <><PageHeader title="Attendance" description="A clear picture of every working day." eyebrow="Presence, with perspective"><Button variant="secondary" disabled={!rows.length} onClick={()=>exportCsv(`attendance-${data.date}`,rows.map(a=>({Name:fullName(a),Date:a.work_date,'Check in':a.first_in,'Check out':a.last_out,'Minutes worked':a.worked_minutes,Status:a.status,Remote:a.is_remote})))}><Download size={17}/>Export</Button>{data.permissions.includes('attendance.correct')&&<Button onClick={()=>open({title:'Correct an attendance day',description:'A correction records what changed and why. Closed periods are protected; frozen-period corrections carry into the next open period.',path:'/attendance/corrections',fields:[{name:'employeeId',label:'Employee',options:data.employees.map(e=>({value:e.id,label:fullName(e)}))},{name:'workDate',label:'Date',type:'date',value:data.date},{name:'action',label:'Correction',options:['mark_present','mark_absent','mark_half_day','mark_full_day','mark_remote','revoke_remote','mark_field_duty'].map(value=>({value,label:pretty(value)}))},{name:'reason',label:'Reason for correction',type:'textarea'}]})}><Plus size={17}/>Record correction</Button>}</PageHeader><div className="stats-row"><Stat label="Present" value={data.attendance.filter(a=>a.status==='present').length} note="Recorded as present" icon={<Users size={20}/>} variant="mint-card"/><Stat label="Remote" value={data.attendance.filter(a=>a.is_remote).length} note="Across recorded statuses" icon={<House size={20}/>}/><Stat label="On leave" value={data.attendance.filter(a=>a.status==='on_leave').length} note="Approved time away" icon={<CalendarDays size={20}/>} variant="sand-card"/><Stat label="Absent" value={data.attendance.filter(a=>a.status==='absent').length} note="Recorded absences" icon={<Clock3 size={20}/>} variant="coral-card"/></div>
- <Card className="data-card"><div className="filter-bar"><div className="date-navigator"><Button variant="ghost" aria-label="Previous day" onClick={()=>move(-1)}><ChevronLeft size={18}/></Button><label><span className="sr-only">Attendance date</span><input type="date" value={data.date} onChange={e=>{if(e.target.value)onDate(e.target.value)}}/></label><Button variant="ghost" aria-label="Next day" onClick={()=>move(1)}><ChevronRight size={18}/></Button><Button variant="secondary" onClick={()=>onDate(data.today)}>Today</Button></div><SearchBox value={search} onChange={setSearch}/><select value={status} aria-label="Attendance status" onChange={e=>setStatus(e.target.value)}><option value="">All statuses</option>{['present','absent','on_leave','on_duty','weekly_off','holiday'].map(s=><option key={s} value={s}>{pretty(s)}</option>)}</select></div>{rows.length?<div className="table-scroll"><table><thead><tr><th>Employee</th><th>Check in</th><th>Check out</th><th>Working time</th><th>Status</th><th>Work mode</th></tr></thead><tbody>{rows.map(a=><tr key={a.employee_id}><td><a className="person-line" href={`#/people/${a.employee_id}`}><Avatar name={fullName(a)}/><span><strong>{fullName(a)}</strong><small>{a.employee_number}</small></span></a></td><td>{time(a.first_in)}</td><td>{time(a.last_out)}{a.first_in&&!a.last_out&&<small className="inline-note">Open punch</small>}</td><td>{Math.floor(a.worked_minutes/60)}h {a.worked_minutes%60}m</td><td><Badge>{a.status}</Badge>{Number(a.day_fraction)===0.5&&<small className="inline-note">Half day</small>}</td><td>{a.is_remote?'Remote':a.is_field_duty?'Field duty':'On site'}{a.is_regularized&&<small className="inline-note">Regularized</small>}</td></tr>)}</tbody></table></div>:<Empty title="No attendance records for this view" text="Select another day or clear your filters. Missing records are not counted as absences."/>}<footer className="table-footer">{rows.length} recorded employee days · {dateLabel(data.date)}</footer></Card></>
+import {
+  Avatar,
+  Badge,
+  Button,
+  Card,
+  Empty,
+  PageHeader,
+  SearchBox,
+  Stat,
+  Tabs,
+} from './ui'
+type Props = { data: Workspace; open: (s: FormSpec) => void }
+export function AttendancePage({
+  data,
+  open,
+  onDate,
+}: { onDate: (s: string) => void } & Props) {
+  const [search, setSearch] = useState(''),
+    [status, setStatus] = useState('')
+  const rows = data.attendance.filter(
+    (a) =>
+      fullName(a).toLowerCase().includes(search.toLowerCase()) &&
+      (!status || a.status === status),
+  )
+  const time = (s: string | null) =>
+    s
+      ? new Date(s).toLocaleTimeString('en-IN', {
+          hour: '2-digit',
+          minute: '2-digit',
+        })
+      : '—'
+  function move(n: number) {
+    const d = new Date(data.date + 'T12:00:00')
+    d.setDate(d.getDate() + n)
+    onDate(
+      `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`,
+    )
+  }
+  return (
+    <>
+      <PageHeader
+        title="Attendance"
+        description="A clear picture of every working day."
+        eyebrow="Presence, with perspective"
+      >
+        <Button
+          variant="secondary"
+          disabled={!rows.length}
+          onClick={() =>
+            exportCsv(
+              `attendance-${data.date}`,
+              rows.map((a) => ({
+                Name: fullName(a),
+                Date: a.work_date,
+                'Check in': a.first_in,
+                'Check out': a.last_out,
+                'Minutes worked': a.worked_minutes,
+                Status: a.status,
+                Remote: a.is_remote,
+              })),
+            )
+          }
+        >
+          <Download size={17} />
+          Export
+        </Button>
+        {data.permissions.includes('attendance.correct') && (
+          <Button
+            onClick={() =>
+              open({
+                title: 'Correct an attendance day',
+                description:
+                  'A correction records what changed and why. Closed periods are protected; frozen-period corrections carry into the next open period.',
+                path: '/attendance/corrections',
+                fields: [
+                  {
+                    name: 'employeeId',
+                    label: 'Employee',
+                    options: data.employees.map((e) => ({
+                      value: e.id,
+                      label: fullName(e),
+                    })),
+                  },
+                  {
+                    name: 'workDate',
+                    label: 'Date',
+                    type: 'date',
+                    value: data.date,
+                  },
+                  {
+                    name: 'action',
+                    label: 'Correction',
+                    options: [
+                      'mark_present',
+                      'mark_absent',
+                      'mark_half_day',
+                      'mark_full_day',
+                      'mark_remote',
+                      'revoke_remote',
+                      'mark_field_duty',
+                    ].map((value) => ({ value, label: pretty(value) })),
+                  },
+                  {
+                    name: 'reason',
+                    label: 'Reason for correction',
+                    type: 'textarea',
+                  },
+                ],
+              })
+            }
+          >
+            <Plus size={17} />
+            Record correction
+          </Button>
+        )}
+      </PageHeader>
+      <div className="stats-row">
+        <Stat
+          label="Present"
+          value={data.attendance.filter((a) => a.status === 'present').length}
+          note="Recorded as present"
+          icon={<Users size={20} />}
+          variant="mint-card"
+        />
+        <Stat
+          label="Remote"
+          value={data.attendance.filter((a) => a.is_remote).length}
+          note="Across recorded statuses"
+          icon={<House size={20} />}
+        />
+        <Stat
+          label="On leave"
+          value={data.attendance.filter((a) => a.status === 'on_leave').length}
+          note="Approved time away"
+          icon={<CalendarDays size={20} />}
+          variant="sand-card"
+        />
+        <Stat
+          label="Absent"
+          value={data.attendance.filter((a) => a.status === 'absent').length}
+          note="Recorded absences"
+          icon={<Clock3 size={20} />}
+          variant="coral-card"
+        />
+      </div>
+      <Card className="data-card">
+        <div className="filter-bar">
+          <div className="date-navigator">
+            <Button
+              variant="ghost"
+              aria-label="Previous day"
+              onClick={() => move(-1)}
+            >
+              <ChevronLeft size={18} />
+            </Button>
+            <label>
+              <span className="sr-only">Attendance date</span>
+              <input
+                type="date"
+                value={data.date}
+                onChange={(e) => {
+                  if (e.target.value) onDate(e.target.value)
+                }}
+              />
+            </label>
+            <Button
+              variant="ghost"
+              aria-label="Next day"
+              onClick={() => move(1)}
+            >
+              <ChevronRight size={18} />
+            </Button>
+            <Button variant="secondary" onClick={() => onDate(data.today)}>
+              Today
+            </Button>
+          </div>
+          <SearchBox value={search} onChange={setSearch} />
+          <select
+            value={status}
+            aria-label="Attendance status"
+            onChange={(e) => setStatus(e.target.value)}
+          >
+            <option value="">All statuses</option>
+            {[
+              'present',
+              'absent',
+              'on_leave',
+              'on_duty',
+              'weekly_off',
+              'holiday',
+            ].map((s) => (
+              <option key={s} value={s}>
+                {pretty(s)}
+              </option>
+            ))}
+          </select>
+        </div>
+        {rows.length ? (
+          <div className="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>Employee</th>
+                  <th>Check in</th>
+                  <th>Check out</th>
+                  <th>Working time</th>
+                  <th>Status</th>
+                  <th>Work mode</th>
+                </tr>
+              </thead>
+              <tbody>
+                {rows.map((a) => (
+                  <tr key={a.employee_id}>
+                    <td>
+                      <a
+                        className="person-line"
+                        href={`#/people/${a.employee_id}`}
+                      >
+                        <Avatar name={fullName(a)} />
+                        <span>
+                          <strong>{fullName(a)}</strong>
+                          <small>{a.employee_number}</small>
+                        </span>
+                      </a>
+                    </td>
+                    <td>{time(a.first_in)}</td>
+                    <td>
+                      {time(a.last_out)}
+                      {a.first_in && !a.last_out && (
+                        <small className="inline-note">Open punch</small>
+                      )}
+                    </td>
+                    <td>
+                      {Math.floor(a.worked_minutes / 60)}h{' '}
+                      {a.worked_minutes % 60}m
+                    </td>
+                    <td>
+                      <Badge>{a.status}</Badge>
+                      {Number(a.day_fraction) === 0.5 && (
+                        <small className="inline-note">Half day</small>
+                      )}
+                    </td>
+                    <td>
+                      {a.is_remote
+                        ? 'Remote'
+                        : a.is_field_duty
+                          ? 'Field duty'
+                          : 'On site'}
+                      {a.is_regularized && (
+                        <small className="inline-note">Regularized</small>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        ) : (
+          <Empty
+            title="No attendance records for this view"
+            text="Select another day or clear your filters. Missing records are not counted as absences."
+          />
+        )}
+        <footer className="table-footer">
+          {rows.length} recorded employee days · {dateLabel(data.date)}
+        </footer>
+      </Card>
+    </>
+  )
 }
-export function LeavePage({data,open}:Props){
- const [tab,setTab]=useState('Requests'),[status,setStatus]=useState(''),[search,setSearch]=useState(''),[month,setMonth]=useState(data.today.slice(0,7))
- const rows=data.leaves.filter(l=>(!status||l.status===status)&&fullName(l).toLowerCase().includes(search.toLowerCase()))
- const start=new Date(month+'-01T12:00:00'),days=new Date(start.getFullYear(),start.getMonth()+1,0).getDate(),offset=(start.getDay()+6)%7
- return <><PageHeader title="Time to recharge" description="Thoughtful time off. A team that stays in sync." eyebrow="Leave & wellbeing">{data.permissions.includes('leave.apply')&&data.user.employeeId&&<Button onClick={()=>open({title:'Make time for yourself',description:'Choose full calendar days (up to 31 per request). Every day in this range counts, including weekends. Your assigned approval chain will review the request.',path:'/leave/requests',submit:'Submit request',success:'Leave request submitted for approval.',fields:[{name:'leaveTypeId',label:'Leave type',options:data.leaveTypes.map(t=>({value:t.id,label:t.name}))},{name:'startDate',label:'First day',type:'date',value:data.today},{name:'endDate',label:'Last day',type:'date',value:data.today},{name:'reason',label:'Reason',type:'textarea'}]})}><Plus size={18}/>Apply for leave</Button>}</PageHeader>
- {data.balances.length>0&&<div className="balance-row">{data.balances.map((b,i)=><Card key={b.id} className={i%2===0?'mint-card':''}><div className="balance-top"><span className="icon-box"><CalendarDays size={20}/></span><h2>{b.name}</h2></div><strong className="balance-number">{b.available}<small> days available</small></strong><p className="subtle">{b.consumed} used · {b.opening+b.accrued} opening + accrued</p></Card>)}</div>}
- <Card className="data-card"><div className="section-tabs"><Tabs value={tab} onChange={setTab} items={['Requests','Team calendar','Leave types']}/>{tab==='Requests'&&<span className="subtle">{data.leaves.filter(l=>l.status==='pending').length} pending requests</span>}</div>
- {tab==='Requests'?<><div className="filter-bar"><SearchBox value={search} onChange={setSearch}/><select value={status} aria-label="Leave status" onChange={e=>setStatus(e.target.value)}><option value="">All requests</option>{['pending','approved','rejected','cancelled'].map(s=><option key={s} value={s}>{pretty(s)}</option>)}</select></div>{rows.length?<div className="table-scroll"><table><thead><tr><th>Employee</th><th>Leave type</th><th>Time away</th><th>Days</th><th>Status</th><th>Reason</th></tr></thead><tbody>{rows.map(l=><tr key={l.id}><td><span className="person-line"><Avatar name={fullName(l)}/><strong>{fullName(l)}</strong></span></td><td>{l.leave_name}</td><td>{dateLabel(l.start_date,{day:'numeric',month:'short'})} – {dateLabel(l.end_date)}</td><td>{l.total_days}</td><td><Badge>{l.status}</Badge></td><td className="reason-cell">{l.reason||'—'}</td></tr>)}</tbody></table></div>:<Empty title="No leave requests in this view" text="New requests will appear here. Try a different filter if you’re looking for an earlier request."/>}</>:tab==='Team calendar'?<div className="calendar-section"><div className="calendar-heading"><h2>{dateLabel(month+'-01',{month:'long',year:'numeric'})}</h2><input type="month" aria-label="Calendar month" value={month} onChange={e=>{if(e.target.value)setMonth(e.target.value)}}/><span className="subtle">Approved leave only</span></div><div className="calendar-grid">{['Mon','Tue','Wed','Thu','Fri','Sat','Sun'].map(d=><div className="weekday" key={d}>{d}</div>)}{Array.from({length:offset},(_,i)=><div className="calendar-day muted-day" key={'blank'+i}/>)}{Array.from({length:days},(_,i)=>{const date=month+'-'+String(i+1).padStart(2,'0'),leaves=data.leaves.filter(l=>l.status==='approved'&&l.start_date<=date&&l.end_date>=date);return <div className={`calendar-day ${date===data.today?'today':''}`} key={date}><time dateTime={date}>{i+1}</time>{leaves.map(l=><span className="calendar-leave" key={l.id} title={`${fullName(l)} · ${l.leave_name}`}>{fullName(l)}</span>)}</div>})}</div></div>:<div className="leave-type-list">{data.leaveTypes.length?data.leaveTypes.map(t=><article key={t.id}><span className="icon-box"><CalendarDays size={21}/></span><div><h3>{t.name}</h3><p>{t.code} · {t.is_paid?'Paid leave':'Unpaid leave'}</p></div></article>):<Empty title="No leave types configured" text="Your company administrator needs to configure leave types before requests can be submitted."/>}</div>}</Card></>
+export function LeavePage({ data, open }: Props) {
+  const [tab, setTab] = useState('Requests'),
+    [status, setStatus] = useState(''),
+    [search, setSearch] = useState(''),
+    [month, setMonth] = useState(data.today.slice(0, 7))
+  const rows = data.leaves.filter(
+    (l) =>
+      (!status || l.status === status) &&
+      fullName(l).toLowerCase().includes(search.toLowerCase()),
+  )
+  const start = new Date(month + '-01T12:00:00'),
+    days = new Date(start.getFullYear(), start.getMonth() + 1, 0).getDate(),
+    offset = (start.getDay() + 6) % 7
+  return (
+    <>
+      <PageHeader
+        title="Time to recharge"
+        description="Thoughtful time off. A team that stays in sync."
+        eyebrow="Leave & wellbeing"
+      >
+        {data.permissions.includes('leave.apply') && data.user.employeeId && (
+          <Button
+            onClick={() =>
+              open({
+                title: 'Make time for yourself',
+                description:
+                  'Choose full calendar days (up to 31 per request). Every day in this range counts, including weekends. Your assigned approval chain will review the request.',
+                path: '/leave/requests',
+                submit: 'Submit request',
+                success: 'Leave request submitted for approval.',
+                fields: [
+                  {
+                    name: 'leaveTypeId',
+                    label: 'Leave type',
+                    options: data.leaveTypes.map((t) => ({
+                      value: t.id,
+                      label: t.name,
+                    })),
+                  },
+                  {
+                    name: 'startDate',
+                    label: 'First day',
+                    type: 'date',
+                    value: data.today,
+                  },
+                  {
+                    name: 'endDate',
+                    label: 'Last day',
+                    type: 'date',
+                    value: data.today,
+                  },
+                  { name: 'reason', label: 'Reason', type: 'textarea' },
+                ],
+              })
+            }
+          >
+            <Plus size={18} />
+            Apply for leave
+          </Button>
+        )}
+      </PageHeader>
+      {data.balances.length > 0 && (
+        <div className="balance-row">
+          {data.balances.map((b, i) => (
+            <Card key={b.id} className={i % 2 === 0 ? 'mint-card' : ''}>
+              <div className="balance-top">
+                <span className="icon-box">
+                  <CalendarDays size={20} />
+                </span>
+                <h2>{b.name}</h2>
+              </div>
+              <strong className="balance-number">
+                {b.available}
+                <small> days available</small>
+              </strong>
+              <p className="subtle">
+                {b.consumed} used · {b.opening + b.accrued} opening + accrued
+              </p>
+            </Card>
+          ))}
+        </div>
+      )}
+      <Card className="data-card">
+        <div className="section-tabs">
+          <Tabs
+            value={tab}
+            onChange={setTab}
+            items={['Requests', 'Team calendar', 'Leave types']}
+          />
+          {tab === 'Requests' && (
+            <span className="subtle">
+              {data.leaves.filter((l) => l.status === 'pending').length} pending
+              requests
+            </span>
+          )}
+        </div>
+        {tab === 'Requests' ? (
+          <>
+            <div className="filter-bar">
+              <SearchBox value={search} onChange={setSearch} />
+              <select
+                value={status}
+                aria-label="Leave status"
+                onChange={(e) => setStatus(e.target.value)}
+              >
+                <option value="">All requests</option>
+                {['pending', 'approved', 'rejected', 'cancelled'].map((s) => (
+                  <option key={s} value={s}>
+                    {pretty(s)}
+                  </option>
+                ))}
+              </select>
+            </div>
+            {rows.length ? (
+              <div className="table-scroll">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Employee</th>
+                      <th>Leave type</th>
+                      <th>Time away</th>
+                      <th>Days</th>
+                      <th>Status</th>
+                      <th>Reason</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {rows.map((l) => (
+                      <tr key={l.id}>
+                        <td>
+                          <span className="person-line">
+                            <Avatar name={fullName(l)} />
+                            <strong>{fullName(l)}</strong>
+                          </span>
+                        </td>
+                        <td>{l.leave_name}</td>
+                        <td>
+                          {dateLabel(l.start_date, {
+                            day: 'numeric',
+                            month: 'short',
+                          })}{' '}
+                          – {dateLabel(l.end_date)}
+                        </td>
+                        <td>{l.total_days}</td>
+                        <td>
+                          <Badge>{l.status}</Badge>
+                        </td>
+                        <td className="reason-cell">{l.reason || '—'}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            ) : (
+              <Empty
+                title="No leave requests in this view"
+                text="New requests will appear here. Try a different filter if you’re looking for an earlier request."
+              />
+            )}
+          </>
+        ) : tab === 'Team calendar' ? (
+          <div className="calendar-section">
+            <div className="calendar-heading">
+              <h2>
+                {dateLabel(month + '-01', { month: 'long', year: 'numeric' })}
+              </h2>
+              <input
+                type="month"
+                aria-label="Calendar month"
+                value={month}
+                onChange={(e) => {
+                  if (e.target.value) setMonth(e.target.value)
+                }}
+              />
+              <span className="subtle">Approved leave only</span>
+            </div>
+            <div className="calendar-grid">
+              {['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].map((d) => (
+                <div className="weekday" key={d}>
+                  {d}
+                </div>
+              ))}
+              {Array.from({ length: offset }, (_, i) => (
+                <div className="calendar-day muted-day" key={'blank' + i} />
+              ))}
+              {Array.from({ length: days }, (_, i) => {
+                const date = month + '-' + String(i + 1).padStart(2, '0'),
+                  leaves = data.leaves.filter(
+                    (l) =>
+                      l.status === 'approved' &&
+                      l.start_date <= date &&
+                      l.end_date >= date,
+                  )
+                return (
+                  <div
+                    className={`calendar-day ${date === data.today ? 'today' : ''}`}
+                    key={date}
+                  >
+                    <time dateTime={date}>{i + 1}</time>
+                    {leaves.map((l) => (
+                      <span
+                        className="calendar-leave"
+                        key={l.id}
+                        title={`${fullName(l)} · ${l.leave_name}`}
+                      >
+                        {fullName(l)}
+                      </span>
+                    ))}
+                  </div>
+                )
+              })}
+            </div>
+          </div>
+        ) : (
+          <div className="leave-type-list">
+            {data.leaveTypes.length ? (
+              data.leaveTypes.map((t) => (
+                <article key={t.id}>
+                  <span className="icon-box">
+                    <CalendarDays size={21} />
+                  </span>
+                  <div>
+                    <h3>{t.name}</h3>
+                    <p>
+                      {t.code} · {t.is_paid ? 'Paid leave' : 'Unpaid leave'}
+                    </p>
+                  </div>
+                </article>
+              ))
+            ) : (
+              <Empty
+                title="No leave types configured"
+                text="Your company administrator needs to configure leave types before requests can be submitted."
+              />
+            )}
+          </div>
+        )}
+      </Card>
+    </>
+  )
 }
-export function ApprovalsPage({data,act}:{data:Workspace;act:(path:string,body:unknown,message:string)=>Promise<void>}){
- const [filter,setFilter]=useState('All requests'),[comment,setComment]=useState<Record<string,string>>({}),[busy,setBusy]=useState<string|null>(null)
- const rows=data.approvals.filter(a=>filter==='All requests'||pretty(a.entity_type)===filter)
- async function decide(id:string,action:string){setBusy(id);try{await act(`/approvals/${id}/actions`,{action,comment:comment[id]??''},'Decision recorded.')}finally{setBusy(null)}}
- return <><PageHeader title="A little attention goes a long way" description="The decisions waiting for you, all in one place." eyebrow="Your approval inbox"/><div className="approval-summary"><span className="icon-box"><CheckCheck size={23}/></span><div><strong>{data.approvals.length} pending {data.approvals.length===1?'decision':'decisions'}</strong><p>Requests assigned to your current approval step.</p></div></div><Tabs value={filter} onChange={setFilter} items={['All requests',...new Set(data.approvals.map(a=>pretty(a.entity_type)))]}/>{rows.length?<div className="approval-grid">{rows.map(a=>{const l=data.leaves.find(l=>l.id===a.entity_id);return <Card key={a.request_id}><div className="approval-full-head"><span className="person-line"><Avatar name={l?fullName(l):a.title}/><span><strong>{l?fullName(l):a.title}</strong><small>{pretty(a.entity_type)} request</small></span><Badge>pending</Badge></div><h2>{l?l.leave_name:a.title}</h2><div className="request-details"><span><CalendarDays size={16}/>{l?`${dateLabel(l.start_date)} – ${dateLabel(l.end_date)}`:dateLabel(a.created_at)}</span>{l&&<span>{l.total_days} day(s)</span>}</div>{l?.reason&&<blockquote>{l.reason}</blockquote>}<p className="subtle">Submitted {dateLabel(a.created_at)} · Approval step {a.step_no}</p>{a.entity_type==='leave'?<><label className="field"><span className="sr-only">Comment for {a.title}</span><input placeholder="Add a note (optional)" value={comment[a.request_id]??''} maxLength={2000} onChange={e=>setComment({...comment,[a.request_id]:e.target.value})}/></label><div className="decision-actions"><Button disabled={busy===a.request_id} onClick={()=>void decide(a.request_id,'approve')}><Check size={17}/>Approve</Button><Button variant="danger" disabled={busy===a.request_id} onClick={()=>void decide(a.request_id,'reject')}>Reject</Button><Button variant="ghost" disabled={busy===a.request_id} onClick={()=>void decide(a.request_id,'send_back')}><Undo2 size={16}/>Send back</Button></div></>:<p className="form-intro">Complete this decision in the originating module.</p>}</Card>})}</div>:<Card><Empty title="You’re all caught up" text="Take a breath. There are no requests waiting for your decision."/></Card>}</>
+export function ApprovalsPage({
+  data,
+  act,
+}: {
+  data: Workspace
+  act: (path: string, body: unknown, message: string) => Promise<void>
+}) {
+  const [filter, setFilter] = useState('All requests'),
+    [comment, setComment] = useState<Record<string, string>>({}),
+    [busy, setBusy] = useState<string | null>(null)
+  const rows = data.approvals.filter(
+    (a) => filter === 'All requests' || pretty(a.entity_type) === filter,
+  )
+  async function decide(id: string, action: string) {
+    setBusy(id)
+    try {
+      await act(
+        `/approvals/${id}/actions`,
+        { action, comment: comment[id] ?? '' },
+        'Decision recorded.',
+      )
+    } finally {
+      setBusy(null)
+    }
+  }
+  return (
+    <>
+      <PageHeader
+        title="A little attention goes a long way"
+        description="The decisions waiting for you, all in one place."
+        eyebrow="Your approval inbox"
+      />
+      <div className="approval-summary">
+        <span className="icon-box">
+          <CheckCheck size={23} />
+        </span>
+        <div>
+          <strong>
+            {data.approvals.length} pending{' '}
+            {data.approvals.length === 1 ? 'decision' : 'decisions'}
+          </strong>
+          <p>Requests assigned to your current approval step.</p>
+        </div>
+      </div>
+      <Tabs
+        value={filter}
+        onChange={setFilter}
+        items={[
+          'All requests',
+          ...new Set(data.approvals.map((a) => pretty(a.entity_type))),
+        ]}
+      />
+      {rows.length ? (
+        <div className="approval-grid">
+          {rows.map((a) => {
+            const l = data.leaves.find((l) => l.id === a.entity_id)
+            return (
+              <Card key={a.request_id}>
+                <div className="approval-full-head">
+                  <span className="person-line">
+                    <Avatar name={l ? fullName(l) : a.title} />
+                    <span>
+                      <strong>{l ? fullName(l) : a.title}</strong>
+                      <small>{pretty(a.entity_type)} request</small>
+                    </span>
+                  </span>
+                  <Badge>pending</Badge>
+                </div>
+                <h2>{l ? l.leave_name : a.title}</h2>
+                <div className="request-details">
+                  <span>
+                    <CalendarDays size={16} />
+                    {l
+                      ? `${dateLabel(l.start_date)} – ${dateLabel(l.end_date)}`
+                      : dateLabel(a.created_at)}
+                  </span>
+                  {l && <span>{l.total_days} day(s)</span>}
+                </div>
+                {l?.reason && <blockquote>{l.reason}</blockquote>}
+                <p className="subtle">
+                  Submitted {dateLabel(a.created_at)} · Approval step{' '}
+                  {a.step_no}
+                </p>
+                {a.entity_type === 'leave' ? (
+                  <>
+                    <label className="field">
+                      <span className="sr-only">Comment for {a.title}</span>
+                      <input
+                        placeholder="Add a note (optional)"
+                        value={comment[a.request_id] ?? ''}
+                        maxLength={2000}
+                        onChange={(e) =>
+                          setComment({
+                            ...comment,
+                            [a.request_id]: e.target.value,
+                          })
+                        }
+                      />
+                    </label>
+                    <div className="decision-actions">
+                      <Button
+                        disabled={busy === a.request_id}
+                        onClick={() => void decide(a.request_id, 'approve')}
+                      >
+                        <Check size={17} />
+                        Approve
+                      </Button>
+                      <Button
+                        variant="danger"
+                        disabled={busy === a.request_id}
+                        onClick={() => void decide(a.request_id, 'reject')}
+                      >
+                        Reject
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        disabled={busy === a.request_id}
+                        onClick={() => void decide(a.request_id, 'send_back')}
+                      >
+                        <Undo2 size={16} />
+                        Send back
+                      </Button>
+                    </div>
+                  </>
+                ) : (
+                  <p className="form-intro">
+                    Complete this decision in the originating module.
+                  </p>
+                )}
+              </Card>
+            )
+          })}
+        </div>
+      ) : (
+        <Card>
+          <Empty
+            title="You’re all caught up"
+            text="Take a breath. There are no requests waiting for your decision."
+          />
+        </Card>
+      )}
+    </>
+  )
 }

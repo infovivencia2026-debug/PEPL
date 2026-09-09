@@ -75,6 +75,11 @@ context yields **zero rows, never all rows**. Do not invert that default.
 
 - `fileParallelism: false` in `vitest.config.ts` — the suites share one database and TRUNCATE in
   setup, so parallel files would race each other's fixtures.
+- **Never run two `npm test` processes at once.** `fileParallelism: false` serialises files WITHIN a
+  run; it does nothing across runs. A second run TRUNCATEs the first run's fixtures mid-test and the
+  symptom is ~27 confusing auth failures in `api.test.ts` ("login failed for …"), which reads exactly
+  like a real regression. Before believing a red suite, check no other run is in flight — including a
+  backgrounded one you started yourself.
 - **Mutation-test the gates.** A green isolation suite proves nothing until you have watched it go
   red. Both gates were verified this way:
 
