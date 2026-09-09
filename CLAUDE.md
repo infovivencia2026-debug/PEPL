@@ -105,6 +105,35 @@ context yields **zero rows, never all rows**. Do not invert that default.
 
   Re-run these whenever the isolation model changes.
 
+## The test database is migrated separately
+
+`npm run migrate` targets `PEPL_DB` from `.env` (`pepl_dev`). Vitest pins
+`PEPL_DB=pepl_test` in `vitest.config.ts`, so a NEW migration must be applied twice:
+
+```bash
+npm run migrate                 # dev
+PEPL_DB=pepl_test npm run migrate   # test
+```
+
+Skipping the second one fails as `relation x does not exist` in every suite that
+touches the new table, which reads like a broken migration and is not.
+
+## Bash heredocs and backslashes
+
+A quoted heredoc (`<<'EOF'`) in this shell still COLLAPSES `` to ``, so a JS
+regex written through one silently becomes a backspace character and matches nothing.
+Symptom: a generator script that runs cleanly and produces empty output. Use the Write
+tool for source containing regex escapes, or a character class instead of ``.
+Large TypeScript files with nested quotes fail outright — CLAUDE.md already says this;
+it applies to `src/http/routes/*.ts` too.
+
+## Intermittent suite failure (unattributed)
+
+One full-suite run in five reported 365/366 with the failure detail already scrolled
+out of the buffer; four consecutive runs since are 366/366. Not yet attributed. If it
+recurs, capture with `npm test > log 2>&1` and grep for the failing name BEFORE
+re-running — the retry is what destroys the evidence.
+
 ## Config layer
 
 `src/config-registry/` holds the DEFINITIONS (typed, in code). `tenant_settings` and

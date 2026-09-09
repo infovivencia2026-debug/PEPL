@@ -20,11 +20,12 @@ export async function workspaceData(c: Ctx, date?: string) {
   const ids = scopeIds(c),
     read = async (sql: string, params: unknown[] = []) =>
       (await c.tx.query(sql, params)).rows
+  // Driven by the registry, not a hand-written list: a module added to the
+  // registry appears in the UI without a second edit here.
   const modules = Object.fromEntries(
-    ['attendance', 'leave', 'payroll', 'helpdesk'].map((m) => [
-      m,
-      c.config.isEnabled(m + '.enabled'),
-    ]),
+    Object.keys(REGISTRY)
+      .filter((k) => k.endsWith('.enabled'))
+      .map((k) => [k.split('.')[0]!, c.config.isEnabled(k)]),
   )
   const [user] = await read(
     'SELECT full_name,email FROM app_users WHERE id=$1',

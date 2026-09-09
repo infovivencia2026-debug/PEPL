@@ -8,6 +8,7 @@ import {
   requireBody,
   requireModule,
   asDate,
+  asInt,
   asUuid,
   assertScope,
   can,
@@ -55,15 +56,21 @@ export function register(router: Router): void {
       const scopeIds = ctx.auth.scope === 'all' && !employeeId
         ? null : [employeeId].filter(Boolean)
 
+      const limit = asInt(ctx.req.query.get('limit') ?? 500, 'limit', { min: 1, max: 2000 })
+      const offset = asInt(ctx.req.query.get('offset') ?? 0, 'offset', { min: 0 })
+
       const { rows } = await ctx.tx.query(
         `SELECT employee_id, work_date::text, status, day_fraction::float8 AS day_fraction,
                 is_remote, is_field_duty, is_regularized, worked_minutes, marked_reason
            FROM daily_attendance
           WHERE work_date BETWEEN $1 AND $2
             AND ($3::uuid[] IS NULL OR employee_id = ANY($3))
-          ORDER BY work_date, employee_id`,
-        [from, to, scopeIds])
-      return ok({ days: rows })
+          ORDER BY work_date, employee_id
+          LIMIT $4 OFFSET $5`,
+        [from, to, scopeIds, limit + 1, offset])
+      // A month across 300 people is 9,000 rows; the client is told when it has
+      // only part of the answer rather than silently rendering a truncated month.
+      return ok({ days: rows.slice(0, limit), hasMore: rows.length > limit, offset })
     }))
 
   router.post('/api/v1/attendance/corrections',

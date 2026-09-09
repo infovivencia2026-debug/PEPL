@@ -7,6 +7,7 @@ import {
   created,
   requireBody,
   asDate,
+  asInt,
   asUuid,
   assertScope,
   can,
@@ -181,6 +182,8 @@ export function register(router: Router): void {
     authed('employee.read', async (ctx) => {
       const id = asUuid(ctx.req.params.id, 'id')
       assertScope(ctx.auth, id)
+      const limit = asInt(ctx.req.query.get('limit') ?? 100, 'limit', { min: 1, max: 500 })
+      const offset = asInt(ctx.req.query.get('offset') ?? 0, 'offset', { min: 0 })
       const { rows } = await ctx.tx.query(
         `SELECT 'assignment' AS kind, effective_from::text AS effective_on,
                 department || ' · ' || designation AS detail, change_reason AS reason, recorded_at
@@ -190,8 +193,9 @@ export function register(router: Router): void {
                 CASE WHEN $2 THEN 'CTC ' || (annual_ctc_paise / 100)::text ELSE 'compensation changed' END,
                 change_reason, recorded_at
            FROM compensation_records WHERE employee_id = $1 AND superseded_at IS NULL
-         ORDER BY effective_on DESC, recorded_at DESC`,
-        [id, can(ctx.auth, 'compensation.read')])
-      return ok({ timeline: rows })
+         ORDER BY effective_on DESC, recorded_at DESC
+         LIMIT $3 OFFSET $4`,
+        [id, can(ctx.auth, 'compensation.read'), limit + 1, offset])
+      return ok({ timeline: rows.slice(0, limit), hasMore: rows.length > limit, offset })
     }))
 }
