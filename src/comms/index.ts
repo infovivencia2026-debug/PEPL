@@ -7,22 +7,10 @@
  */
 import { createCipheriv, createDecipheriv, randomBytes, scryptSync } from 'node:crypto'
 import type { PoolClient } from 'pg'
+import { CommsError, tenantId } from './base.ts'
 
-export class CommsError extends Error {
-  readonly code: string
-  constructor(code: string, message: string) {
-    super(message)
-    this.code = code
-    this.name = 'CommsError'
-  }
-}
-
-async function tenantId(tx: PoolClient): Promise<string> {
-  const { rows } = await tx.query<{ t: string | null }>('SELECT current_tenant()::text AS t')
-  const t = rows[0]?.t
-  if (!t) throw new CommsError('NO_TENANT_CONTEXT', 'no tenant context')
-  return t
-}
+export { CommsError, tenantId } from './base.ts'
+export * from './chat.ts'
 
 // ---------------------------------------------------------------------------
 // Announcements
@@ -137,121 +125,6 @@ export async function unreadCount(tx: PoolClient, userId: string): Promise<numbe
   return rows[0]!.n
 }
 
-// ---------------------------------------------------------------------------
-// Chat
-// ---------------------------------------------------------------------------
-
-export async function createConversation(
-  tx: PoolClient,
-  args: { kind: 'dm' | 'group'; title?: string; createdBy: string; participants: readonly string[] },
-): Promise<string> {
-  const tid = await tenantId(tx)
-  const id = crypto.randomUUID()
-  await tx.query(
-    `INSERT INTO conversations (tenant_id, id, kind, title, created_by_user_id)
-     VALUES ($1,$2,$3,$4,$5)`,
-    [tid, id, args.kind, args.title ?? null, args.createdBy],
-  )
-  for (const userId of args.participants) {
-    await tx.query(
-      `INSERT INTO conversation_participants (tenant_id, conversation_id, user_id)
-       VALUES ($1,$2,$3) ON CONFLICT DO NOTHING`,
-      [tid, id, userId],
-    )
-  }
-  return id
-}
-
-/** Idempotent by client_message_id, so an offline send can retry safely. */
-export async function sendMessage(
-  tx: PoolClient,
-  args: {
-    conversationId: string; senderUserId: string; body: string
-    clientMessageId: string; hrmsRef?: Record<string, unknown>
-  },
-): Promise<{ id: number; created: boolean }> {
-  const tid = await tenantId(tx)
-
-  const member = await tx.query(
-    `SELECT 1 FROM conversation_participants
-      WHERE conversation_id = $1 AND user_id = $2 AND left_at IS NULL`,
-    [args.conversationId, args.senderUserId],
-  )
-  if (member.rowCount === 0) {
-    throw new CommsError('NOT_A_PARTICIPANT', 'sender is not in this conversation')
-  }
-
-  const { rows } = await tx.query<{ id: string }>(
-    `INSERT INTO messages (tenant_id, conversation_id, client_message_id, sender_user_id, body, hrms_ref)
-     VALUES ($1,$2,$3,$4,$5,$6::jsonb)
-     ON CONFLICT (tenant_id, conversation_id, client_message_id) DO NOTHING
-     RETURNING id`,
-    [tid, args.conversationId, args.clientMessageId, args.senderUserId, args.body,
-     args.hrmsRef ? JSON.stringify(args.hrmsRef) : null],
-  )
-
-  if (rows[0]) {
-    await tx.query(
-      `UPDATE conversations SET last_message_at = now() WHERE tenant_id = $1 AND id = $2`,
-      [tid, args.conversationId],
-    )
-    return { id: Number(rows[0].id), created: true }
-  }
-
-  const existing = await tx.query<{ id: string }>(
-    `SELECT id FROM messages WHERE conversation_id = $1 AND client_message_id = $2`,
-    [args.conversationId, args.clientMessageId],
-  )
-  return { id: Number(existing.rows[0]!.id), created: false }
-}
-
-/** Read state is a watermark per member, not a receipt row per message. */
-export async function markRead(
-  tx: PoolClient,
-  args: { conversationId: string; userId: string; upToMessageId: number },
-): Promise<void> {
-  const tid = await tenantId(tx)
-  await tx.query(
-    `UPDATE conversation_participants
-        SET last_read_message_id = GREATEST(COALESCE(last_read_message_id, 0), $4)
-      WHERE tenant_id = $1 AND conversation_id = $2 AND user_id = $3`,
-    [tid, args.conversationId, args.userId, args.upToMessageId],
-  )
-}
-
-export async function unreadInConversation(
-  tx: PoolClient,
-  conversationId: string,
-  userId: string,
-): Promise<number> {
-  const { rows } = await tx.query<{ n: number }>(
-    `SELECT count(*)::int AS n
-       FROM messages m
-       JOIN conversation_participants p
-         ON (p.tenant_id, p.conversation_id) = (m.tenant_id, m.conversation_id)
-        AND p.user_id = $2
-      WHERE m.conversation_id = $1
-        AND m.id > COALESCE(p.last_read_message_id, 0)
-        AND m.sender_user_id <> $2
-        AND m.deleted_at IS NULL`,
-    [conversationId, userId],
-  )
-  return rows[0]!.n
-}
-
-/** Lifecycle: a leaver loses chat access automatically. */
-export async function removeFromAllConversations(
-  tx: PoolClient,
-  userId: string,
-): Promise<number> {
-  const tid = await tenantId(tx)
-  const { rowCount } = await tx.query(
-    `UPDATE conversation_participants SET left_at = now()
-      WHERE tenant_id = $1 AND user_id = $2 AND left_at IS NULL`,
-    [tid, userId],
-  )
-  return rowCount ?? 0
-}
 
 // ---------------------------------------------------------------------------
 // Mail credential custody

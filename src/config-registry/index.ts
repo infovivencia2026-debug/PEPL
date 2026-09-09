@@ -201,11 +201,79 @@ const helpdesk = defineConfig('helpdesk', {
   }),
 })
 
+const chat = defineConfig('chat', {
+  enabled: flag({
+    default: false,
+    label: 'Internal chat',
+    help: 'Direct messages and group conversations between colleagues.',
+    entitlement: 'chat',
+    disableEffect: 'soft',
+  }),
+  allow_groups: bool({
+    default: true,
+    label: 'Group conversations',
+    help: 'When off, people may only exchange direct messages.',
+  }),
+  allow_attachments: bool({
+    default: true,
+    label: 'File sharing in chat',
+    help: 'Let people attach documents and images to a message.',
+  }),
+  history_retention_days: int({
+    default: 0,
+    min: 0,
+    max: 3650,
+    label: 'Delete chat history after (days)',
+    help: '0 keeps messages indefinitely. A retention job removes older messages.',
+    risk: 'high',
+  }),
+})
+
+const mail = defineConfig('mail', {
+  enabled: flag({
+    default: false,
+    label: 'Mailbox',
+    help: 'Read and send company email inside PEPL. Each person connects their own mailbox.',
+    entitlement: 'mail',
+    disableEffect: 'soft',
+  }),
+  store_bodies: bool({
+    default: false,
+    label: 'Cache message bodies',
+    help: 'Off by default: PEPL keeps envelopes for the list view and fetches a body on open, so message content is not duplicated into this database.',
+    risk: 'high',
+  }),
+  allow_external_recipients: bool({
+    default: true,
+    label: 'Allow sending outside the company',
+    help: 'When off, mail may only be addressed to colleagues.',
+  }),
+})
+
+const documents = defineConfig('documents', {
+  enabled: flag({
+    default: true,
+    label: 'Documents',
+    help: 'Offer letters, ID proofs, policies and attachments.',
+    disableEffect: 'soft',
+  }),
+  max_upload_mb: int({
+    default: 10,
+    min: 1,
+    max: 10,
+    label: 'Largest file (MB)',
+    help: 'Uploads above this size are refused.',
+  }),
+})
+
 export const REGISTRY: Readonly<Record<string, Definition>> = Object.freeze({
   ...leave,
   ...attendance,
   ...payroll,
   ...helpdesk,
+  ...chat,
+  ...mail,
+  ...documents,
 })
 
 /** A typed error so the transport can classify it, rather than returning a 500. */
