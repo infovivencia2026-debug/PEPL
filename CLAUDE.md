@@ -118,6 +118,25 @@ context yields **zero rows, never all rows**. Do not invert that default.
 4. If it varies by department/location/grade, declare `scopable`.
 5. Add a resolver test for the precedence you expect.
 
+## Payroll invariants
+
+The engine reads **only `payroll_inputs`**. Never attendance, never leave, never live
+compensation — those are resolved once, at freeze, and written as VALUES. `monthly_components`
+holds resolved amounts, not a pointer to a structure that can later change.
+
+- A **locked run is immutable in the database**, via triggers on `payroll_inputs`,
+  `payroll_lines`, `payslips` and `payroll_runs`. Service checks are bypassed by jobs and
+  consoles; the trigger is not. Test it with a RAW insert, not through the service, or the
+  service guard fires first and the test proves nothing.
+- **Rounding happens once per component**, to the nearest rupee, as the line is written.
+  Gross is the SUM OF ROUNDED LINES so a payslip adds up on screen. Test expectations must
+  round too — `40000 * 0.5/30` is `667`, not `666.67`.
+- Employer contributions (`PF_ER`, `ESI_ER`) are `employer_contribution`, never deducted
+  from the employee. `LOP` reduces gross rather than counting as a deduction.
+- A correction to a locked run is a **revision**: a full recomputation with
+  `supersedes_run_id` set. The delta is DERIVED by joining the two runs, never stored.
+- Separation of duty: whoever ran the payroll cannot approve or lock the same run.
+
 ## Adding a table
 
 1. New migration in `db/migrations/` (forward-only, numbered).
