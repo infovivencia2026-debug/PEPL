@@ -134,6 +134,16 @@ export function register(router: Router): void {
         actorUserId: ctx.session.userId,
         metadata: { delivered: result.deliveredTo.length, queued: result.queuedFor.length },
       })
+      if (result.deliveredTo.length) {
+        const recipients = await ctx.tx.query<{ user_id: string }>(
+          `SELECT user_id FROM mail_accounts WHERE lower(email) = ANY($1)`,
+          [result.deliveredTo])
+        ctx.publish({
+          type: 'mail.delivered',
+          userIds: recipients.rows.map((r) => r.user_id),
+          data: { subject: b.subject, from: account.email },
+        })
+      }
       return created(result)
     }))
 

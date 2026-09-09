@@ -4,6 +4,7 @@ import { resolve, extname, sep } from 'node:path'
 import { createHandler } from './router.ts'
 import { buildUiRouter } from './ui-routes.ts'
 import { router } from './routes.ts'
+import { handleEvents } from '../realtime/sse.ts'
 
 const handler = createHandler(buildUiRouter())
 const domainHandler = createHandler(router)
@@ -20,6 +21,12 @@ const server = createServer(async (req, res) => {
   res.setHeader('X-Frame-Options', 'DENY')
   if (req.url === '/health') {
     await domainHandler(req, res)
+    return
+  }
+  // The event stream is long-lived, so it is handled before the JSON router,
+  // which assumes one response and ends it.
+  if (req.url?.split('?')[0] === '/api/v1/events') {
+    await handleEvents(req, res)
     return
   }
   if (req.url?.startsWith('/api/')) {

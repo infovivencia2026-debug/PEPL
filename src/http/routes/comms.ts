@@ -20,6 +20,11 @@ export function register(router: Router): void {
       const n = await publishAnnouncement(ctx.tx, {
         announcementId: asUuid(ctx.req.params.id, 'id'), audienceUserIds: b.audienceUserIds,
       })
+      ctx.publish({
+        type: 'announcement.published',
+        userIds: b.audienceUserIds,
+        data: { announcementId: ctx.req.params.id },
+      })
       return ok({ delivered: n })
     }))
 

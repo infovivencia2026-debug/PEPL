@@ -50,6 +50,7 @@ export function register(router: Router): void {
         actorUserId: ctx.session.userId,
         metadata: { kind: b.kind, participantCount: participants.length },
       })
+      ctx.publish({ type: 'chat.conversation', userIds: participants, data: { conversationId: id } })
       return created({ id })
     }))
 
@@ -99,6 +100,17 @@ export function register(router: Router): void {
         await emit(ctx.tx, {
           action: 'comms.message.sent', entityType: 'conversation', entityId: conversationId,
           actorUserId: ctx.session.userId, metadata: { messageId: result.id },
+        })
+        // Only the people in the conversation are told, and only once it is
+        // actually committed.
+        const members = await ctx.tx.query<{ user_id: string }>(
+          `SELECT user_id FROM conversation_participants
+            WHERE conversation_id = $1 AND left_at IS NULL`,
+          [conversationId])
+        ctx.publish({
+          type: 'chat.message',
+          userIds: members.rows.map((r) => r.user_id),
+          data: { conversationId, messageId: result.id, senderUserId: ctx.session.userId },
         })
       }
       return created(result)

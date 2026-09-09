@@ -17,6 +17,7 @@ import { loadAuthzContext, resolveSession, type Session } from '../auth/index.ts
 import { withTenant } from '../db/tenant-tx.ts'
 import { assertPermission, type AuthzContext, type Permission } from '../authz/permissions.ts'
 import { resolveConfig, type ResolvedConfig } from '../config/resolver.ts'
+import { publish, type PeplEvent } from '../realtime/bus.ts'
 
 export interface Ctx {
   tx: PoolClient
@@ -24,6 +25,14 @@ export interface Ctx {
   session: Session
   config: ResolvedConfig
   req: Req
+
+  /**
+   * Queues a live event for delivery AFTER this transaction commits.
+   *
+   * Publishing inline would announce a message that a later error rolls
+   * back, and a browser cannot un-see it.
+   */
+  publish: (event: PeplEvent) => void
 }
 
 export type AuthedHandler = (ctx: Ctx) => Promise<Res> | Res
@@ -45,16 +54,26 @@ export function authed(permission: Permission | null, handler: AuthedHandler) {
   return async (req: Req): Promise<Res> => {
     const session = await resolveSession(bearer(req))
 
-    return withTenant(
+    const pending: PeplEvent[] = []
+
+    const result = await withTenant(
       session.tenantId,
       async (tx) => {
         const auth = await loadAuthzContext(tx, session)
         if (permission) assertPermission(auth, permission)
         const config = await resolveConfig(tx, session.tenantId)
-        return handler({ tx, auth, session, config, req })
+        return handler({
+          tx, auth, session, config, req,
+          publish: (event) => { pending.push(event) },
+        })
       },
       { userId: session.userId },
     )
+
+    // Past this line the COMMIT has happened, so every event describes
+    // something that is actually true.
+    for (const event of pending) publish(session.tenantId, event)
+    return result
   }
 }
 

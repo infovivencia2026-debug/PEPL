@@ -79,6 +79,17 @@ export function register(router: Router): void {
           }
         }
       }
+
+      // The person who raised the request is the one waiting on this answer.
+      const { rows: raised } = await ctx.tx.query<{ requested_by_user_id: string | null }>(
+        `SELECT requested_by_user_id FROM approval_requests WHERE id = $1`,
+        [ctx.req.params.id])
+      const requester = raised[0]?.requested_by_user_id
+      ctx.publish({
+        type: 'approval.decided',
+        ...(requester ? { userIds: [requester] } : {}),
+        data: { requestId: ctx.req.params.id, status: result.status, action: b.action },
+      })
       return ok(result)
     }))
 
