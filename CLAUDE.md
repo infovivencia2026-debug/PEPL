@@ -137,6 +137,22 @@ holds resolved amounts, not a pointer to a structure that can later change.
   `supersedes_run_id` set. The delta is DERIVED by joining the two runs, never stored.
 - Separation of duty: whoever ran the payroll cannot approve or lock the same run.
 
+## Row-level security gotchas learned here
+
+- **`INSERT ... RETURNING` needs the new row to be VISIBLE under the SELECT policy.**
+  Where a policy can hide a row from its own creator — a confidential ticket filed on
+  someone's behalf — `RETURNING` fails with "new row violates row-level security policy",
+  which reads like a WITH CHECK failure and is not. Generate the id client-side and insert
+  without `RETURNING`.
+- **Never derive a sequence from `MAX()` over an RLS-filtered table.** A row the caller
+  cannot see is a number handed out twice. Use a per-tenant counter table whose visibility
+  is tenant-only.
+- **Within-tenant confidentiality goes in the policy, not the service.** `tickets` uses
+  `app.user_id` (pinned by `withTenant`) so a grievance is absent from every list, count,
+  search and export by construction. A service-layer filter is one forgotten WHERE clause
+  away from putting it in a manager's queue — and with no user context pinned, the rows
+  correctly disappear entirely.
+
 ## Adding a table
 
 1. New migration in `db/migrations/` (forward-only, numbered).
