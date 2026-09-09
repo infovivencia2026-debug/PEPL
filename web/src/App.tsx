@@ -20,7 +20,15 @@ import {
   ArrowUpRight,
   RefreshCw,
 } from 'lucide-react'
-import { api, ApiError, fullName, pretty, dateLabel } from './api'
+import {
+  api,
+  ApiError,
+  toErrorView,
+  type ErrorView,
+  fullName,
+  pretty,
+  dateLabel,
+} from './api'
 import type { Workspace } from './types'
 import { ActionForm, Login, type FormSpec } from './forms'
 import {
@@ -110,7 +118,7 @@ function getRoute() {
 export function App() {
   const [data, setData] = useState<Workspace | null>(null),
     [loggedOut, setLoggedOut] = useState(false),
-    [error, setError] = useState(''),
+    [error, setError] = useState<ErrorView | null>(null),
     [route, setRoute] = useState(getRoute),
     [loading, setLoading] = useState(true),
     [refreshing, setRefreshing] = useState(false)
@@ -137,7 +145,7 @@ export function App() {
       if (seq === request.current) {
         setData(d)
         setLoggedOut(false)
-        setError('')
+        setError(null)
         setRevision((n) => n + 1)
       }
     } catch (e) {
@@ -145,7 +153,7 @@ export function App() {
         if (e instanceof ApiError && e.status === 401) {
           setLoggedOut(true)
           setData(null)
-        } else setError((e as Error).message)
+        } else setError(toErrorView(e))
       }
     } finally {
       if (seq === request.current) {
@@ -451,7 +459,7 @@ export function App() {
             <>
               {error && (
                 <div className="page-error">
-                  <ErrorBox message={error} />
+                  <ErrorBox message={error.message} requestId={error.requestId} />
                   <Button variant="secondary" onClick={() => void load()}>
                     Try again
                   </Button>

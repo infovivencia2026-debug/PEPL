@@ -2,6 +2,7 @@ import { useState, type FormEvent } from 'react'
 import { ArrowRight, Check } from 'lucide-react'
 import { api } from './api'
 import { Button, ErrorBox, Modal } from './ui'
+import { toErrorView, type ErrorView } from './api'
 export interface Field {
   name: string
   label: string
@@ -32,11 +33,11 @@ export function ActionForm({
   onSuccess: (message: string) => Promise<void>
 }) {
   const [busy, setBusy] = useState(false),
-    [error, setError] = useState('')
+    [error, setError] = useState<ErrorView | null>(null)
   async function submit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault()
     setBusy(true)
-    setError('')
+    setError(null)
     try {
       const values = Object.fromEntries(
         new FormData(e.currentTarget),
@@ -52,7 +53,7 @@ export function ActionForm({
       )
       onClose()
     } catch (e) {
-      setError((e as Error).message)
+      setError(toErrorView(e))
     } finally {
       setBusy(false)
     }
@@ -114,7 +115,9 @@ export function ActionForm({
             </label>
           ))}
         </div>
-        {error && <ErrorBox message={error} />}
+        {error && (
+          <ErrorBox message={error.message} requestId={error.requestId} />
+        )}
         <footer className="modal-actions">
           <Button
             type="button"
@@ -134,18 +137,18 @@ export function ActionForm({
   )
 }
 export function Login({ onSuccess }: { onSuccess: () => Promise<void> }) {
-  const [error, setError] = useState(''),
+  const [error, setError] = useState<ErrorView | null>(null),
     [busy, setBusy] = useState(false)
   async function submit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault()
     const b = Object.fromEntries(new FormData(e.currentTarget))
     setBusy(true)
-    setError('')
+    setError(null)
     try {
       await api('/auth/login', b)
       await onSuccess()
     } catch (e) {
-      setError((e as Error).message)
+      setError(toErrorView(e))
     } finally {
       setBusy(false)
     }
@@ -201,7 +204,9 @@ export function Login({ onSuccess }: { onSuccess: () => Promise<void> }) {
               required
             />
           </label>
-          {error && <ErrorBox message={error} />}
+          {error && (
+          <ErrorBox message={error.message} requestId={error.requestId} />
+        )}
           <Button type="submit" disabled={busy}>
             {busy ? 'Signing in…' : 'Enter your workspace'}
             <ArrowRight size={19} />

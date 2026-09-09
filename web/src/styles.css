@@ -10,7 +10,10 @@
   --surface: #fff;
   --surface-muted: #f0f2ed;
   --foreground: #183b36;
-  --muted: #73807b;
+  /* WCAG AA on BOTH surfaces it lands on: 5.32:1 on --surface (#fff) and
+     4.72:1 on --surface-muted (#f0f2ed, the dropdown hover state). Captions
+     across the app inherit this — do not lighten without re-checking both. */
+  --muted: #5f6f64;
   --primary: #174f46;
   --primary-dark: #123d37;
   --primary-soft: #dcede7;
@@ -2187,6 +2190,16 @@ tbody tr:hover {
 .error-box svg {
   margin-top: 1px;
 }
+/* The support reference. Quiet, but selectable — a user has to be able to copy
+   it into a ticket. Not a colour-only cue: it is labelled "Reference". */
+.error-ref {
+  display: block;
+  margin-top: 6px;
+  font-size: 11px;
+  letter-spacing: 0.02em;
+  opacity: 0.85;
+  user-select: all;
+}
 .page-error {
   margin-bottom: 20px;
   display: flex;
@@ -3635,9 +3648,6 @@ tbody tr:hover {
 }
 
 /* Readable operational text at every viewport; metadata remains secondary. */
-:root {
-  --muted: #68796d;
-}
 .stat > p,
 .btn,
 .field,

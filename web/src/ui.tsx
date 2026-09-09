@@ -211,11 +211,21 @@ export function SearchBox({
     </label>
   )
 }
-export function ErrorBox({ message }: { message: string }) {
+export function ErrorBox({
+  message,
+  requestId,
+}: {
+  message: string
+  /** Shown so a user can quote it to support; it is the only log correlator. */
+  requestId?: string
+}) {
   return (
     <div className="error-box" role="alert">
       <AlertCircle size={19} />
-      <span>{message}</span>
+      <span>
+        {message}
+        {requestId && <small className="error-ref">Reference {requestId}</small>}
+      </span>
     </div>
   )
 }

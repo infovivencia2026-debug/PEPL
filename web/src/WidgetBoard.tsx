@@ -1,4 +1,4 @@
-import { Children, isValidElement, useState, type CSSProperties, type ReactElement, type ReactNode } from 'react'
+import { Children, isValidElement, useEffect, useState, type CSSProperties, type ReactElement, type ReactNode } from 'react'
 import { DndContext, PointerSensor, KeyboardSensor, closestCenter, useSensor, useSensors, type DragEndEvent } from '@dnd-kit/core'
 import { SortableContext, useSortable, sortableKeyboardCoordinates, rectSortingStrategy, arrayMove } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
@@ -49,6 +49,13 @@ export function WidgetBoard({ children, account }: { children: ReactNode; accoun
   const [saved, setSaved] = useState(layout)
   const [editing, setEditing] = useState(false)
   const [message, setMessage] = useState('')
+  // Transient confirmation, not persistent state: left on screen it reads as
+  // leaked UI. Announced to assistive tech first, then cleared.
+  useEffect(() => {
+    if (!message) return
+    const timer = setTimeout(() => setMessage(''), 6000)
+    return () => clearTimeout(timer)
+  }, [message])
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 7 } }), useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }))
   const available = new Map(widgets.map(widget => [widget.id, widget]))
   const order = [...layout.order.filter(id => available.has(id)), ...widgets.map(widget => widget.id).filter(id => !layout.order.includes(id))]

@@ -285,7 +285,6 @@ export function Dashboard({
           title="Make them feel at home"
           subtitle="New joiners this month"
           href="#/people"
-          className="joiners-card"
         >
           {joiners.length ? (
             <div className="joiner-grid">

@@ -158,6 +158,32 @@ describe('half day is explicit, and remote is an attribute not a status', () => 
     expect(d.status).toBe('present')
   })
 
+  it('a half-day leave marks the day as half, not whole', async () => {
+    // Payroll reads day_fraction, so a half-day leave that recorded 1.00 would
+    // silently pay a full day. This path arrived with the UI work untested.
+    await withTenant(A.id, async (tx) => {
+      await applyCorrection(tx, {
+        employeeId: A.employeeId, workDate: SEP_DAY, action: 'mark_leave',
+        after: { dayFraction: 0.5 }, reason: 'half day of casual leave',
+      })
+    })
+    const d = await day(A, SEP_DAY)
+    expect(d.status).toBe('on_leave')
+    expect(d.frac).toBe(0.5)
+  })
+
+  it('a full-day leave stays a whole day', async () => {
+    await withTenant(A.id, async (tx) => {
+      await applyCorrection(tx, {
+        employeeId: A.employeeId, workDate: SEP_DAY, action: 'mark_leave',
+        reason: 'full day of casual leave',
+      })
+    })
+    const d = await day(A, SEP_DAY)
+    expect(d.status).toBe('on_leave')
+    expect(d.frac).toBe(1)
+  })
+
   it('remote is always revocable', async () => {
     await withTenant(A.id, async (tx) => {
       await applyCorrection(tx, { employeeId: A.employeeId, workDate: SEP_DAY, action: 'mark_remote', reason: 'wfh' })
