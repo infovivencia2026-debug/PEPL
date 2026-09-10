@@ -8679,6 +8679,36 @@
         "risk": "low",
         "affectsPayroll": false,
         "scopableBy": []
+      },
+      {
+        "key": "notifications.enabled",
+        "label": "Notifications",
+        "help": "In-app notifications for approvals, leave decisions and announcements.",
+        "type": "flag",
+        "default": true,
+        "risk": "high",
+        "affectsPayroll": false,
+        "scopableBy": []
+      },
+      {
+        "key": "notifications.email_enabled",
+        "label": "Send notifications by email",
+        "help": "Requires a sender mailbox below. Without one, notifications stay in the app.",
+        "type": "bool",
+        "default": false,
+        "risk": "low",
+        "affectsPayroll": false,
+        "scopableBy": []
+      },
+      {
+        "key": "notifications.sender_email",
+        "label": "Send notification email from",
+        "help": "A mailbox already connected in PEPL, for example hr@yourcompany.com. Mail sent from your own domain and server reaches people; mail from an unrelated sender is filtered as spam.",
+        "type": "text",
+        "default": "",
+        "risk": "low",
+        "affectsPayroll": false,
+        "scopableBy": []
       }
     ]
   }

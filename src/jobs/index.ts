@@ -17,6 +17,7 @@ import { evaluateBreaches } from '../work/helpdesk.ts'
 import { resolveConfig } from '../config/resolver.ts'
 import { emit } from '../audit/index.ts'
 import { runOutbox } from '../mail/outbox.ts'
+import { deliverEmails } from '../comms/delivery.ts'
 
 export interface JobResult {
   job: string
@@ -224,12 +225,38 @@ export async function runMailOutbox(): Promise<JobResult> {
   })
 }
 
+/**
+ * Emails notifications for companies that asked for it.
+ *
+ * The message is queued through the ordinary outbox rather than sent inline,
+ * so it inherits that retry and backoff instead of growing a second delivery
+ * path that fails differently.
+ */
+export async function runNotificationEmail(): Promise<JobResult> {
+  return perTenant('notifications.email', async (tenantId) =>
+    withTenant(tenantId, async (tx) => {
+      const cfg = await resolveConfig(tx, tenantId)
+      if (!cfg.isEnabled('notifications.enabled')) return 0
+      if (!cfg.get<boolean>('notifications.email_enabled')) return 0
+
+      const { rows } = await tx.query<{ display_name: string }>(
+        `SELECT display_name FROM tenants WHERE id = $1`, [tenantId])
+
+      const result = await deliverEmails(tx, {
+        senderEmail: cfg.get<string>('notifications.sender_email') || null,
+        companyName: rows[0]?.display_name ?? 'Your company',
+      })
+      return result.sent
+    }))
+}
+
 export const JOBS = {
   'leave.accrual': () => runLeaveAccrual(),
   'helpdesk.sla': runSlaBreaches,
   'data.retention': runRetentionPurge,
   'audit.seal': runAuditSeal,
   'mail.outbox': runMailOutbox,
+  'notifications.email': runNotificationEmail,
 } as const
 
 export type JobName = keyof typeof JOBS

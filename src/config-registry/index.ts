@@ -8,7 +8,7 @@
  * The admin UI is generated from this, so a setting cannot ship without a label,
  * a default, a risk class and help text. That friction is deliberate.
  */
-import { bool, defineConfig, enumOf, flag, int, type Definition } from './types.ts'
+import { bool, defineConfig, enumOf, flag, int, text, type Definition } from './types.ts'
 
 const leave = defineConfig('leave', {
   enabled: flag({
@@ -250,6 +250,25 @@ const mail = defineConfig('mail', {
   }),
 })
 
+const notifications = defineConfig('notifications', {
+  enabled: flag({
+    default: true,
+    label: 'Notifications',
+    help: 'In-app notifications for approvals, leave decisions and announcements.',
+    disableEffect: 'soft',
+  }),
+  email_enabled: bool({
+    default: false,
+    label: 'Send notifications by email',
+    help: 'Requires a sender mailbox below. Without one, notifications stay in the app.',
+  }),
+  sender_email: text({
+    default: '',
+    label: 'Send notification email from',
+    help: 'A mailbox already connected in PEPL, for example hr@yourcompany.com. Mail sent from your own domain and server reaches people; mail from an unrelated sender is filtered as spam.',
+  }),
+})
+
 const documents = defineConfig('documents', {
   enabled: flag({
     default: true,
@@ -274,6 +293,7 @@ export const REGISTRY: Readonly<Record<string, Definition>> = Object.freeze({
   ...chat,
   ...mail,
   ...documents,
+  ...notifications,
 })
 
 /** A typed error so the transport can classify it, rather than returning a 500. */
