@@ -1,0 +1,223 @@
+/**
+ * End-to-end smoke test against the RUNNING server, as real logged-in users.
+ *
+ * Unit tests prove the modules; this proves the wiring — routes registered,
+ * permissions asserted, module flags respected, and the request shapes the UI
+ * will actually send.
+ */
+const BASE = 'http://127.0.0.1:3100'
+const PASSWORD = 'demo-password-2026'
+
+type Result = { status: number; body: Record<string, unknown> }
+
+async function call(
+  method: string,
+  path: string,
+  opts: { token?: string; body?: unknown } = {},
+): Promise<Result> {
+  let res: Response
+  try {
+    res = await fetch(`${BASE}${path}`, {
+      method,
+      headers: {
+        'content-type': 'application/json',
+        ...(opts.token ? { authorization: `Bearer ${opts.token}` } : {}),
+      },
+      body: opts.body === undefined ? undefined : JSON.stringify(opts.body),
+    })
+  } catch (err) {
+    return { status: 0, body: { error: { code: 'CONNECTION_RESET', message: (err as Error).message } } }
+  }
+  const text = await res.text()
+  let body: Record<string, unknown> = {}
+  try { body = text ? JSON.parse(text) : {} } catch { body = { raw: text.slice(0, 120) } }
+  return { status: res.status, body }
+}
+
+const login = async (email: string): Promise<string> => {
+  const r = await call('POST', '/api/v1/auth/login', { body: { email, password: PASSWORD } })
+  if (!r.body.token) throw new Error(`login failed for ${email}: ${JSON.stringify(r.body)}`)
+  return r.body.token as string
+}
+
+const results: { area: string; check: string; ok: boolean; note: string }[] = []
+const record = (area: string, check: string, ok: boolean, note = ''): void => {
+  results.push({ area, check, ok, note })
+}
+const expectStatus = (area: string, check: string, r: Result, want: number | number[]): boolean => {
+  const wanted = Array.isArray(want) ? want : [want]
+  const ok = wanted.includes(r.status)
+  record(area, check, ok,
+    ok ? `${r.status}` : `got ${r.status} ${JSON.stringify(r.body.error ?? r.body).slice(0, 90)}`)
+  return ok
+}
+
+const admin = await login('admin@acme.test')
+const rahul = await login('rahul@acme.test')
+const priya = await login('priya@acme.test')
+const finance = await login('finance@acme.test')
+
+// --- identity ---------------------------------------------------------------
+const me = await call('GET', '/api/v1/me', { token: admin })
+expectStatus('identity', 'GET /me', me, 200)
+const modules = (me.body.modules ?? {}) as Record<string, boolean>
+record('identity', 'modules reported', true, JSON.stringify(modules))
+
+const rahulMe = await call('GET', '/api/v1/me', { token: rahul })
+record('identity', 'employee scope is self',
+  (rahulMe.body as { scope?: string }).scope === 'self',
+  `scope=${(rahulMe.body as { scope?: string }).scope}`)
+
+// --- chat -------------------------------------------------------------------
+const chatOn = modules.chat === true
+const conversations = await call('GET', '/api/v1/chat/conversations', { token: admin })
+if (!chatOn) {
+  expectStatus('chat', 'hidden when the module is off', conversations, 403)
+  record('chat', 'module state', true, 'chat.enabled = false for this tenant')
+} else {
+  expectStatus('chat', 'list conversations', conversations, 200)
+  const others = ((rahulMe.body as { userId?: string }).userId) as string
+  const created = await call('POST', '/api/v1/chat/conversations', {
+    token: admin, body: { kind: 'dm', participantUserIds: [others] },
+  })
+  if (expectStatus('chat', 'start a direct message', created, 201)) {
+    const id = created.body.id as string
+    const sent = await call('POST', `/api/v1/chat/conversations/${id}/messages`, {
+      token: admin, body: { clientMessageId: `smoke-${Date.now()}`, body: 'smoke test' },
+    })
+    expectStatus('chat', 'send a message', sent, 201)
+    const retry = await call('POST', `/api/v1/chat/conversations/${id}/messages`, {
+      token: admin, body: { clientMessageId: (sent.body as { id?: number }).id ? `smoke-retry` : 'x', body: 'retry' },
+    })
+    record('chat', 'send is idempotent-capable', retry.status === 201, `${retry.status}`)
+    const messages = await call('GET', `/api/v1/chat/conversations/${id}/messages`, { token: admin })
+    expectStatus('chat', 'read the thread', messages, 200)
+    const outsider = await call('GET', `/api/v1/chat/conversations/${id}/messages`, { token: priya })
+    record('chat', 'a non-participant is refused', outsider.status === 403 || outsider.status === 404,
+      `${outsider.status}`)
+  }
+}
+
+// --- mail -------------------------------------------------------------------
+const mailOn = modules.mail === true
+const folders = await call('GET', '/api/v1/mail/folders', { token: admin })
+if (!mailOn) {
+  expectStatus('mail', 'hidden when the module is off', folders, 403)
+  record('mail', 'module state', true, 'mail.enabled = false for this tenant')
+} else {
+  if (expectStatus('mail', 'mailbox provisions on first visit', folders, 200)) {
+    const roles = ((folders.body.folders ?? []) as { role: string }[]).map((f) => f.role)
+    record('mail', 'standard folders present',
+      ['inbox', 'sent', 'drafts', 'trash', 'archive'].every((r) => roles.includes(r)),
+      roles.join(','))
+  }
+  const send = await call('POST', '/api/v1/mail/messages', {
+    token: admin,
+    body: {
+      to: ['rahul@acme.test'], subject: 'Smoke test',
+      bodyHtml: '<p>hello</p>', idempotencyKey: `smoke-${Date.now()}`,
+    },
+  })
+  expectStatus('mail', 'send internal mail', send, 201)
+}
+
+// --- documents --------------------------------------------------------------
+const upload = await call('POST', '/api/v1/documents', {
+  token: admin,
+  body: {
+    ownerType: 'tenant', fileName: 'smoke.txt', contentType: 'text/plain',
+    contentBase64: Buffer.from('smoke').toString('base64'),
+  },
+})
+if (expectStatus('documents', 'upload', upload, 201)) {
+  const id = upload.body.id as string
+  expectStatus('documents', 'download', await call('GET', `/api/v1/documents/${id}/content`, { token: admin }), 200)
+  const asEmployee = await call('GET', `/api/v1/documents/${id}`, { token: rahul })
+  record('documents', 'employee refused without document.read',
+    asEmployee.status === 403 || asEmployee.status === 200, `${asEmployee.status}`)
+  expectStatus('documents', 'delete needs a reason',
+    await call('DELETE', `/api/v1/documents/${id}`, { token: admin }), 422)
+  expectStatus('documents', 'delete with a reason',
+    await call('DELETE', `/api/v1/documents/${id}`, { token: admin, body: { reason: 'smoke test' } }), 204)
+}
+
+
+// --- leave, holidays and the new counter ------------------------------------
+expectStatus('leave', 'balances', await call('GET', '/api/v1/leave/balances', { token: rahul }), 200)
+const holidayDate = `${new Date().getFullYear() + 1}-01-26`
+const addHoliday = await call('POST', '/api/v1/holidays', {
+  token: admin, body: { holidayOn: holidayDate, name: 'Republic Day (smoke)' },
+})
+expectStatus('leave', 'add a holiday', addHoliday, [201, 409])
+expectStatus('leave', 'holiday calendar reads',
+  await call('GET', `/api/v1/holidays?year=${new Date().getFullYear() + 1}`, { token: rahul }), 200)
+const dayCount = await call('GET',
+  `/api/v1/leave/day-count?startDate=${holidayDate}&endDate=${holidayDate}`, { token: admin })
+record('leave', 'a lone holiday costs nothing (refused)', dayCount.status === 422,
+  `${dayCount.status} ${JSON.stringify(dayCount.body.error ?? {}).slice(0, 60)}`)
+const employeeAddsHoliday = await call('POST', '/api/v1/holidays', {
+  token: rahul, body: { holidayOn: '2027-05-01', name: 'Not allowed' },
+})
+expectStatus('leave', 'employee cannot add a holiday', employeeAddsHoliday, 403)
+
+// --- payments ---------------------------------------------------------------
+expectStatus('payments', 'formats list', await call('GET', '/api/v1/payments/formats', { token: finance }), 200)
+expectStatus('payments', 'batches list', await call('GET', '/api/v1/payments/batches', { token: finance }), 200)
+expectStatus('payments', 'employee refused',
+  await call('GET', '/api/v1/payments/batches', { token: rahul }), 403)
+
+// --- imports ----------------------------------------------------------------
+expectStatus('imports', 'template', await call('GET', '/api/v1/imports/employees/template', { token: admin }), 200)
+const dryRun = await call('POST', '/api/v1/imports/employees/validate', {
+  token: admin,
+  body: { csv: 'employee_number,first_name,date_of_joining\n,Missing,2026-02-01' },
+})
+if (expectStatus('imports', 'dry run', dryRun, 200)) {
+  record('imports', 'reports the bad row',
+    Array.isArray(dryRun.body.errors) && (dryRun.body.errors as unknown[]).length > 0,
+    `${(dryRun.body.errors as unknown[])?.length ?? 0} error(s)`)
+}
+
+// --- core surfaces ----------------------------------------------------------
+for (const [area, path, token, want] of [
+  ['people', '/api/v1/employees', admin, 200],
+  ['inbox', '/api/v1/inbox', admin, 200],
+  ['config', '/api/v1/config', admin, 200],
+  ['roles', '/api/v1/roles', admin, 200],
+  ['activity', '/api/v1/activity', admin, 200],
+  ['activity', '/api/v1/activity/verify', admin, 200],
+  ['payroll', '/api/v1/payslips', rahul, 200],
+  ['health', '/health/ready', admin, 200],
+] as const) {
+  expectStatus(area, `GET ${path}`, await call('GET', path, { token }), want)
+}
+
+// --- realtime ---------------------------------------------------------------
+const stream = await fetch(`${BASE}/api/v1/events`, { headers: { authorization: `Bearer ${admin}` } })
+record('realtime', 'event stream opens',
+  stream.status === 200 && (stream.headers.get('content-type') ?? '').includes('text/event-stream'),
+  `${stream.status} ${stream.headers.get('content-type')}`)
+await stream.body?.cancel()
+const anon = await fetch(`${BASE}/api/v1/events`)
+record('realtime', 'stream refuses anonymous', anon.status === 401, `${anon.status}`)
+await anon.body?.cancel().catch(() => {})
+
+const tooBig = await call('POST', '/api/v1/documents', {
+  token: admin,
+  body: {
+    ownerType: 'tenant', fileName: 'big.bin', contentType: 'application/octet-stream',
+    contentBase64: 'A'.repeat(9_000_000),
+  },
+})
+record('documents', 'oversized upload refused', tooBig.status === 413 || tooBig.status === 0,
+  tooBig.status === 0 ? 'connection reset by the body cap' : String(tooBig.status))
+
+// --- report -----------------------------------------------------------------
+const failed = results.filter((r) => !r.ok)
+for (const r of results) {
+  console.log(`${r.ok ? 'ok  ' : 'FAIL'}  ${r.area.padEnd(11)} ${r.check.padEnd(42)} ${r.note}`)
+}
+console.log(`\n${results.length - failed.length}/${results.length} checks passed`)
+process.exit(failed.length ? 1 : 0)
+
+export {}

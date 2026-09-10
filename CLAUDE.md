@@ -191,6 +191,39 @@ load-bearing** — later files deliberately override earlier ones. Add rules to
   inactive tab in `Tabs` is one, and it was the last 41px touch target.
 - `npm run check:responsive` is green across eight devices. Keep it that way.
 
+## A migration cannot write a tenant-scoped table
+
+Migrations run as `pepl_owner`, and `FORCE ROW LEVEL SECURITY` applies to the
+owner too. With no `app.tenant_id` set, `current_tenant()` is NULL, so an
+UPDATE over a tenant table matches **zero rows and reports success** — the
+migration looks applied and changed nothing.
+
+027_plan_features_chat_mail.sql tried to re-project `tenant_entitlements` this
+way and silently did nothing. Re-projection belongs in
+`npm run job control.reproject_entitlements`, which uses the superuser control
+connection, because entitlements are a control-plane write the app role is
+explicitly denied.
+
+## Entitlements must be sellable
+
+A setting declaring `entitlement: 'chat'` is capped by the entitlement layer,
+which is a projection of the PLAN. chat and mail shipped fully built, routed,
+tested and documented while no plan granted either — so both resolved to false
+for every tenant, permanently. `gate:launch` now fails when a declared
+entitlement is sold by no plan.
+
+## The smoke rig
+
+`npm run smoke` drives the RUNNING server as the seeded users and checks the
+wiring the unit tests cannot: routes registered, permissions asserted, module
+flags respected. Two cautions learned writing it:
+
+- An oversized body makes the server destroy the socket; Node reuses that
+  socket from the keep-alive pool and the NEXT request fails with ECONNRESET.
+  It reads as a server bug and is not. Keep payload-cap probes last.
+- The demo tenant has chat, mail and helpdesk switched ON so the whole product
+  is reachable; a real tenant gets them off by default.
+
 ## Config layer
 
 `src/config-registry/` holds the DEFINITIONS (typed, in code). `tenant_settings` and

@@ -130,6 +130,29 @@ async function main(): Promise<void> {
   record('plan catalogue is present', Number(seeded[0]!.plans) >= 3,
     `${seeded[0]!.plans} plans`)
 
+  // Every entitlement a setting names must be SELLABLE. chat and mail shipped
+  // fully built, routed and documented, and no plan granted either — so the
+  // entitlement layer resolved both to false for every tenant, permanently.
+  // A feature nobody can buy is a feature nobody has.
+  const declared = [...new Set(
+    Object.values(REGISTRY)
+      .map((def) => def.entitlement)
+      .filter((name): name is string => Boolean(name)),
+  )]
+  const { rows: planRows } = await db.query<{ features: Record<string, boolean> }>(
+    'SELECT features FROM control_plane.plans')
+  const grantable = new Set(
+    planRows.flatMap((p) => Object.entries(p.features ?? {})
+      .filter(([, on]) => on === true)
+      .map(([name]) => name)),
+  )
+  const unsellable = declared.filter((name) => !grantable.has(name))
+  record(
+    'every entitlement a setting names is sold by some plan',
+    unsellable.length === 0,
+    unsellable.length ? `no plan grants: ${unsellable.join(', ')}` : `${declared.length} entitlement(s)`,
+  )
+
   await db.end()
 
   const failed = checks.filter((c) => !c.ok)

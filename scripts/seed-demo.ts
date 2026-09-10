@@ -8,6 +8,7 @@
  * accumulating copies.
  */
 import { controlDb, provisionTenant } from '../src/control-plane/index.ts'
+import { setSetting } from '../src/config/write.ts'
 import { withTenant } from '../src/db/tenant-tx.ts'
 import { closePools } from '../src/db/pool.ts'
 import { createUser } from '../src/auth/index.ts'
@@ -182,10 +183,19 @@ async function main(): Promise<void> {
 
   await withTenant(tenantId, async (tx) => {
     // admin login
-    await createUser(tx, {
+    const adminUserId = await createUser(tx, {
       tenantId, email: 'admin@acme.test', fullName: 'Acme Administrator',
       password: PASSWORD, roles: ['org_admin'],
     })
+
+    // Chat and mail are off by default for a real company; the demo turns them
+    // on so the whole product is visible without hunting through settings.
+    for (const key of ['chat.enabled', 'mail.enabled', 'helpdesk.enabled']) {
+      await setSetting(tx, {
+        key, value: true,
+        actorUserId: adminUserId, reason: 'demo tenant shows every module',
+      })
+    }
 
     for (const p of PEOPLE) {
       const { rows } = await tx.query<{ id: string }>(

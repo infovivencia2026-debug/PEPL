@@ -10,7 +10,7 @@
  * spanning several, which would both hold locks too long and blur the isolation
  * boundary the whole system rests on.
  */
-import { controlDb } from '../control-plane/index.ts'
+import { controlDb, projectEntitlements } from '../control-plane/index.ts'
 import { withTenant } from '../db/tenant-tx.ts'
 import { accrueMonthly, rollover } from '../leave/ledger.ts'
 import { evaluateBreaches } from '../work/helpdesk.ts'
@@ -290,6 +290,36 @@ export async function runMailSync(): Promise<JobResult> {
   })
 }
 
+/**
+ * Re-derives every tenant's entitlements from its plan.
+ *
+ * tenant_entitlements is a PROJECTION of plan + subscription + add-ons, and
+ * nothing re-projects on its own. When the catalogue changes — a feature added
+ * to a tier, a price change — existing customers keep the old projection until
+ * this runs. It cannot be done in a migration: tenant_entitlements is under
+ * FORCE ROW LEVEL SECURITY, so an UPDATE from the migration role with no tenant
+ * context matches zero rows and reports success.
+ */
+export async function runReprojectEntitlements(): Promise<JobResult> {
+  const started = Date.now()
+  const { rows } = await controlDb.query<{ id: string }>(
+    `SELECT id FROM tenants WHERE status = 'active'`)
+  const errors: { tenantId: string; message: string }[] = []
+  let affected = 0
+
+  for (const tenant of rows) {
+    try {
+      // The superuser control connection, deliberately: this is a control-plane
+      // write, and the app role is explicitly denied it.
+      await projectEntitlements(controlDb, tenant.id)
+      affected++
+    } catch (err) {
+      errors.push({ tenantId: tenant.id, message: (err as Error).message })
+    }
+  }
+  return { job: 'control.reproject_entitlements', tenants: rows.length, affected, errors, durationMs: Date.now() - started }
+}
+
 export const JOBS = {
   'leave.accrual': () => runLeaveAccrual(),
   'helpdesk.sla': runSlaBreaches,
@@ -297,6 +327,7 @@ export const JOBS = {
   'audit.seal': runAuditSeal,
   'mail.outbox': runMailOutbox,
   'mail.sync': runMailSync,
+  'control.reproject_entitlements': runReprojectEntitlements,
   'notifications.email': runNotificationEmail,
 } as const
 

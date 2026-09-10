@@ -26,7 +26,8 @@
     "shoot": "node --experimental-strip-types scripts/shoot.ts",
     "check:responsive": "node --experimental-strip-types scripts/responsive-check.ts",
     "scheduler": "node --experimental-strip-types src/jobs/scheduler.ts",
-    "gate:permissions": "node --experimental-strip-types scripts/gate-permissions.ts"
+    "gate:permissions": "node --experimental-strip-types scripts/gate-permissions.ts",
+    "smoke": "node --experimental-strip-types scripts/smoke.ts"
   },
   "dependencies": {
     "@dnd-kit/core": "^6.3.1",
