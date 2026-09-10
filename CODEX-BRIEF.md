@@ -4,7 +4,7 @@ This supersedes `API-HANDOFF.md` and contains it. Part 1 is the original handoff
 corrected where the backend has moved on. Part 2 is everything built since. Part 3
 is what to build next and what is still genuinely missing.
 
-The backend is complete and tested for every feature described here: **366 tests,
+The backend is complete and tested for every feature described here: **416 tests,
 88 routes, 19 launch checks, all green in one run.**
 
 ---
@@ -14,7 +14,7 @@ The backend is complete and tested for every feature described here: **366 tests
 ```bash
 npm install
 npm run db:setup      # roles + database + extensions (needs a local Postgres)
-npm run migrate       # 24 migrations
+npm run migrate       # 25 migrations
 npm run seed:demo     # a realistic 10-person company
 npm run api           # http://localhost:4010
 npm run openapi       # regenerates openapi.json from the live route table
@@ -160,7 +160,7 @@ never Edit.
 
 **Config** (`GET /api/v1/config`) returns every setting with label, help text, type,
 default, current value and `changedFromDefault`. **Generate the settings screens from
-this response** rather than hand-coding forms — there are now 34 settings and new
+this response** rather than hand-coding forms — there are now 37 settings and new
 ones must appear automatically. Offer a "show only changed" filter. Settings with
 `requiresEffectiveDate` need a date picker defaulting to the start of next month.
 
@@ -321,9 +321,88 @@ any error rather than importing the good half.
 and `offset` and return `hasMore`. A month of attendance across 300 people is 9,000
 rows; render "showing 500 of …" rather than a silently truncated month.
 
-## 2.7 Settings that now exist
+## 2.7 Realtime — `GET /api/v1/events`
 
-Nine new keys, all generated into the settings screen automatically:
+Server-sent events, not a socket: everything travels server to client,
+EventSource reconnects itself, and it is ordinary HTTP so the session cookie
+already authenticates it. **Do not build polling.**
+
+```ts
+import { on } from './live'
+
+useEffect(() => on('chat.message', (e) => {
+  // e.data = { conversationId, messageId, senderUserId }
+  if (e.data.conversationId === openConversationId) refetchMessages()
+  else bumpUnreadBadge(e.data.conversationId as string)
+}), [openConversationId])
+```
+
+`web/src/live.ts` is written and typed: `on(type, handler)` returns an
+unsubscribe function, and one connection is shared by the whole app. Opening an
+EventSource per component would exhaust the six-connection-per-origin budget and
+stall ordinary requests.
+
+Event types published today:
+
+| Event | `data` | Who receives it |
+|---|---|---|
+| `chat.message` | `conversationId`, `messageId`, `senderUserId` | conversation members |
+| `chat.conversation` | `conversationId` | its participants |
+| `mail.delivered` | `subject`, `from` | the recipients with a mailbox here |
+| `approval.decided` | `requestId`, `status`, `action` | whoever raised it |
+| `announcement.published` | `announcementId` | the audience |
+
+Two guarantees worth relying on:
+
+- **An event is published only after the transaction commits.** If you receive
+  `chat.message`, refetching will find it. There is no window where the event
+  arrives before the row exists.
+- **Reconnect replays what was missed.** The server keeps the last 200 events per
+  company and answers `Last-Event-ID` from it, so a tunnel or a sleeping laptop
+  does not silently drop messages. This is handled inside EventSource; you do not
+  write retry logic.
+
+An event carries an id and enough to update a badge — never the message body.
+Refetch on receipt: it keeps permissions in one place, and the stream cannot
+become a way to read something the API would refuse.
+
+## 2.8 Outbound mail actually sends
+
+`mail.outbox` is a job (`npm run job mail.outbox`) that drains the queued
+commands over SMTP, using the mailbox settings that person connected. So
+`queuedFor` in the send response now genuinely means *queued and it will go*,
+not *queued and nothing is listening*.
+
+What the UI should still show honestly: **delivered** for colleagues (immediate,
+in the same transaction) and **queued** for outside addresses (a job away). The
+worker retries a temporary failure with backoff and abandons a permanent
+rejection immediately, so a message can end up `abandoned` — worth surfacing in
+a Sent folder as "could not be delivered".
+
+Requires `PEPL_MAIL_KEY` in the environment; without it the job does nothing and
+says so.
+
+## 2.9 Notification email
+
+`notifications.email` is a job that emails notifications marked for it, through
+the same outbox. Three settings drive it, and all three belong on the settings
+screen:
+
+| Key | Default | Note |
+|---|---|---|
+| `notifications.enabled` | on | the bell itself |
+| `notifications.email_enabled` | off | needs a sender below |
+| `notifications.sender_email` | *(empty)* | a mailbox already connected in PEPL |
+
+The sender is deliberate: mail from a domain PEPL does not own fails SPF and
+lands in spam. The help text says so — surface it rather than shortening it.
+A notification the person already read in the app is never emailed.
+
+## 2.10 Settings that now exist
+
+Twelve new keys, all generated into the settings screen automatically. There are
+37 settings in total — hand-coding them is no longer viable, so build that screen
+from `GET /api/v1/config`.
 
 | Key | Default | Note |
 |---|---|---|
@@ -336,29 +415,32 @@ Nine new keys, all generated into the settings screen automatically:
 | `mail.allow_external_recipients` | on | off = colleagues only |
 | `documents.enabled` | on | |
 | `documents.max_upload_mb` | 10 | |
+| `notifications.enabled` | on | |
+| `notifications.email_enabled` | off | |
+| `notifications.sender_email` | *(empty)* | free text; a connected mailbox |
 
 ---
 
 # Part 3 — What to build, in order
 
 1. **Chat UI.** The largest visible hole. Conversation list, thread, composer,
-   attachments. Poll `GET /chat/conversations` on an interval — there is no socket yet
-   (see below), so keep the interval modest and pause it when the tab is hidden.
+   attachments. Subscribe to `chat.message` (§2.7) — do not poll.
 2. **Mail UI.** Folder rail, message list, reading pane, composer, thread view.
+   Show delivered-vs-queued honestly on send.
 3. **Document upload** on the employee profile, the ticket detail and the chat
    composer — one component, three placements.
 4. **Payslip download** on the payslip screen and in the employee's own pay history.
 5. **Import wizard** — upload, review, commit.
-6. **Settings screen regenerated** so the nine new keys appear without hand-coding.
+6. **Settings screen regenerated** from `GET /api/v1/config`, so all 37 keys appear
+   without hand-coding.
 
 ## Still genuinely missing — do not design around these as if present
 
-- **No realtime transport.** Chat and notifications are polled. A socket or SSE layer
-  is the next backend slice.
-- **No SMTP/IMAP worker.** External mail queues correctly and is never lost, but
-  nothing drains the queue yet, and external mail does not arrive. Internal mail works
-  end to end. The UI must show queued-vs-delivered honestly.
-- **No email or push delivery** of notifications; they are stored and readable.
+- **No IMAP sync.** Mail *sends* externally; nothing *arrives* from an outside
+  server. Internal mail works both ways. A mailbox connected to Gmail will show
+  what PEPL sent, not what the world sent back.
+- **No push notifications.** Email and in-app only. Push needs APNs/FCM
+  credentials, which is a deployment decision, not code.
 - **No notification sounds.** When they come: unlock audio on a real user gesture,
   never sound alone as a signal, per-channel tones, default OFF, DND from shift hours.
 - **No object storage.** Document bytes live in Postgres behind a `storage` column, so
@@ -367,27 +449,47 @@ Nine new keys, all generated into the settings screen automatically:
   real projection against real slabs, with `limitations` stating exactly what it
   omits. Surface that string rather than implying a final tax figure.
 
-## Frontend housekeeping I have not done
+## The frontend as you will find it
 
-- `web/src/Workforce.tsx` (672), `App.tsx` (606), `People.tsx` (534),
-  `Operations.tsx` (492), `Payroll.tsx` (399) and `styles.css` (~4,400) are still
-  single large files. `Dashboard.tsx` shows the pattern to follow: tiles as
-  element-returning functions in `web/src/dashboard/`, arithmetic in a pure
-  `metrics.ts`, the screen file reduced to arrangement.
+The screen files were split, so the paths in your editor changed even though no
+import did:
+
+```
+web/src/Workforce.tsx   -> barrel over workforce/{Attendance,Leave,Approvals}Page.tsx
+web/src/People.tsx      -> barrel over people/{PeopleList,EmployeeProfile}.tsx
+web/src/Operations.tsx  -> barrel over operations/{Tasks,Announcements,Settings,Reports,Activity}Page.tsx
+web/src/App.tsx         -> app/nav.ts (the nav model) + app/screen.tsx (route -> screen)
+web/src/styles.css      -> six files in styles/, imported in cascade order
+```
+
+**The stylesheet order is load-bearing** — later files deliberately override
+earlier ones. Add new rules to `styles/refinements.css` or a new file imported
+last, never by reordering the imports.
+
+Two traps that cost me real time:
+
 - **`WidgetBoard` filters children for `Widget` using `Children.toArray`, which
   flattens arrays but NOT fragments or components.** A tile wrapped in a component
   vanishes silently, with no error. Return `Widget` elements from plain functions.
-- Two residual responsive items: an 11px text run on phones (target 12px) and one
-  41px button on iPad Pro (target 44px).
-- One-viewport fit was not achieved and is a product decision, not a CSS one: 14
-  tiles cannot fit 900px at readable sizes. The board supports hide/show, so fewer
-  default tiles is the lever.
+- **A `<button>` with no class slips through every class-based CSS rule.** The
+  inactive tab in `Tabs` is exactly that, and it was the last 41px touch target.
+
+Responsive is clean: **eight devices, no horizontal overflow, no target under
+44px, no text under the 12px floor.** Avatar initials stay at 11px on purpose —
+a graphic inside a circle, not text anyone reads. Keep `npm run check:responsive`
+green.
+
+One-viewport fit was not achieved and is a product decision, not a CSS one: 14
+tiles cannot fit 900px at readable sizes. The board supports hide/show, so fewer
+default tiles is the lever.
 
 ## Sanity check
 
 ```bash
-npm test          # 366 tests, including 33 against the running HTTP API
+npm test          # 416 tests, including 33 against the running HTTP API
 npm run verify    # every gate, end to end
+npm run check:responsive   # eight devices, currently clean
+npm run job mail.outbox    # drains queued external mail
 ```
 
 If `verify` is green the backend is behaving. If a UI call fails, the error `code`
