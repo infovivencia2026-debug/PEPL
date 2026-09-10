@@ -32,6 +32,14 @@ const leave = defineConfig('leave', {
     help: 'The smallest amount of leave an employee may apply for.',
     scopable: ['department', 'grade'],
   }),
+  sandwich_holidays: bool({
+    default: false,
+    label: 'Count holidays inside a leave as leave',
+    help: 'When on, a weekly off or company holiday falling BETWEEN two leave days is itself deducted. A non-working day at the start or end of a leave is never charged under either setting.',
+    risk: 'high',
+    affects: ['payroll'],
+    scopable: ['department', 'location', 'grade'],
+  }),
   allow_negative_balance: bool({
     default: false,
     label: 'Allow negative leave balance',

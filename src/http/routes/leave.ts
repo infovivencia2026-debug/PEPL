@@ -1,5 +1,6 @@
 /** Leave. */
 import type { Router } from '../router.ts'
+import { countLeaveDays, holidaysBetween } from '../../leave/days.ts'
 import {
   HttpError,
   authed,
@@ -58,20 +59,45 @@ export function register(router: Router): void {
     authed('leave.apply', async (ctx) => {
       requireModule(ctx, 'leave.enabled')
       const b = requireBody<{ leaveTypeId: string; startDate: string; endDate: string; totalDays: number; reason?: string; dayParts?: Record<string, string>; employeeId?: string }>(
-        ctx.req, ['leaveTypeId', 'startDate', 'endDate', 'totalDays'])
+        ctx.req, ['leaveTypeId', 'startDate', 'endDate'])
       const employeeId = b.employeeId ?? ctx.auth.employeeId
       if (!employeeId) throw new HttpError(422, 'NO_EMPLOYEE_RECORD', 'this user has no employee record')
       assertScope(ctx.auth, employeeId)
+
+      const startDate = asDate(b.startDate, 'startDate')
+      const endDate = asDate(b.endDate, 'endDate')
+
+      // The SERVER counts the days. A client-supplied total is a number the
+      // browser chose about how much balance to deduct, which is not a thing to
+      // take on trust — and counting here is what makes the sandwich rule
+      // possible at all, since it needs the holiday calendar.
+      const counted = countLeaveDays({
+        startDate,
+        endDate,
+        dayParts: b.dayParts,
+        weekPattern: ctx.config.get<'five_day' | 'six_day' | 'alternate_saturday' | 'roster'>(
+          'attendance.week_pattern'),
+        holidays: await holidaysBetween(ctx.tx, { startDate, endDate }),
+        sandwich: ctx.config.get<boolean>('leave.sandwich_holidays'),
+      })
+
+      // A mismatch is reported rather than silently corrected: the applicant
+      // was shown a number, and a balance quietly deducted by a different one
+      // is how trust in the leave screen dies.
+      if (b.totalDays !== undefined && Math.abs(Number(b.totalDays) - counted.totalDays) > 1e-9) {
+        throw new HttpError(
+          422, 'LEAVE_DAYS_MISMATCH',
+          `this request is ${counted.totalDays} day(s), not ${b.totalDays}`,
+          { counted: counted.totalDays, sent: b.totalDays, skipped: counted.skipped },
+        )
+      }
 
       // The smallest unit this company allows. A tenant that works in whole
       // days should not receive a request for 2.5, and the rejection belongs
       // here rather than in a form that a different client would not run.
       const minUnit = ctx.config.get<'full_day' | 'half_day' | 'hourly'>('leave.min_unit')
       const step = minUnit === 'full_day' ? 1 : minUnit === 'half_day' ? 0.5 : 0.125
-      const days = Number(b.totalDays)
-      if (!Number.isFinite(days) || days <= 0) {
-        throw new HttpError(422, 'INVALID_DAYS', 'totalDays must be a positive number')
-      }
+      const days = counted.totalDays
       if (Math.abs(Math.round(days / step) * step - days) > 1e-9) {
         throw new HttpError(
           422, 'LEAVE_UNIT_NOT_ALLOWED',
@@ -87,8 +113,8 @@ export function register(router: Router): void {
            (tenant_id, employee_id, leave_type_id, start_date, end_date, day_parts, total_days, reason)
          VALUES ($1,$2,$3,$4,$5,$6::jsonb,$7,$8) RETURNING id`,
         [ctx.auth.tenantId, employeeId, asUuid(b.leaveTypeId, 'leaveTypeId'),
-         asDate(b.startDate, 'startDate'), asDate(b.endDate, 'endDate'),
-         JSON.stringify(b.dayParts ?? {}), b.totalDays, b.reason ?? null])
+         startDate, endDate,
+         JSON.stringify(b.dayParts ?? {}), counted.totalDays, b.reason ?? null])
 
       const requestId = rows[0]!.id
 
@@ -111,7 +137,7 @@ export function register(router: Router): void {
         entityType: 'leave', entityId: requestId, requestedByUserId: ctx.auth.userId,
         subjectEmployeeId: employeeId,
         chainCode: ctx.config.get<string>('leave.approval_chain') as never,
-        title: `Leave · ${b.totalDays} day(s) from ${b.startDate}`,
+        title: `Leave · ${counted.totalDays} day(s) from ${startDate}`,
         approvers: { manager: mgr[0]?.user_id, hr: hr[0]?.user_id },
       })
       return created({ id: requestId, approvalRequestId: approvalId })
