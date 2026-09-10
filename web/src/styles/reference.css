@@ -58,9 +58,10 @@ body { padding:46px 44px 40px; background: repeating-linear-gradient(132deg,tran
 .widget-content .card-head { margin-bottom:18px; align-items:center; }
 .widget-content .card-head h2 { font-size:15px; font-weight:750; color:#153343; letter-spacing:-.25px; }
 .widget-content .card-head p { font-size:10px; margin-top:4px; color:#8293a0; }
-/* No "View all" affordance: the whole tile is the link (see ui.tsx Card).
-   A second, smaller target for the same destination is noise, and as generated
-   content it is read out as part of the heading — "Employee overview View all". */
+/* No 'View all' affordance — product owner's decision, and it overrides the
+   visual reference, which shows one. The whole tile is already the link (see
+   ui.tsx Card); a second smaller target for the same destination is noise, and
+   as generated content it is announced as part of the heading. */
 .widget-content .donut { width:166px; flex-shrink:0; }
 .widget-content .donut-layout { gap:20px; align-items:center; }
 .widget-content .donut strong { font-size:24px; font-weight:750; }

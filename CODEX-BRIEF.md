@@ -42,63 +42,60 @@ Build against all seven. The permission model is real: a screen that looks right
 
 ---
 
-# Standing UI instructions — these override any visual reference
+# Standing UI instructions
 
-These come from the product owner directly. They have each been undone once by
-a later change, so they are written here rather than left in a commit message.
-If a design reference disagrees with this list, **this list wins**.
+**The reference screenshot (PeopleNest HR) is the source of truth for the
+visual design.** Match it — layout, proportions, the stat tiles, the donuts, the
+payroll bars, the orange culture card, the announcements photo. Do not
+substitute your own judgement for it.
 
-## 1. No "View all" arrows. The whole tile is the link.
+There is exactly **one deliberate deviation**, below. Everything else in the
+reference stands.
 
-A dashboard card reads as one object, so the entire card is the target — the
-anchor sits on the title with a stretched `::after` overlay (`web/src/ui.tsx`,
-`Card`). Do not add a second, smaller link to the same destination in the
-corner, in the header, or as generated content.
+## The one deviation: no "View all" arrows
 
-This was reintroduced once as CSS:
+The reference shows a small `View All →` link in the corner of every card.
+**Do not implement it.** This is the product owner's decision and it overrides
+the reference.
+
+The whole card is already the link — the anchor sits on the title with a
+stretched `::after` overlay (`web/src/ui.tsx`, `Card`). A second, smaller target
+for the same destination is redundant, and as CSS generated content it is
+announced by screen readers as part of the heading: *"Employee overview View
+all →"*.
+
+It has now been removed twice. The second time it was reintroduced here, which
+is why the component-level removal did not hold:
 
 ```css
-/* removed — do not restore */
+/* web/src/styles/reference.css — removed, do not restore */
 .widget-content .card-head::after { content: 'View all  →'; }
+.widget-content .card-linked .card-head::after { content: 'View all  →'; }
 ```
 
-Generated content is also announced by screen readers, so the heading became
-"Employee overview View all →". If a card needs an affordance, style the
-existing whole-tile link; do not add a new one.
+If a card needs a stronger affordance, style the existing whole-tile link.
 
-## 2. No decorative tiles, no aspirational copy.
-
-Every widget slot must carry information. Removed once already:
-
-- a `.culture-card` reading "Great people make a brighter tomorrow."
-- a "People Thrive Together" stock photo tile
-
-On a 375px phone these occupied a whole page of a six-page dashboard. Earlier
-copy that was replaced for the same reason: "A team, many talents" →
-**"Employee overview"**, "Showing up, together" → **"Attendance today"**, "A
-little attention" → **"Leave requests"**.
-
-Headings name what the tile shows. Empty states say what will appear there
-("Requests needing your decision appear here"), not something encouraging.
-
-## 3. Chat and mail are real modules, gated by `modules.chat` / `modules.mail`.
-
-Not by role. See §2.1 and §2.2.
-
-## 4. Accessibility is a gate, not a polish pass.
+## Accessibility gates — these are not style opinions
 
 `npm run check:responsive` covers eight devices and is currently green: no
-horizontal overflow, no target under 44px on touch, no text under the floor.
-Keep it green. Specifically:
+horizontal overflow, no target under 44px on touch, no text below the floor.
+Keep it green. Four specific things found in the last review, still open:
 
-- Contrast ≥ 4.5:1 for normal text. The orange culture card was white on
-  `#ed694e` — **3.12:1**, a fail.
-- A `tabIndex={0}` container needs a `role` and a reason: adding it to a
-  non-scrollable div creates a focus stop that does nothing.
-- Content that swaps in place (dashboard pages) needs `aria-live="polite"`, or
-  a screen reader user gets no signal that anything changed.
-- A control that becomes `disabled` while focused drops focus to `<body>`.
-  Keep it enabled and inert, or move focus deliberately.
+1. **Contrast ≥ 4.5:1 for normal text.** The culture card is white on `#ed694e`
+   — measured **3.12:1**. Keep the card and its colour; darken the gradient, or
+   raise the text weight/size to large-text territory (≥18.66px bold).
+2. **`aria-live="polite"`** on the dashboard pager status. Paging swaps every
+   tile with no announcement (`web/src/WidgetBoard.tsx:127-130`).
+3. **A disabled control must not eat focus.** Prev/Next go `disabled` while
+   focused at the ends, dropping focus to `<body>` (`WidgetBoard.tsx:129`).
+4. **`tabIndex={0}` needs a role and a reason.** `.widget-frame` and
+   `.route-content` are both focusable and both measured non-scrollable on the
+   dashboard — two focus stops that do nothing.
+
+## Chat and mail are modules
+
+Gated by `modules.chat` / `modules.mail` from `GET /api/v1/me`, never by role.
+See §2.1 and §2.2.
 
 ---
 
