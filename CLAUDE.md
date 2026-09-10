@@ -129,12 +129,21 @@ tool for source containing regex escapes, or a character class instead of ``.
 Large TypeScript files with nested quotes fail outright — CLAUDE.md already says this;
 it applies to `src/http/routes/*.ts` too.
 
-## Intermittent suite failure (unattributed)
+## Suites must not touch shared control-plane state (the old "intermittent" failure)
 
-One full-suite run in five reported 365/366 with the failure detail already scrolled
-out of the buffer; four consecutive runs since are 366/366. Not yet attributed. If it
-recurs, capture with `npm test > log 2>&1` and grep for the failing name BEFORE
-re-running — the retry is what destroys the evidence.
+`realtime.test.ts` used to run `DELETE FROM control_plane.subscriptions` in its
+setup. That table is shared by every suite's tenants, so the failure it caused
+depended on file order — which is why it looked intermittent and went
+unattributed for weeks. Adding one unrelated test file changed the order and made
+it reproducible: 463 passed, 17 skipped, exit 1.
+
+The rule: **a suite may truncate only what it owns.** `resetAndSeed()` in
+fixtures.ts is the sanctioned reset; anything beyond it — especially the
+`control_plane` schema — is somebody else's fixture.
+
+A suite that provisions its own tenant should assert the tenant exists before
+using it, so the failure names the cause instead of surfacing three statements
+later as a foreign-key violation.
 
 ## Realtime
 

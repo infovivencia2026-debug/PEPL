@@ -125,12 +125,25 @@ beforeAll(async () => {
   bobEmail = `rt-bob-${stamp}@example.test`
   carolEmail = `rt-carol-${stamp}@example.test`
 
-  await controlDb.query(`DELETE FROM control_plane.subscriptions`)
+  // No global DELETE here. This suite once cleared control_plane.subscriptions,
+  // which is shared state every other suite's tenants sit in — a side effect
+  // that belongs to no test and makes failures depend on file order.
   const provisioned = await provisionTenant({
-    legalName: 'Realtime Test Ltd', displayName: 'Realtime', planCode: 'growth',
+    legalName: `Realtime Test ${stamp}`, displayName: 'Realtime', planCode: 'growth',
     adminEmail, adminName: 'RT Admin',
   })
   tenantId = provisioned.tenantId
+
+  // Assert the precondition rather than discovering it three statements later
+  // as a foreign-key violation that names neither the tenant nor the cause.
+  const { rows: exists } = await controlDb.query<{ n: string }>(
+    `SELECT count(*) AS n FROM tenants WHERE id = $1`, [tenantId])
+  if (exists[0]?.n !== '1') {
+    throw new Error(
+      `provisioned tenant ${tenantId} is not in the database — another suite truncated ` +
+      'tenants while this one was setting up',
+    )
+  }
 
   // The provisioner creates the tenant, not a password; the test owns its login.
   adminUserId = await withTenant(tenantId, (tx) =>
