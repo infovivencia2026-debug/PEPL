@@ -1,8 +1,10 @@
+# Three services, because there are three jobs: hold the data, serve the
+# requests, and run the work nobody is waiting on.
 services:
   db:
     image: postgres:16
     environment:
-      POSTGRES_PASSWORD: postgres
+      POSTGRES_PASSWORD: ${SUPER_PASSWORD:?set SUPER_PASSWORD}
       POSTGRES_DB: postgres
     ports: ['5433:5432']
     volumes: ['pepl-data:/var/lib/postgresql/data']
@@ -15,23 +17,43 @@ services:
     build: .
     depends_on:
       db: { condition: service_healthy }
-    environment:
+    environment: &env
       PGHOST: db
       PGPORT: '5432'
       SUPER_USER: postgres
-      SUPER_PASSWORD: postgres
+      SUPER_PASSWORD: ${SUPER_PASSWORD:?set SUPER_PASSWORD}
       PEPL_DB: pepl
       OWNER_USER: pepl_owner
       OWNER_PASSWORD: ${OWNER_PASSWORD:?set OWNER_PASSWORD}
       APP_USER: pepl_app
       APP_PASSWORD: ${APP_PASSWORD:?set APP_PASSWORD}
+      # Encrypts stored mailbox passwords. Without it, mail silently does
+      # nothing — the jobs say so in their output rather than failing quietly.
+      PEPL_MAIL_KEY: ${PEPL_MAIL_KEY:?set PEPL_MAIL_KEY}
       PORT: '4010'
     ports: ['4010:4010']
-    # Migrations run on boot: the schema and the code that expects it ship together.
+    # Migrations run on boot: the schema and the code that expects it ship
+    # together, and a half-deployed schema is never a state anyone has to debug.
     command: >
       sh -c "node --experimental-strip-types scripts/bootstrap.ts &&
              node --experimental-strip-types src/db/migrate.ts &&
              node --experimental-strip-types src/http/server.ts"
+
+  # Outbound mail, inbound sync, SLA breaches, retention and the audit seal.
+  # Separate from the API because a job that takes a minute must not compete
+  # with a request that has to answer in fifty milliseconds — and because
+  # running two API instances must not double every scheduled job.
+  scheduler:
+    build: .
+    depends_on:
+      api: { condition: service_started }
+      db: { condition: service_healthy }
+    environment: *env
+    # Exactly one. The jobs are idempotent, but a second copy doubles the load
+    # on every tenant's mail server for no benefit.
+    deploy:
+      replicas: 1
+    command: ['node', '--experimental-strip-types', 'src/jobs/scheduler.ts']
 
 volumes:
   pepl-data:

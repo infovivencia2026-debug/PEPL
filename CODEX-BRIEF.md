@@ -4,8 +4,8 @@ This supersedes `API-HANDOFF.md` and contains it. Part 1 is the original handoff
 corrected where the backend has moved on. Part 2 is everything built since. Part 3
 is what to build next and what is still genuinely missing.
 
-The backend is complete and tested for every feature described here: **416 tests,
-88 routes, 19 launch checks, all green in one run.**
+The backend is complete and tested for every feature described here: **468 tests,
+89 routes, 19 launch checks, all green in one run.**
 
 ---
 
@@ -160,7 +160,7 @@ never Edit.
 
 **Config** (`GET /api/v1/config`) returns every setting with label, help text, type,
 default, current value and `changedFromDefault`. **Generate the settings screens from
-this response** rather than hand-coding forms — there are now 37 settings and new
+this response** rather than hand-coding forms — there are now 33 settings and new
 ones must appear automatically. Offer a "show only changed" filter. Settings with
 `requiresEffectiveDate` need a date picker defaulting to the start of next month.
 
@@ -398,10 +398,51 @@ The sender is deliberate: mail from a domain PEPL does not own fails SPF and
 lands in spam. The help text says so — surface it rather than shortening it.
 A notification the person already read in the app is never emailed.
 
-## 2.10 Settings that now exist
+## 2.10 Four settings were REMOVED
 
-Twelve new keys, all generated into the settings screen automatically. There are
-37 settings in total — hand-coding them is no longer viable, so build that screen
+A gate now fails the build on any setting no code reads. It found twelve. Nine
+were wired to real behaviour; **four were deleted, and a generated settings
+screen will simply stop showing them**:
+
+| Removed | Why |
+|---|---|
+| `attendance.grace_minutes` | late marking needs shift start times, which PEPL does not model |
+| `leave.sandwich_holidays` | needs server-side day counting; the client currently sends `totalDays` |
+| `leave.encashment_enabled` | there is no payout feature behind it |
+| `payroll.employer_pf_in_ctc` | there is no CTC composition step to apply it to |
+
+They come back when the feature behind them does. Nothing to build here — the
+settings screen is generated from `GET /api/v1/config`, so they disappear on
+their own.
+
+What the nine wired ones now actually do, in case a screen explains them:
+
+| Setting | Effect |
+|---|---|
+| `attendance.week_pattern` | a weekly off is `status: "weekly_off"`, never absence |
+| `attendance.half_day_mode` + `half_day_hours` | a short day auto-marks as half |
+| `attendance.remote_enabled` | `403 REMOTE_NOT_ALLOWED` when marking someone remote |
+| `attendance.remote_is_paid` | a remote day carries no pay when this is off |
+| `attendance.correction_window_days` | `409 CORRECTION_WINDOW_CLOSED` past the window |
+| `leave.min_unit` | `422 LEAVE_UNIT_NOT_ALLOWED` for a disallowed fraction |
+| `documents.max_upload_mb` | the real upload ceiling; `details.limitBytes` on the 413 |
+| `chat.history_retention_days` | old message bodies cleared, message rows kept |
+| `helpdesk.default_response_sla_minutes` | used when a category names no SLA of its own |
+
+Two of these give you new error codes to handle:
+
+| Code | Status | What the UI should do |
+|---|---|---|
+| `CORRECTION_WINDOW_CLOSED` | 409 | Say how far back this company allows, from the message |
+| `REMOTE_NOT_ALLOWED` | 403 | Hide the mark-remote action entirely |
+| `LEAVE_UNIT_NOT_ALLOWED` | 422 | Constrain the form's step to `details.minUnit` |
+
+---
+
+## 2.11 Settings that now exist
+
+Twelve keys were added, all generated into the settings screen automatically.
+After the four removals above there are 33 in total — hand-coding them is no longer viable, so build that screen
 from `GET /api/v1/config`.
 
 | Key | Default | Note |
@@ -434,11 +475,24 @@ from `GET /api/v1/config`.
 6. **Settings screen regenerated** from `GET /api/v1/config`, so all 37 keys appear
    without hand-coding.
 
+## Running it
+
+Three processes, not one: the API, Postgres, and **the scheduler**
+(npm run scheduler). Without the scheduler, outbound mail never sends and
+inbound mail never arrives — which looks exactly like a broken feature from the
+UI. docs/operations.md has the environment, the probes, the backup drill and
+what to check when mail is quiet.
+
+Route load-balancer traffic on GET /health/ready, not /health: readiness
+answers whether the instance can actually serve, liveness only whether the
+process is up.
+
 ## Still genuinely missing — do not design around these as if present
 
-- **No IMAP sync.** Mail *sends* externally; nothing *arrives* from an outside
-  server. Internal mail works both ways. A mailbox connected to Gmail will show
-  what PEPL sent, not what the world sent back.
+- **IMAP now syncs** (imapflow), so external mail arrives as well as sends —
+  envelopes only, unless the company switches on mail.store_bodies. What is NOT
+  there: IDLE push, so new mail appears on the sync interval rather than the
+  instant it lands.
 - **No push notifications.** Email and in-app only. Push needs APNs/FCM
   credentials, which is a deployment decision, not code.
 - **No notification sounds.** When they come: unlock audio on a real user gesture,
@@ -486,7 +540,7 @@ default tiles is the lever.
 ## Sanity check
 
 ```bash
-npm test          # 416 tests, including 33 against the running HTTP API
+npm test          # 468 tests, including 33 against the running HTTP API
 npm run verify    # every gate, end to end
 npm run check:responsive   # eight devices, currently clean
 npm run job mail.outbox    # drains queued external mail

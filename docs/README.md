@@ -32,6 +32,7 @@ Every tenant administrator has full control over how PEPL behaves **for their ow
 | 15 | [architecture/mail.md](architecture/mail.md) | **Mail: IMAP/SMTP client model, sync engine, credential custody, per-tenant config** |
 | 16 | [architecture/communication.md](architecture/communication.md) | Chat and announcements (its §5 mailbox section is superseded by mail.md) |
 | 17 | [architecture/platform-control-plane.md](architecture/platform-control-plane.md) | Public launch: signup, provisioning, plans, billing, support, trust, launch gates |
+| 18 | [operations.md](operations.md) | **Running it: the three processes, environment, probes, backups, and what to check when something is wrong** |
 
 ## The tenant control principle
 
