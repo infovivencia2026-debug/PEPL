@@ -42,6 +42,66 @@ Build against all seven. The permission model is real: a screen that looks right
 
 ---
 
+# Standing UI instructions — these override any visual reference
+
+These come from the product owner directly. They have each been undone once by
+a later change, so they are written here rather than left in a commit message.
+If a design reference disagrees with this list, **this list wins**.
+
+## 1. No "View all" arrows. The whole tile is the link.
+
+A dashboard card reads as one object, so the entire card is the target — the
+anchor sits on the title with a stretched `::after` overlay (`web/src/ui.tsx`,
+`Card`). Do not add a second, smaller link to the same destination in the
+corner, in the header, or as generated content.
+
+This was reintroduced once as CSS:
+
+```css
+/* removed — do not restore */
+.widget-content .card-head::after { content: 'View all  →'; }
+```
+
+Generated content is also announced by screen readers, so the heading became
+"Employee overview View all →". If a card needs an affordance, style the
+existing whole-tile link; do not add a new one.
+
+## 2. No decorative tiles, no aspirational copy.
+
+Every widget slot must carry information. Removed once already:
+
+- a `.culture-card` reading "Great people make a brighter tomorrow."
+- a "People Thrive Together" stock photo tile
+
+On a 375px phone these occupied a whole page of a six-page dashboard. Earlier
+copy that was replaced for the same reason: "A team, many talents" →
+**"Employee overview"**, "Showing up, together" → **"Attendance today"**, "A
+little attention" → **"Leave requests"**.
+
+Headings name what the tile shows. Empty states say what will appear there
+("Requests needing your decision appear here"), not something encouraging.
+
+## 3. Chat and mail are real modules, gated by `modules.chat` / `modules.mail`.
+
+Not by role. See §2.1 and §2.2.
+
+## 4. Accessibility is a gate, not a polish pass.
+
+`npm run check:responsive` covers eight devices and is currently green: no
+horizontal overflow, no target under 44px on touch, no text under the floor.
+Keep it green. Specifically:
+
+- Contrast ≥ 4.5:1 for normal text. The orange culture card was white on
+  `#ed694e` — **3.12:1**, a fail.
+- A `tabIndex={0}` container needs a `role` and a reason: adding it to a
+  non-scrollable div creates a focus stop that does nothing.
+- Content that swaps in place (dashboard pages) needs `aria-live="polite"`, or
+  a screen reader user gets no signal that anything changed.
+- A control that becomes `disabled` while focused drops focus to `<body>`.
+  Keep it enabled and inert, or move focus deliberately.
+
+---
+
 # Part 1 — The rules that shape every screen
 
 ## 1. Call `GET /api/v1/me` first, and render from it

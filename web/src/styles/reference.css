@@ -58,7 +58,9 @@ body { padding:46px 44px 40px; background: repeating-linear-gradient(132deg,tran
 .widget-content .card-head { margin-bottom:18px; align-items:center; }
 .widget-content .card-head h2 { font-size:15px; font-weight:750; color:#153343; letter-spacing:-.25px; }
 .widget-content .card-head p { font-size:10px; margin-top:4px; color:#8293a0; }
-.widget-content .card-head::after { content:'View all  →'; font-size:10px; white-space:nowrap; color:#617e91; pointer-events:none; }
+/* No "View all" affordance: the whole tile is the link (see ui.tsx Card).
+   A second, smaller target for the same destination is noise, and as generated
+   content it is read out as part of the heading — "Employee overview View all". */
 .widget-content .donut { width:166px; flex-shrink:0; }
 .widget-content .donut-layout { gap:20px; align-items:center; }
 .widget-content .donut strong { font-size:24px; font-weight:750; }
@@ -165,8 +167,8 @@ body { padding:46px 44px 40px; background: repeating-linear-gradient(132deg,tran
   .brand { min-width:230px; }
   .main-nav { margin-left:0; }
 }
-.widget-content .card-head::after { content:none; }
-.widget-content .card-linked .card-head::after { content:'View all  →'; }
+.widget-content .card-head::after,
+.widget-content .card-linked .card-head::after { content:none; }
 .route-accent { top:-47px; }
 @media(min-width:1051px) {
   [data-widget-id=joiners] .empty,[data-widget-id=tasks] .empty { padding:0; min-height:95px; }
