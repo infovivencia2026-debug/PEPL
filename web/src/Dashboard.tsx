@@ -6,8 +6,10 @@
  * deriveMetrics — so a change to one tile cannot disturb another, and the
  * arithmetic can be checked without rendering.
  */
-import { CalendarDays } from 'lucide-react'
-import { WidgetBoard } from './WidgetBoard'
+import { useState } from 'react'
+import { CalendarDays, PartyPopper } from 'lucide-react'
+import { Widget, WidgetBoard } from './WidgetBoard'
+import { PayrollSummaryTile } from './dashboard/PayrollSummaryTile'
 import { dateLabel } from './api'
 import type { Workspace } from './types'
 import { deriveMetrics, permits } from './dashboard/metrics'
@@ -29,7 +31,14 @@ export function Dashboard({
   data: Workspace
   act: (path: string, body: unknown, message: string) => Promise<void>
 }) {
-  const metrics = deriveMetrics(data)
+  const [month, setMonth] = useState(data.today.slice(0, 7))
+  const base = deriveMetrics(data)
+  const metrics = { ...base, month, joiners: data.employees.filter(e => e.date_of_joining.startsWith(month)), payrollThisMonth: data.payroll.find(run => run.period_start.startsWith(month)) }
+  const months = Array.from({ length: 6 }, (_, index) => {
+    const date = new Date(`${data.today.slice(0, 7)}-01T12:00:00Z`)
+    date.setUTCMonth(date.getUTCMonth() - index)
+    return date.toISOString().slice(0, 7)
+  })
   const can = permits(data)
 
   return (
@@ -48,8 +57,9 @@ export function Dashboard({
             month: 'short',
             year: 'numeric',
           })}
-          <span className="status-dot" />
-          <span>Today</span>
+          <select aria-label="Dashboard reporting month" value={month} onChange={event => setMonth(event.target.value)}>
+            {months.map((value, index) => <option key={value} value={value}>{index === 0 ? 'This month' : dateLabel(`${value}-01`, { month: 'long', year: 'numeric' })}</option>)}
+          </select>
         </div>
       </div>
 
@@ -58,8 +68,10 @@ export function Dashboard({
         {statTiles({ data, metrics, can })}
         {chartTiles({ data, metrics, can })}
         {approvalsTile({ data, can })}
+        {can('payroll.read') && data.modules.payroll && <Widget id="payroll-summary" title="Payroll summary" width={3}><PayrollSummaryTile data={data} month={month} /></Widget>}
         {joinersTile({ metrics })}
         {tasksTile({ data, can, act })}
+        <Widget id="inspiration" title="People and culture" width={2}><section className="culture-card"><PartyPopper size={31} /><p>Great people<br />make a brighter<br />tomorrow.</p><span className="culture-dash" /><svg aria-hidden="true" viewBox="0 0 230 60"><path d="M0 60 Q30 24 67 39 T123 34 T180 39 T240 20 M25 65 Q67 19 112 53 T210 48" fill="none" stroke="currentColor" /></svg><i /></section></Widget>
         {activityTile({ data, can })}
         {announcementsTile({ data, can })}
       </WidgetBoard>

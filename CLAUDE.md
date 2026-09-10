@@ -134,6 +134,52 @@ out of the buffer; four consecutive runs since are 366/366. Not yet attributed. 
 recurs, capture with `npm test > log 2>&1` and grep for the failing name BEFORE
 re-running — the retry is what destroys the evidence.
 
+## Realtime
+
+`src/realtime/bus.ts` is in-process pub/sub; `src/realtime/sse.ts` is the stream.
+Two rules hold the guarantees:
+
+- **Publish AFTER commit.** Routes call `ctx.publish(event)`, which QUEUES it;
+  `authed()` flushes the queue once `withTenant` returns, i.e. once the COMMIT
+  has happened. Publishing inline would announce a message that a later error
+  rolls back, and a browser cannot un-see it.
+- **The bus is keyed by tenant**, with an optional user list inside it. An event
+  cannot cross a company any more than a row can.
+
+The SSE endpoint is mounted in `server.ts` BEFORE the JSON router, because the
+router assumes one response and ends it. Tests must do the same when they build
+their own server.
+
+## Mail
+
+`src/mail/smtp.ts` is a hand-rolled client. It REFUSES to send a password over a
+connection with no TLS (`INSECURE_AUTH`) — tests that want authentication against
+the local fake server must pass `allowInsecureAuth: true`, and production must
+never set it. `PEPL_MAIL_KEY` decrypts stored mailbox passwords; without it the
+outbox job does nothing and says so.
+
+A 4xx SMTP reply is temporary and retried with backoff; a 5xx is permanent and
+abandoned at once. Retrying a permanent rejection forever is how an outbox turns
+into a spam incident.
+
+## Web layout
+
+Screens are directories with a barrel at the old path, so imports did not change:
+`Workforce.tsx`, `People.tsx` and `Operations.tsx` re-export from
+`workforce/`, `people/` and `operations/`. `App.tsx` keeps the shell; the nav
+model is `app/nav.ts` and route-to-screen is `app/screen.tsx`.
+
+**`styles.css` is six files imported in cascade order and the order is
+load-bearing** — later files deliberately override earlier ones. Add rules to
+`styles/refinements.css` (or a new file imported last), never by reordering.
+
+- `WidgetBoard` filters children with `Children.toArray`, which flattens ARRAYS
+  but not fragments or components. A tile wrapped in a component vanishes with no
+  error. Return `Widget` elements from plain functions.
+- A `<button>` with no class slips through every class-based CSS rule. The
+  inactive tab in `Tabs` is one, and it was the last 41px touch target.
+- `npm run check:responsive` is green across eight devices. Keep it that way.
+
 ## Config layer
 
 `src/config-registry/` holds the DEFINITIONS (typed, in code). `tenant_settings` and
