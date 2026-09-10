@@ -57,3 +57,10 @@ Browser verification covered mouse dragging, keyboard reordering, save/reload pe
 
 The decorative interlocking ring sculpture was removed because it competed with the PEPL identity. The welcome card now uses restrained contour line artwork, with no continuous hero animation. Three.js and Lottie page-switch effects remain. The dashboard heading is a compact 38-pixel row on desktop, with date and customization controls aligned alongside it; introductory filler copy is removed. Welcome/metric cards, radii, shadows and chart typography were tightened. Drag-and-drop widgets remain functional. Screenshots: docs/ui-checks/compact-desktop.png, compact-tablet.png and compact-mobile.png.
 
+
+## Reference-matching pass
+
+The September 10 reference now drives the default layout: a botanical welcome tile and four KPIs, three middle panels, a compact payroll/joiners/tasks/culture row, and activity/announcements below. The shell, PEPL HR botanical mark, icon-over-label navigation, chart scale, typography, mint/ivory/coral materials and announcement photograph were refined to match. The original generated photograph is stored locally at web/public/images/people-together.png. Responsive rules live in web/src/styles/reference.css.
+
+The reporting-month selector updates joiners and payroll; daily attendance and approved absence remain today's figures. Payroll history displays six months and explicit missing values. No reference-image statistics or employee photos were presented as real data. Birthdays are not supplied by the current employee schema, so the third lower panel remains actionable tasks. Existing widget customization and transitions remain available.
+

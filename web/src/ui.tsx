@@ -11,7 +11,6 @@ import {
   X,
   Search,
   AlertCircle,
-  Leaf,
 } from 'lucide-react'
 import { pretty } from './api'
 export function Button({
@@ -32,11 +31,11 @@ export function Brand() {
   return (
     <a className="brand" href="#/dashboard" aria-label="PEPL dashboard">
       <span className="brand-mark">
-        <Leaf size={27} />
+        <svg viewBox="0 0 48 48" fill="none" aria-hidden="true"><defs><linearGradient id="pepl-leaf-a" x1="4" y1="4" x2="33" y2="43" gradientUnits="userSpaceOnUse"><stop stopColor="#387a76"/><stop offset="1" stopColor="#154d50"/></linearGradient><linearGradient id="pepl-leaf-b" x1="40" y1="3" x2="18" y2="45" gradientUnits="userSpaceOnUse"><stop stopColor="#8bc7b6"/><stop offset="1" stopColor="#398d79"/></linearGradient></defs><path d="M25 44C7 40 1 24 6 5c17 3 26 19 19 39Z" fill="url(#pepl-leaf-a)"/><path d="M27 44C22 23 30 9 43 5c6 22-1 36-16 39Z" fill="url(#pepl-leaf-b)"/><path d="M26 44C34 33 38 22 41 10M24 41C18 26 13 17 8 9" stroke="#d9eece" strokeOpacity=".6" strokeWidth=".8"/></svg>
       </span>
       <span>
-        pepl<span className="brand-dot">.</span>
-        <small>People, at the heart.</small>
+        PEPL HR
+        <small>People · Culture · Growth</small>
       </span>
     </a>
   )

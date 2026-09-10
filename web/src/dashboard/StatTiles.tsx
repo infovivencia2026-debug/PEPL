@@ -1,8 +1,8 @@
 import type { ReactElement } from 'react'
-import { Users, CalendarDays, UserPlus, Wallet, CheckCheck } from 'lucide-react'
+import { Users, CalendarDays, UserPlus, Wallet } from 'lucide-react'
 import { Widget } from '../WidgetBoard'
 import { Stat } from '../ui'
-import { money } from '../api'
+import { money, dateLabel } from '../api'
 import type { Workspace } from '../types'
 import type { DashboardMetrics } from './metrics'
 
@@ -61,7 +61,7 @@ export function statTiles({
         <Stat
           label="New joiners"
           value={metrics.joiners.length}
-          note="This month"
+          note={dateLabel(`${metrics.month}-01`, { month: 'short', year: 'numeric' })}
           icon={<UserPlus size={21} />}
           variant="sand-card"
           href="#/people"
@@ -74,7 +74,7 @@ export function statTiles({
     tiles.push(
       <Widget key="payroll" id="payroll" title="Payroll this month" width={2}>
         <Stat
-          label="Payroll this month"
+          label={metrics.month === data.today.slice(0, 7) ? 'Payroll this month' : `Payroll · ${dateLabel(`${metrics.month}-01`, { month: 'short' })}`}
           value={
             metrics.payrollThisMonth
               ? money(metrics.payrollThisMonth.net_paise)
@@ -93,19 +93,6 @@ export function statTiles({
     )
   }
 
-  if (can('approval.act')) {
-    tiles.push(
-      <Widget key="pending" id="pending" title="Pending approvals" width={3}>
-        <Stat
-          label="Pending approvals"
-          value={data.approvals.length}
-          note="Waiting on you"
-          icon={<CheckCheck size={21} />}
-          href="#/approvals"
-        />
-      </Widget>,
-    )
-  }
-
   return tiles
 }
+

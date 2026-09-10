@@ -18,7 +18,7 @@ export function chartTiles({
 
   if (can('employee.read')) {
     tiles.push(
-      <Widget key="departments" id="departments" title="Employee overview" width={3}>
+      <Widget key="departments" id="departments" title="Employee overview" width={4}>
         <Card
           title="Employee overview"
           subtitle="Headcount by department"
@@ -44,7 +44,7 @@ export function chartTiles({
 
   if (data.modules.attendance && can('attendance.read')) {
     tiles.push(
-      <Widget key="attendance" id="attendance" title="Attendance today" width={3}>
+      <Widget key="attendance" id="attendance" title="Attendance today" width={4}>
         <Card
           title="Attendance today"
           subtitle="Recorded so far"
@@ -74,3 +74,4 @@ export function chartTiles({
 
   return tiles
 }
+

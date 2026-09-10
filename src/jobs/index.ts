@@ -18,6 +18,7 @@ import { resolveConfig } from '../config/resolver.ts'
 import { emit } from '../audit/index.ts'
 import { runOutbox } from '../mail/outbox.ts'
 import { deliverEmails } from '../comms/delivery.ts'
+import { purgeOldMessages } from '../comms/chat.ts'
 
 export interface JobResult {
   job: string
@@ -173,6 +174,21 @@ export async function runRetentionPurge(): Promise<JobResult> {
           WHERE local_date < CURRENT_DATE - 180
             AND (geo_lat IS NOT NULL OR geo_lng IS NOT NULL)`)
 
+      // Chat history, if this company set a retention window. Zero keeps
+      // everything, which is the default.
+      const cfg = await resolveConfig(tx, tenantId)
+      const retentionDays = cfg.isEnabled('chat.enabled')
+        ? cfg.get<number>('chat.history_retention_days')
+        : 0
+      const purgedMessages = await purgeOldMessages(tx, retentionDays)
+      if (purgedMessages > 0) {
+        await emit(tx, {
+          action: 'data.retention.purged',
+          entityType: 'chat', actorType: 'system',
+          metadata: { purged: purgedMessages, kind: 'chat_messages', olderThanDays: retentionDays },
+        }).catch(() => { /* the purge itself must not fail on an audit hiccup */ })
+      }
+
       if (rowCount && rowCount > 0) {
         await emit(tx, {
           action: 'data.retention.purged',
@@ -180,7 +196,7 @@ export async function runRetentionPurge(): Promise<JobResult> {
           metadata: { purged: rowCount, kind: 'punch_coordinates', olderThanDays: 180 },
         }).catch(() => { /* the purge itself must not fail on an audit hiccup */ })
       }
-      return rowCount ?? 0
+      return (rowCount ?? 0) + purgedMessages
     }))
 }
 

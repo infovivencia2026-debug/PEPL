@@ -17,7 +17,7 @@ export function approvalsTile({
   can: (permission: string) => boolean
 }): ReactElement {
   return (
-    <Widget id="approvals" title="Leave requests" width={3}>
+    <Widget id="approvals" title="Leave requests" width={4}>
       <Card
         title="Leave requests"
         subtitle="Waiting on you"
@@ -67,7 +67,7 @@ export function approvalsTile({
 export function joinersTile({ metrics }: { metrics: DashboardMetrics }): ReactElement {
   return (
     <Widget id="joiners" title="New joiners" width={3}>
-      <Card title="New joiners" subtitle="Joined this month" href="#/people">
+      <Card title="New joiners" subtitle={dateLabel(`${metrics.month}-01`, { month: 'long', year: 'numeric' })} href="#/people">
         {metrics.joiners.length ? (
           <div className="joiner-grid">
             {metrics.joiners.slice(0, 4).map((e) => (
@@ -81,7 +81,7 @@ export function joinersTile({ metrics }: { metrics: DashboardMetrics }): ReactEl
           </div>
         ) : (
           <Empty
-            title="No joiners this month"
+            title="No joiners in this month"
             text="New team members appear here on their joining date."
           />
         )}
@@ -101,7 +101,7 @@ export function tasksTile({
   act: (path: string, body: unknown, message: string) => Promise<void>
 }): ReactElement {
   return (
-    <Widget id="tasks" title="My tasks" width={3}>
+    <Widget id="tasks" title="My tasks" width={4}>
       <Card
         title="My tasks"
         subtitle="Assigned to you"
@@ -194,9 +194,10 @@ export function announcementsTile({
     <Widget id="announcements" title="Announcements" width={6}>
       <Card
         title="Announcements"
-        subtitle="Shared with you"
+        subtitle="Shared with you" className="reference-announcements"
         href={can('announcement.read') ? '#/announcements' : undefined}
       >
+        <img className="announcement-photo" src="/images/people-together.png" alt="A notebook reading People Thrive Together beside green leaves" />
         {data.announcements.length ? (
           <div className="announcement-mini">
             {data.announcements.slice(0, 3).map((a) => (
@@ -226,3 +227,4 @@ export function announcementsTile({
     </Widget>
   )
 }
+

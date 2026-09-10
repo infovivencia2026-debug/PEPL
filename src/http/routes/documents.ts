@@ -1,7 +1,8 @@
 /** Documents — upload, list, download, delete. */
 import type { Router } from '../router.ts'
 import {
-  HttpError, authed, ok, created, noContent, requireBody, asUuid, assertScope, emit,
+  HttpError, authed, ok, created, noContent, requireBody, requireModule, asUuid,
+  assertScope, emit,
 } from './deps.ts'
 import {
   deleteDocument, getDocument, listDocuments, putDocument, readDocument,
@@ -37,13 +38,14 @@ export function register(router: Router): void {
     }))
 
   router.post('/api/v1/documents',
-    { summary: 'Upload a document (base64, up to 10 MB)', tag: 'documents',
+    { summary: 'Upload a document (base64, up to the company file-size limit)', tag: 'documents',
       permission: 'document.write',
       requestExample: {
         ownerType: 'employee', ownerId: '…', fileName: 'offer-letter.pdf',
         contentType: 'application/pdf', contentBase64: 'JVBERi0…', category: 'onboarding',
       } },
     authed('document.write', async (ctx) => {
+      requireModule(ctx, 'documents.enabled')
       const b = requireBody<{
         ownerType: string; ownerId?: string; fileName: string
         contentType: string; contentBase64: string
@@ -57,11 +59,23 @@ export function register(router: Router): void {
         assertScope(ctx.auth, owner)
       }
 
+      // The company's own limit, never above what the storage layer accepts.
+      const limit = Math.min(
+        ctx.config.get<number>('documents.max_upload_mb') * 1024 * 1024,
+        MAX_BYTES,
+      )
       // Reject on the encoded length before allocating: base64 is 4 bytes per 3.
-      if (b.contentBase64.length > Math.ceil(MAX_BYTES / 3) * 4 + 16) {
-        throw new HttpError(413, 'FILE_TOO_LARGE', `the limit is ${MAX_BYTES} bytes`)
+      if (b.contentBase64.length > Math.ceil(limit / 3) * 4 + 16) {
+        throw new HttpError(413, 'FILE_TOO_LARGE',
+          `this company allows files up to ${Math.round(limit / 1024 / 1024)} MB`,
+          { limitBytes: limit })
       }
       const bytes = Buffer.from(b.contentBase64, 'base64')
+      if (bytes.length > limit) {
+        throw new HttpError(413, 'FILE_TOO_LARGE',
+          `this company allows files up to ${Math.round(limit / 1024 / 1024)} MB`,
+          { limitBytes: limit })
+      }
 
       const meta = await putDocument(ctx.tx, {
         ownerType: type,

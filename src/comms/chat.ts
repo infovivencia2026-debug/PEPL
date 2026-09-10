@@ -313,3 +313,32 @@ export async function leaveConversation(
     [conversationId, userId],
   )
 }
+
+/**
+ * Deletes messages older than the retention window.
+ *
+ * The bodies and attachments go; the message rows stay as tombstones so a
+ * thread does not renumber under everyone who still has it open, and a
+ * compliance export can still show that something was said and aged out.
+ *
+ * Zero days means keep forever, which is the default: silently deleting a
+ * company history because a field was left blank would be unforgivable.
+ */
+export async function purgeOldMessages(
+  tx: PoolClient,
+  retentionDays: number,
+): Promise<number> {
+  if (!retentionDays || retentionDays <= 0) return 0
+
+  const { rows } = await tx.query<{ id: string }>(
+    `UPDATE messages
+        SET body = NULL,
+            attachment_document_ids = '{}'::uuid[],
+            deleted_at = COALESCE(deleted_at, now())
+      WHERE sent_at < now() - make_interval(days => $1)
+        AND (body IS NOT NULL OR cardinality(attachment_document_ids) > 0)
+      RETURNING id::text`,
+    [retentionDays],
+  )
+  return rows.length
+}
