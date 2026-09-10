@@ -4,8 +4,8 @@ This supersedes `API-HANDOFF.md` and contains it. Part 1 is the original handoff
 corrected where the backend has moved on. Part 2 is everything built since. Part 3
 is what to build next and what is still genuinely missing.
 
-The backend is complete and tested for every feature described here: **468 tests,
-89 routes, 19 launch checks, all green in one run.**
+The backend is complete and tested for every feature described here: **477 tests,
+93 routes, 19 launch checks, all green in one run.**
 
 ---
 
@@ -398,7 +398,67 @@ The sender is deliberate: mail from a domain PEPL does not own fails SPF and
 lands in spam. The help text says so — surface it rather than shortening it.
 A notification the person already read in the app is never emailed.
 
-## 2.10 Four settings were REMOVED
+## 2.10 Salary disbursement — 4 endpoints, `bank.export` / `bank.read`
+
+This is how money actually leaves. PEPL never holds it: the endpoint produces a
+file the company uploads to their own bank.
+
+```
+GET  /api/v1/payments/formats                    -> { formats: [...] }        bank.read
+POST /api/v1/payroll/runs/:id/bank-file          { format, valueDate }        bank.export
+GET  /api/v1/payments/batches                    -> { batches: [...] }        bank.read
+GET  /api/v1/payments/batches/:id                -> the batch with its file   bank.export
+```
+
+The generate response is the whole screen:
+
+```json
+{ "batchId": "…", "checksum": "…", "lineCount": 42,
+  "totalPaise": "1840000000", "content": "…csv…", "reused": false }
+```
+
+Build notes, and please respect both:
+
+- **`reused: true` means this file already existed.** Show it as "already
+  generated on <date>", not as a fresh success. The endpoint is idempotent by
+  design — one batch per run per channel — so a double-click cannot become a
+  double payment. The UI's job is to make that visible rather than hide it.
+- **Only a locked run.** Anything else is `409 RUN_NOT_LOCKED`. Do not offer the
+  button before lock.
+- `content` is the CSV as text. Turn it into a Blob for download; do not render
+  it into the page — it contains every employee's account number.
+- `422 MISSING_BANK_DETAILS` names the employees with no account on file. That
+  list is the fix-it screen: nobody is silently skipped.
+- Four formats today: `hdfc_neft_csv`, `icici_csv`, `axis_csv`,
+  `generic_neft_csv`. Read them from `/payments/formats` rather than hard-coding.
+
+Incentives also gained a read endpoint, `GET /api/v1/incentives/periods`
+(`incentive.read`), returning each period with how many calculations it holds
+and the total.
+
+## 2.11 Four permissions were REMOVED
+
+A second gate now fails the build on any permission no route asserts. It found
+seven. `bank.read` and `bank.export` were among them — which is how the missing
+bank endpoints above were discovered. Four had no feature behind them at all and
+are gone:
+
+| Removed | Why |
+|---|---|
+| `employee.delete` | offboarding is a status change; nothing hard-deletes an employee |
+| `attendance.write` | punching is self-service under `attendance.read`; edits are `attendance.correct` |
+| `attendance.approve` | attendance has no separate approval step — corrections and period close cover it |
+| `leave.policy.write` | there is no leave-policy admin API yet; policies are seeded |
+
+If a roles screen enumerates permissions, it takes them from
+`GET /api/v1/roles` (`allPermissions`), so this needs no change on your side —
+but four checkboxes will disappear, and `leave.policy.write` disappearing is the
+one worth knowing about, because leave policy administration is genuinely
+missing rather than merely unnamed.
+
+---
+
+## 2.12 Four settings were REMOVED
 
 A gate now fails the build on any setting no code reads. It found twelve. Nine
 were wired to real behaviour; **four were deleted, and a generated settings
@@ -439,7 +499,7 @@ Two of these give you new error codes to handle:
 
 ---
 
-## 2.11 Settings that now exist
+## 2.13 Settings that now exist
 
 Twelve keys were added, all generated into the settings screen automatically.
 After the four removals above there are 33 in total — hand-coding them is no longer viable, so build that screen
@@ -540,7 +600,7 @@ default tiles is the lever.
 ## Sanity check
 
 ```bash
-npm test          # 468 tests, including 33 against the running HTTP API
+npm test          # 477 tests, including 33 against the running HTTP API
 npm run verify    # every gate, end to end
 npm run check:responsive   # eight devices, currently clean
 npm run job mail.outbox    # drains queued external mail

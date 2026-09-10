@@ -11,7 +11,7 @@
     "typecheck": "tsc --noEmit",
     "gate:rls": "node --experimental-strip-types scripts/gate-rls.ts",
     "test": "vitest run",
-    "verify": "npm run typecheck && npm run db:setup && npm run migrate && npm run gate:rls && npm run gate:config && npm test && npm run gate:launch",
+    "verify": "npm run typecheck && npm run db:setup && npm run migrate && npm run gate:rls && npm run gate:config && npm run gate:permissions && npm test && npm run gate:launch",
     "gate:config": "node --experimental-strip-types scripts/gate-config.ts",
     "db:reset": "node --experimental-strip-types scripts/reset-db.ts",
     "gate:launch": "node --experimental-strip-types scripts/gate-launch.ts",
@@ -25,7 +25,8 @@
     "job": "node --experimental-strip-types scripts/run-job.ts",
     "shoot": "node --experimental-strip-types scripts/shoot.ts",
     "check:responsive": "node --experimental-strip-types scripts/responsive-check.ts",
-    "scheduler": "node --experimental-strip-types src/jobs/scheduler.ts"
+    "scheduler": "node --experimental-strip-types src/jobs/scheduler.ts",
+    "gate:permissions": "node --experimental-strip-types scripts/gate-permissions.ts"
   },
   "dependencies": {
     "@dnd-kit/core": "^6.3.1",

@@ -2,7 +2,9 @@
 
 This document specifies **what each screen does**: its data, states, permissions and empty/error behaviour. It deliberately does not specify visual design — layout, type, colour and motion are a separate pass done with the design skill against these contracts, once the API shapes in `api-boundaries.md` are settled.
 
-> **Status: incomplete.** This document was written against the core HR + payroll scope and predates
+> **Status: incomplete, and superseded for UI work by [CODEX-BRIEF.md](../../CODEX-BRIEF.md).**
+> The brief is generated against the routes that exist; this document was written
+> against the core HR + payroll scope and predates
 > the configuration admin surface, helpdesk, tasks, incentives, activities, mail, chat, announcements,
 > the company activity log and the control-plane console. Those screens are specified inside their own
 > module documents; this file needs a rewrite to cover the full navigation. Treated as a known gap.

@@ -10,7 +10,9 @@ npm run verify     # the whole chain, in order — use this before claiming anyt
   npm run db:setup     roles + database + extensions (superuser, idempotent)
   npm run migrate      forward-only SQL migrations (owner role)
   npm run gate:rls     structural isolation gate — fails on an unprotected table
-  npm run gate:config  registry invariants — labels, defaults, deps, cycles, risk classes
+  npm run gate:config  registry invariants — labels, defaults, deps, cycles, risk classes,
+                       AND that every setting is read by code somewhere
+  npm run gate:permissions  every permission is asserted by a route and held by a role
   npm test             vitest: all suites
   npm run gate:launch  launch readiness — 19 checks against the live database
 ```
@@ -169,7 +171,7 @@ Screens are directories with a barrel at the old path, so imports did not change
 `workforce/`, `people/` and `operations/`. `App.tsx` keeps the shell; the nav
 model is `app/nav.ts` and route-to-screen is `app/screen.tsx`.
 
-**`styles.css` is six files imported in cascade order and the order is
+**`styles.css` is seven files imported in cascade order and the order is
 load-bearing** — later files deliberately override earlier ones. Add rules to
 `styles/refinements.css` (or a new file imported last), never by reordering.
 

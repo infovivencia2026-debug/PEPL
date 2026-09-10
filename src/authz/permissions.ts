@@ -10,12 +10,12 @@
  */
 
 export const PERMISSIONS = [
-  'employee.read', 'employee.write', 'employee.delete',
+  'employee.read', 'employee.write',
   'compensation.read', 'compensation.write',
   'bank.read', 'bank.export',
-  'attendance.read', 'attendance.write', 'attendance.approve', 'attendance.correct',
+  'attendance.read', 'attendance.correct',
   'attendance.close_period', 'attendance.reopen_period',
-  'leave.read', 'leave.apply', 'leave.approve', 'leave.policy.write', 'leave.balance.adjust',
+  'leave.read', 'leave.apply', 'leave.approve', 'leave.balance.adjust',
   'payroll.read', 'payroll.process', 'payroll.approve', 'payroll.lock', 'payroll.revise',
   'incentive.read', 'incentive.write', 'incentive.approve',
   'ticket.read', 'ticket.write', 'ticket.assign',
@@ -49,9 +49,9 @@ export const ROLE_PERMISSIONS: Readonly<Record<string, { permissions: Permission
       scope: 'all',
       permissions: [
         'employee.read', 'employee.write',
-        'attendance.read', 'attendance.write', 'attendance.approve', 'attendance.correct',
+        'attendance.read', 'attendance.correct',
         'attendance.close_period', 'attendance.reopen_period',
-        'leave.read', 'leave.apply', 'leave.approve', 'leave.policy.write', 'leave.balance.adjust',
+        'leave.read', 'leave.apply', 'leave.approve', 'leave.balance.adjust',
         'ticket.read', 'ticket.write', 'ticket.assign',
         'task.read', 'task.write', 'task.assign',
         'document.read', 'document.write',
@@ -74,13 +74,19 @@ export const ROLE_PERMISSIONS: Readonly<Record<string, { permissions: Permission
     },
     finance: {
       scope: 'all',
-      permissions: ['payroll.read', 'bank.export', 'report.read', 'approval.act', 'incentive.read'],
+      // bank.read as well as bank.export: whoever may generate the payment file
+      // must be able to see the batches already generated, or they cannot tell a
+      // retry from a second payment.
+      permissions: [
+        'payroll.read', 'bank.read', 'bank.export', 'report.read',
+        'approval.act', 'incentive.read',
+      ],
     },
     manager: {
       scope: 'reports',
       permissions: [
         'employee.read',
-        'attendance.read', 'attendance.approve', 'attendance.correct',
+        'attendance.read', 'attendance.correct',
         'leave.read', 'leave.approve',
         'task.read', 'task.write', 'task.assign',
         'ticket.read',

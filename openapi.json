@@ -75,6 +75,10 @@
     {
       "name": "imports",
       "description": ""
+    },
+    {
+      "name": "payments",
+      "description": ""
     }
   ],
   "paths": {
@@ -4470,6 +4474,87 @@
         "description": "Requires the `ticket.assign` permission."
       }
     },
+    "/api/v1/incentives/periods": {
+      "get": {
+        "summary": "Incentive periods and what each one paid",
+        "tags": [
+          "incentives"
+        ],
+        "operationId": "get_api_v1_incentives_periods",
+        "parameters": [],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success"
+          },
+          "400": {
+            "description": "Malformed request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or invalid session",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Permission denied, or the module is not enabled for this company",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found — also returned for a record outside the caller's data scope",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflicts with the current state (a frozen period, a locked run)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation failed, or a domain rule refused the request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "description": "Requires the `incentive.read` permission."
+      }
+    },
     "/api/v1/incentives/periods/{id}/close": {
       "post": {
         "summary": "Close an incentive period before calculating",
@@ -8117,6 +8202,362 @@
           }
         }
       }
+    },
+    "/api/v1/payments/formats": {
+      "get": {
+        "summary": "Bank file formats this deployment can write",
+        "tags": [
+          "payments"
+        ],
+        "operationId": "get_api_v1_payments_formats",
+        "parameters": [],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success"
+          },
+          "400": {
+            "description": "Malformed request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or invalid session",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Permission denied, or the module is not enabled for this company",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found — also returned for a record outside the caller's data scope",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflicts with the current state (a frozen period, a locked run)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation failed, or a domain rule refused the request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "description": "Requires the `bank.read` permission."
+      }
+    },
+    "/api/v1/payroll/runs/{id}/bank-file": {
+      "post": {
+        "summary": "Generate (or re-fetch) the bank file for a locked run",
+        "tags": [
+          "payments"
+        ],
+        "operationId": "post_api_v1_payroll_runs__id__bank_file",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success"
+          },
+          "400": {
+            "description": "Malformed request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or invalid session",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Permission denied, or the module is not enabled for this company",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found — also returned for a record outside the caller's data scope",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflicts with the current state (a frozen period, a locked run)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation failed, or a domain rule refused the request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "description": "Requires the `bank.export` permission.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              },
+              "example": {
+                "format": "hdfc_neft_csv",
+                "valueDate": "2026-10-01"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/payments/batches": {
+      "get": {
+        "summary": "Bank batches generated for this company",
+        "tags": [
+          "payments"
+        ],
+        "operationId": "get_api_v1_payments_batches",
+        "parameters": [],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success"
+          },
+          "400": {
+            "description": "Malformed request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or invalid session",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Permission denied, or the module is not enabled for this company",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found — also returned for a record outside the caller's data scope",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflicts with the current state (a frozen period, a locked run)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation failed, or a domain rule refused the request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "description": "Requires the `bank.read` permission."
+      }
+    },
+    "/api/v1/payments/batches/{id}": {
+      "get": {
+        "summary": "One batch, with its file content",
+        "tags": [
+          "payments"
+        ],
+        "operationId": "get_api_v1_payments_batches__id_",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success"
+          },
+          "400": {
+            "description": "Malformed request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or invalid session",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Permission denied, or the module is not enabled for this company",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found — also returned for a record outside the caller's data scope",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflicts with the current state (a frozen period, a locked run)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation failed, or a domain rule refused the request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "description": "Requires the `bank.export` permission."
+      }
     }
   },
   "components": {
@@ -8171,21 +8612,17 @@
     "permissions": [
       "employee.read",
       "employee.write",
-      "employee.delete",
       "compensation.read",
       "compensation.write",
       "bank.read",
       "bank.export",
       "attendance.read",
-      "attendance.write",
-      "attendance.approve",
       "attendance.correct",
       "attendance.close_period",
       "attendance.reopen_period",
       "leave.read",
       "leave.apply",
       "leave.approve",
-      "leave.policy.write",
       "leave.balance.adjust",
       "payroll.read",
       "payroll.process",
@@ -8218,21 +8655,17 @@
         "permissions": [
           "employee.read",
           "employee.write",
-          "employee.delete",
           "compensation.read",
           "compensation.write",
           "bank.read",
           "bank.export",
           "attendance.read",
-          "attendance.write",
-          "attendance.approve",
           "attendance.correct",
           "attendance.close_period",
           "attendance.reopen_period",
           "leave.read",
           "leave.apply",
           "leave.approve",
-          "leave.policy.write",
           "leave.balance.adjust",
           "payroll.read",
           "payroll.process",
@@ -8266,15 +8699,12 @@
           "employee.read",
           "employee.write",
           "attendance.read",
-          "attendance.write",
-          "attendance.approve",
           "attendance.correct",
           "attendance.close_period",
           "attendance.reopen_period",
           "leave.read",
           "leave.apply",
           "leave.approve",
-          "leave.policy.write",
           "leave.balance.adjust",
           "ticket.read",
           "ticket.write",
@@ -8319,6 +8749,7 @@
         "scope": "all",
         "permissions": [
           "payroll.read",
+          "bank.read",
           "bank.export",
           "report.read",
           "approval.act",
@@ -8330,7 +8761,6 @@
         "permissions": [
           "employee.read",
           "attendance.read",
-          "attendance.approve",
           "attendance.correct",
           "leave.read",
           "leave.approve",

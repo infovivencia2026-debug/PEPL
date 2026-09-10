@@ -16,6 +16,23 @@ import {
 } from './deps.ts'
 
 export function register(router: Router): void {
+  router.get('/api/v1/incentives/periods',
+    { summary: 'Incentive periods and what each one paid', tag: 'incentives',
+      permission: 'incentive.read' },
+    authed('incentive.read', async (ctx) => {
+      const { rows } = await ctx.tx.query(
+        `SELECT p.id, p.label, p.period_start::text, p.period_end::text, p.status,
+                count(c.id)::int AS calculated,
+                COALESCE(sum(c.final_incentive_paise), 0)::text AS total_paise
+           FROM incentive_periods p
+           LEFT JOIN incentive_calculations c
+             ON (c.tenant_id, c.period_id) = (p.tenant_id, p.id)
+          GROUP BY p.id, p.label, p.period_start, p.period_end, p.status
+          ORDER BY p.period_start DESC
+          LIMIT 60`)
+      return ok({ periods: rows })
+    }))
+
   router.post('/api/v1/incentives/periods/:id/close',
     { summary: 'Close an incentive period before calculating', tag: 'incentives',
       permission: 'incentive.write' },

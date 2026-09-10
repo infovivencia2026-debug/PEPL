@@ -7,7 +7,7 @@
  *
  * External mail is queued into mail_commands instead, because an SMTP hop is
  * not something a request should wait on and a failure must be retryable rather
- * than lost. The worker that drains that queue is the one piece not built yet.
+ * than lost. The worker that drains it is mail.outbox, run by the scheduler.
  */
 import { randomUUID } from 'node:crypto'
 import type { PoolClient } from 'pg'
