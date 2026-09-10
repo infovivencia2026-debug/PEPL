@@ -36,6 +36,7 @@ export function register(router: Router): void {
         categoryId: asUuid(b.categoryId, 'categoryId'), raisedByUserId: ctx.auth.userId,
         subjectEmployeeId: ctx.auth.employeeId, title: b.title, description: b.description,
         priority: b.priority as never,
+        defaultResponseSlaMinutes: ctx.config.get<number>('helpdesk.default_response_sla_minutes'),
       })
       return created({ id })
     }))

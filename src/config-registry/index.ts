@@ -32,14 +32,6 @@ const leave = defineConfig('leave', {
     help: 'The smallest amount of leave an employee may apply for.',
     scopable: ['department', 'grade'],
   }),
-  sandwich_holidays: bool({
-    default: false,
-    label: 'Count holidays inside a leave as leave',
-    help: 'When on, a weekly off or holiday falling between two leave days is itself deducted.',
-    risk: 'high',
-    affects: ['payroll'],
-    scopable: ['department', 'location', 'grade'],
-  }),
   allow_negative_balance: bool({
     default: false,
     label: 'Allow negative leave balance',
@@ -53,15 +45,6 @@ const leave = defineConfig('leave', {
     max: 365,
     label: 'Backdated application limit (days)',
     help: 'How far into the past a leave application may be dated.',
-  }),
-  encashment_enabled: bool({
-    default: false,
-    label: 'Leave encashment',
-    help: 'Pay out unused leave. Requires payroll.',
-    risk: 'high',
-    entitlement: 'payroll',
-    affects: ['payroll'],
-    dependsOn: ['payroll.enabled'],
   }),
   approval_chain: enumOf(['manager', 'manager_then_hr', 'hr_only'] as const, {
     default: 'manager',
@@ -103,14 +86,6 @@ const attendance = defineConfig('attendance', {
     risk: 'high',
     affects: ['payroll'],
   }),
-  grace_minutes: int({
-    default: 10,
-    min: 0,
-    max: 120,
-    label: 'Late grace period (minutes)',
-    help: 'Arrival within this window of shift start is not marked late.',
-    scopable: ['location', 'department', 'grade'],
-  }),
   remote_enabled: bool({
     default: true,
     label: 'Work from home',
@@ -130,6 +105,7 @@ const attendance = defineConfig('attendance', {
     max: 180,
     label: 'Correction window (days)',
     help: 'How far back HR may correct attendance, within an open period.',
+    scopable: ['location', 'department', 'grade'],
   }),
   geofence_required: bool({
     default: true,
@@ -152,13 +128,6 @@ const payroll = defineConfig('payroll', {
     default: 'calendar_days',
     label: 'Loss-of-pay basis',
     help: 'Denominator used to prorate a day of unpaid leave.',
-    risk: 'high',
-    affects: ['payroll'],
-  }),
-  employer_pf_in_ctc: bool({
-    default: true,
-    label: 'Employer PF is part of CTC',
-    help: 'Whether the employer provident fund contribution sits inside the stated CTC.',
     risk: 'high',
     affects: ['payroll'],
   }),

@@ -291,21 +291,21 @@ describe('configuration over HTTP', () => {
 
   it('applies a change and reflects it in the next read', async () => {
     const token = await loginAs(ids.admin!)
-    const applied = await api('PATCH', '/api/v1/config/attendance.grace_minutes', {
+    const applied = await api('PATCH', '/api/v1/config/attendance.correction_window_days', {
       token, body: { value: 20 },
     })
     expect(applied.status).toBe(200)
 
     const after = await api<{ settings: { key: string; value: unknown; changedFromDefault: boolean }[] }>(
       'GET', '/api/v1/config', { token })
-    const grace = after.body.settings.find((s) => s.key === 'attendance.grace_minutes')
+    const grace = after.body.settings.find((s) => s.key === 'attendance.correction_window_days')
     expect(grace?.value).toBe(20)
     expect(grace?.changedFromDefault).toBe(true)
   })
 
   it('an HR admin cannot change settings', async () => {
     const token = await loginAs(ids.hr!)
-    const r = await api('PATCH', '/api/v1/config/attendance.grace_minutes', { token, body: { value: 5 } })
+    const r = await api('PATCH', '/api/v1/config/attendance.correction_window_days', { token, body: { value: 5 } })
     expect(r.status).toBe(403)
   })
 })

@@ -5,6 +5,9 @@ import { createHandler } from './router.ts'
 import { buildUiRouter } from './ui-routes.ts'
 import { router } from './routes.ts'
 import { handleEvents } from '../realtime/sse.ts'
+import { installProcessGuards } from './process-guards.ts'
+
+installProcessGuards()
 
 const handler = createHandler(buildUiRouter())
 const domainHandler = createHandler(router)

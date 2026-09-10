@@ -63,6 +63,25 @@ export function register(router: Router): void {
       if (!employeeId) throw new HttpError(422, 'NO_EMPLOYEE_RECORD', 'this user has no employee record')
       assertScope(ctx.auth, employeeId)
 
+      // The smallest unit this company allows. A tenant that works in whole
+      // days should not receive a request for 2.5, and the rejection belongs
+      // here rather than in a form that a different client would not run.
+      const minUnit = ctx.config.get<'full_day' | 'half_day' | 'hourly'>('leave.min_unit')
+      const step = minUnit === 'full_day' ? 1 : minUnit === 'half_day' ? 0.5 : 0.125
+      const days = Number(b.totalDays)
+      if (!Number.isFinite(days) || days <= 0) {
+        throw new HttpError(422, 'INVALID_DAYS', 'totalDays must be a positive number')
+      }
+      if (Math.abs(Math.round(days / step) * step - days) > 1e-9) {
+        throw new HttpError(
+          422, 'LEAVE_UNIT_NOT_ALLOWED',
+          minUnit === 'full_day'
+            ? 'this company allows whole days of leave only'
+            : `leave must be applied for in multiples of ${step} of a day`,
+          { minUnit },
+        )
+      }
+
       const { rows } = await ctx.tx.query<{ id: string }>(
         `INSERT INTO leave_requests
            (tenant_id, employee_id, leave_type_id, start_date, end_date, day_parts, total_days, reason)

@@ -31,6 +31,8 @@ async function tenantId(tx: PoolClient): Promise<string> {
 }
 
 export interface RaiseTicketInput {
+  /** Used when the category names no first-response SLA of its own. */
+  defaultResponseSlaMinutes?: number
   categoryId: string
   raisedByUserId: string
   subjectEmployeeId?: string
@@ -55,6 +57,11 @@ export async function raiseTicket(tx: PoolClient, input: RaiseTicketInput): Prom
 
   const now = input.now ?? new Date()
   const due = (mins: number): Date => new Date(now.getTime() + mins * 60_000)
+
+  // A category with no first-response SLA of its own falls back to the company
+  // default rather than to no deadline at all, which is how a ticket quietly
+  // ages forever with nothing ever reporting it late.
+  const responseMinutes = cat.sla_response_minutes || input.defaultResponseSlaMinutes || 480
 
   // Numbers come from a per-tenant counter, never MAX() over tickets: the
   // confidentiality policy hides rows from most callers, and a MAX() that cannot
@@ -82,7 +89,7 @@ export async function raiseTicket(tx: PoolClient, input: RaiseTicketInput): Prom
      input.title, input.description, input.priority ?? 'medium',
      // propagated from the category and never removable afterwards
      cat.is_confidential,
-     due(cat.sla_response_minutes), due(cat.sla_resolution_minutes), now],
+     due(responseMinutes), due(cat.sla_resolution_minutes), now],
   )
   await logEvent(tx, tid, id, 'created', input.raisedByUserId, null, { ticketNumber })
   return id

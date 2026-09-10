@@ -1,5 +1,6 @@
 /** Attendance. */
 import type { Router } from '../router.ts'
+import type { Ctx } from '../context.ts'
 import {
   HttpError,
   authed,
@@ -18,6 +19,24 @@ import {
   setPeriodStatus,
   emit,
 } from './deps.ts'
+
+/**
+ * The company's attendance rules, read once per request.
+ *
+ * Resolving inside recomputeDay would mean one config read per day recomputed,
+ * which for a bulk correction is hundreds.
+ */
+function dayPolicy(ctx: Ctx) {
+  return {
+    halfDayMode: ctx.config.get<'explicit' | 'hours_derived'>('attendance.half_day_mode'),
+    halfDayHours: ctx.config.get<number>('attendance.half_day_hours'),
+    weekPattern: ctx.config.get<'five_day' | 'six_day' | 'alternate_saturday' | 'roster'>(
+      'attendance.week_pattern'),
+    remoteIsPaid: ctx.config.get<boolean>('attendance.remote_is_paid'),
+    remoteEnabled: ctx.config.get<boolean>('attendance.remote_enabled'),
+    correctionWindowDays: ctx.config.get<number>('attendance.correction_window_days'),
+  }
+}
 
 export function register(router: Router): void {
   router.post('/api/v1/attendance/punch',
@@ -42,7 +61,7 @@ export function register(router: Router): void {
         localDate: asDate(b.localDate, 'localDate'), direction: b.direction, source: 'mobile',
         clientPunchId: b.clientPunchId, geo: b.geo, withinGeofence: b.withinGeofence,
       })
-      await recomputeDay(ctx.tx, employeeId, b.localDate)
+      await recomputeDay(ctx.tx, employeeId, b.localDate, dayPolicy(ctx))
       return ok({ recorded: createdPunch, duplicate: !createdPunch })
     }))
 
@@ -91,6 +110,7 @@ export function register(router: Router): void {
         workDate: asDate(b.workDate, 'workDate'),
         action: b.action as never, after: b.after, reason: b.reason,
         actorUserId: ctx.auth.userId, allowClosedPeriod: allowClosed,
+        policy: dayPolicy(ctx),
       })
       await emit(ctx.tx, {
         action: 'attendance.day.corrected', entityType: 'attendance', actorUserId: ctx.auth.userId,

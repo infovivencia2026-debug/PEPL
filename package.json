@@ -24,13 +24,15 @@
     "typecheck:web": "tsc -p web/tsconfig.json",
     "job": "node --experimental-strip-types scripts/run-job.ts",
     "shoot": "node --experimental-strip-types scripts/shoot.ts",
-    "check:responsive": "node --experimental-strip-types scripts/responsive-check.ts"
+    "check:responsive": "node --experimental-strip-types scripts/responsive-check.ts",
+    "scheduler": "node --experimental-strip-types src/jobs/scheduler.ts"
   },
   "dependencies": {
     "@dnd-kit/core": "^6.3.1",
     "@dnd-kit/sortable": "^10.0.0",
     "@dnd-kit/utilities": "^3.2.2",
     "dotenv": "^16.4.5",
+    "imapflow": "^2.0.0",
     "lottie-web": "^5.13.0",
     "lucide-react": "^1.43.0",
     "pg": "^8.13.1",

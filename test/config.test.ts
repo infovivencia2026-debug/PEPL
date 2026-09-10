@@ -43,7 +43,7 @@ describe('defaults', () => {
     const cfg = await withTenant(A.id, (tx) => resolveConfig(tx, A.id))
     expect(cfg.get<string>('attendance.week_pattern')).toBe('six_day')
     expect(cfg.get<string>('attendance.half_day_mode')).toBe('explicit')
-    expect(cfg.get<number>('attendance.grace_minutes')).toBe(10)
+    expect(cfg.get<number>('attendance.correction_window_days')).toBe(30)
     expect(cfg.isEnabled('attendance.enabled')).toBe(true)
     expect(cfg.isEnabled('payroll.enabled')).toBe(true)
     expect(cfg.changedKeys()).toEqual([])
@@ -53,35 +53,35 @@ describe('defaults', () => {
 describe('precedence: override > setting > default', () => {
   it('a tenant setting beats the registry default', async () => {
     await withTenant(A.id, async (tx) => {
-      await setSetting(tx, { key: 'attendance.grace_minutes', value: 25 })
+      await setSetting(tx, { key: 'attendance.correction_window_days', value: 25 })
     })
     const cfg = await withTenant(A.id, (tx) => resolveConfig(tx, A.id))
-    expect(cfg.get<number>('attendance.grace_minutes')).toBe(25)
-    expect(cfg.changedKeys()).toContain('attendance.grace_minutes')
+    expect(cfg.get<number>('attendance.correction_window_days')).toBe(25)
+    expect(cfg.changedKeys()).toContain('attendance.correction_window_days')
   })
 
   it('a scoped override beats the tenant setting, for that scope only', async () => {
     await withTenant(A.id, async (tx) => {
-      await setSetting(tx, { key: 'attendance.grace_minutes', value: 25 })
+      await setSetting(tx, { key: 'attendance.correction_window_days', value: 25 })
       await setSetting(tx, {
-        key: 'attendance.grace_minutes',
+        key: 'attendance.correction_window_days',
         value: 0,
         scope: { type: 'department', id: DEPT_ENG },
       })
     })
     const cfg = await withTenant(A.id, (tx) => resolveConfig(tx, A.id))
-    expect(cfg.get<number>('attendance.grace_minutes', { department: DEPT_ENG })).toBe(0)
-    expect(cfg.get<number>('attendance.grace_minutes', { department: DEPT_SALES })).toBe(25)
-    expect(cfg.get<number>('attendance.grace_minutes')).toBe(25)
+    expect(cfg.get<number>('attendance.correction_window_days', { department: DEPT_ENG })).toBe(0)
+    expect(cfg.get<number>('attendance.correction_window_days', { department: DEPT_SALES })).toBe(25)
+    expect(cfg.get<number>('attendance.correction_window_days')).toBe(25)
   })
 
   it('lower priority wins when two overrides both match', async () => {
     await withTenant(A.id, async (tx) => {
-      await setSetting(tx, { key: 'attendance.grace_minutes', value: 5, scope: { type: 'department', id: DEPT_ENG, priority: 50 } })
-      await setSetting(tx, { key: 'attendance.grace_minutes', value: 15, scope: { type: 'grade', id: GRADE_MGR, priority: 10 } })
+      await setSetting(tx, { key: 'attendance.correction_window_days', value: 5, scope: { type: 'department', id: DEPT_ENG, priority: 50 } })
+      await setSetting(tx, { key: 'attendance.correction_window_days', value: 15, scope: { type: 'grade', id: GRADE_MGR, priority: 10 } })
     })
     const cfg = await withTenant(A.id, (tx) => resolveConfig(tx, A.id))
-    expect(cfg.get<number>('attendance.grace_minutes', { department: DEPT_ENG, grade: GRADE_MGR })).toBe(15)
+    expect(cfg.get<number>('attendance.correction_window_days', { department: DEPT_ENG, grade: GRADE_MGR })).toBe(15)
   })
 
   it('refuses an override on a key that is not scopable', async () => {
@@ -198,13 +198,13 @@ describe('effective dating and the payroll guard', () => {
 describe('validation', () => {
   it('rejects a value of the wrong type', async () => {
     await expect(
-      withTenant(A.id, async (tx) => setSetting(tx, { key: 'attendance.grace_minutes', value: true })),
+      withTenant(A.id, async (tx) => setSetting(tx, { key: 'attendance.correction_window_days', value: true })),
     ).rejects.toThrow(/expected integer/)
   })
 
   it('rejects a value outside the declared range', async () => {
     await expect(
-      withTenant(A.id, async (tx) => setSetting(tx, { key: 'attendance.grace_minutes', value: 9999 })),
+      withTenant(A.id, async (tx) => setSetting(tx, { key: 'attendance.correction_window_days', value: 9999 })),
     ).rejects.toThrow(/outside allowed range/)
   })
 
@@ -234,17 +234,17 @@ describe('validation', () => {
 describe('tenant isolation of configuration', () => {
   it('one company config change does not affect another company', async () => {
     await withTenant(A.id, async (tx) => {
-      await setSetting(tx, { key: 'attendance.grace_minutes', value: 45 })
+      await setSetting(tx, { key: 'attendance.correction_window_days', value: 45 })
     })
     const a = await withTenant(A.id, (tx) => resolveConfig(tx, A.id))
     const b = await withTenant(B.id, (tx) => resolveConfig(tx, B.id))
-    expect(a.get<number>('attendance.grace_minutes')).toBe(45)
-    expect(b.get<number>('attendance.grace_minutes')).toBe(10)
+    expect(a.get<number>('attendance.correction_window_days')).toBe(45)
+    expect(b.get<number>('attendance.correction_window_days')).toBe(30)
   })
 
   it('config rows of another tenant are invisible', async () => {
     await withTenant(A.id, async (tx) => {
-      await setSetting(tx, { key: 'attendance.grace_minutes', value: 45 })
+      await setSetting(tx, { key: 'attendance.correction_window_days', value: 45 })
     })
     const rows = await withTenant(B.id, async (tx) =>
       (await tx.query('SELECT * FROM tenant_settings')).rows,
@@ -254,7 +254,7 @@ describe('tenant isolation of configuration', () => {
 
   it('with no tenant context, config resolves to defaults and reads nothing', async () => {
     await withTenant(A.id, async (tx) => {
-      await setSetting(tx, { key: 'attendance.grace_minutes', value: 45 })
+      await setSetting(tx, { key: 'attendance.correction_window_days', value: 45 })
     })
     const rows = await withoutTenantForTesting(async (tx) =>
       (await tx.query('SELECT * FROM tenant_settings')).rows,
@@ -274,8 +274,8 @@ describe('tenant isolation of configuration', () => {
 describe('change log and versioning', () => {
   it('every write appends to the change log with before and after', async () => {
     await withTenant(A.id, async (tx) => {
-      await setSetting(tx, { key: 'attendance.grace_minutes', value: 20 })
-      await setSetting(tx, { key: 'attendance.grace_minutes', value: 30 })
+      await setSetting(tx, { key: 'attendance.correction_window_days', value: 20 })
+      await setSetting(tx, { key: 'attendance.correction_window_days', value: 30 })
     })
     const rows = await withTenant(A.id, async (tx) =>
       (await tx.query('SELECT key, old_value, new_value FROM config_change_log ORDER BY id')).rows,
@@ -289,7 +289,7 @@ describe('change log and versioning', () => {
 
   it('the change log cannot be rewritten', async () => {
     await withTenant(A.id, async (tx) => {
-      await setSetting(tx, { key: 'attendance.grace_minutes', value: 20 })
+      await setSetting(tx, { key: 'attendance.correction_window_days', value: 20 })
     })
     await expect(
       withTenant(A.id, async (tx) => tx.query('UPDATE config_change_log SET new_value = $1::jsonb', ['0'])),
@@ -304,7 +304,7 @@ describe('change log and versioning', () => {
     expect(v0.version).toBe(0n)
 
     await withTenant(A.id, async (tx) => {
-      await setSetting(tx, { key: 'attendance.grace_minutes', value: 20 })
+      await setSetting(tx, { key: 'attendance.correction_window_days', value: 20 })
     })
     const v1 = await withTenant(A.id, (tx) => resolveConfig(tx, A.id))
     expect(v1.version).toBe(1n)
@@ -319,13 +319,13 @@ describe('change log and versioning', () => {
   it('a rolled-back write leaves neither a value, a log row, nor a version bump', async () => {
     await expect(
       withTenant(A.id, async (tx) => {
-        await setSetting(tx, { key: 'attendance.grace_minutes', value: 20 })
+        await setSetting(tx, { key: 'attendance.correction_window_days', value: 20 })
         throw new Error('boom')
       }),
     ).rejects.toThrow('boom')
 
     const cfg = await withTenant(A.id, (tx) => resolveConfig(tx, A.id))
-    expect(cfg.get<number>('attendance.grace_minutes')).toBe(10)
+    expect(cfg.get<number>('attendance.correction_window_days')).toBe(30)
     expect(cfg.version).toBe(0n)
 
     const logRows = await withTenant(A.id, async (tx) =>

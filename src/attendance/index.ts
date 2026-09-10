@@ -91,10 +91,39 @@ async function nextPeriodAfter(tx: PoolClient, workDate: string): Promise<string
  * Rebuilds one day from raw punches, then replays corrections over it in order.
  * Idempotent: running it twice produces the same row.
  */
+export interface DayPolicy {
+  /** 'explicit' = a manager marks a half day. 'hours_derived' = short days auto-mark. */
+  halfDayMode?: 'explicit' | 'hours_derived'
+  halfDayHours?: number
+  weekPattern?: 'five_day' | 'six_day' | 'alternate_saturday' | 'roster'
+  /** When false, a work-from-home day is not a paid working day. */
+  remoteIsPaid?: boolean
+}
+
+/**
+ * Whether this date is a weekly off under the pattern.
+ *
+ * 'roster' means the company runs shift rosters, which PEPL does not model yet:
+ * it therefore claims no weekly off rather than guessing one and docking pay.
+ */
+export function isWeeklyOff(workDate: string, pattern: DayPolicy['weekPattern']): boolean {
+  const day = new Date(workDate + 'T00:00:00Z').getUTCDay()
+  const dayOfMonth = Number(workDate.slice(8, 10))
+  const saturdayIndex = Math.ceil(dayOfMonth / 7)
+  switch (pattern) {
+    case 'five_day': return day === 0 || day === 6
+    case 'alternate_saturday':
+      return day === 0 || (day === 6 && (saturdayIndex === 2 || saturdayIndex === 4))
+    case 'six_day': return day === 0
+    default: return false
+  }
+}
+
 export async function recomputeDay(
   tx: PoolClient,
   employeeId: string,
   workDate: string,
+  policy: DayPolicy = {},
 ): Promise<void> {
   const tid = await tenantId(tx)
 
@@ -190,6 +219,35 @@ export async function recomputeDay(
     ? Math.max(0, Math.round((Date.parse(lastOut) - Date.parse(firstIn)) / 60000))
     : 0
 
+  // A weekly off is not an absence. Nobody was expected in, so the day carries
+  // no fraction and must never read as unauthorised absence on a report.
+  // A punch overrides it: somebody who came in on a Sunday did come in.
+  if (!firstIn && corrections.length === 0 && isWeeklyOff(workDate, policy.weekPattern)) {
+    status = 'weekly_off'
+    dayFraction = 0
+    fractionSource = 'system'
+  }
+
+  // Hours-derived half days, where the company asked for them. Only a day the
+  // system worked out is touched: an explicit decision by a manager stands.
+  if (
+    policy.halfDayMode === 'hours_derived' &&
+    status === 'present' &&
+    fractionSource === 'system' &&
+    worked > 0 &&
+    worked < (policy.halfDayHours ?? 4) * 60
+  ) {
+    dayFraction = 0.5
+    fractionSource = 'hours'
+  }
+
+  // A company that does not pay for remote days says so here; the day still
+  // shows as remote, it simply carries no pay.
+  if (isRemote && policy.remoteIsPaid === false) {
+    dayFraction = 0
+    fractionSource = 'remote_unpaid'
+  }
+
   await tx.query(
     `INSERT INTO daily_attendance
        (tenant_id, employee_id, work_date, first_in, last_out, worked_minutes, status,
@@ -217,6 +275,20 @@ export interface CorrectionInput {
   actorUserId?: string
   /** Set by a user holding attendance.reopen_period; audited by the caller. */
   allowClosedPeriod?: boolean
+  /**
+   * The company's own rules. Absent means "no policy supplied" and nothing is
+   * enforced, which is what the tests and the seed rely on.
+   */
+  policy?: CorrectionPolicy
+  /** Overridable so a test does not depend on today's date. */
+  now?: Date
+}
+
+export interface CorrectionPolicy extends DayPolicy {
+  /** How far back a correction may reach. 0 means no limit. */
+  correctionWindowDays?: number
+  /** When false, nobody can be marked as working remotely. */
+  remoteEnabled?: boolean
 }
 
 export interface CorrectionResult {
@@ -237,6 +309,29 @@ export async function applyCorrection(
   const tid = await tenantId(tx)
   if (!input.reason?.trim()) {
     throw new AttendanceError('CORRECTION_REASON_REQUIRED', 'every attendance correction must carry a reason')
+  }
+
+  // The company's correction window. An open period is not permission to edit
+  // last quarter: HR sets how far back is reasonable, and this enforces it.
+  const windowDays = input.policy?.correctionWindowDays ?? 0
+  if (windowDays > 0) {
+    const now = input.now ?? new Date()
+    const ageDays = Math.floor(
+      (Date.parse(now.toISOString().slice(0, 10)) - Date.parse(input.workDate)) / 86_400_000,
+    )
+    if (ageDays > windowDays) {
+      throw new AttendanceError(
+        'CORRECTION_WINDOW_CLOSED',
+        `${input.workDate} is ${ageDays} days ago; this company allows corrections up to ${windowDays} days back`,
+      )
+    }
+  }
+
+  if (input.policy?.remoteEnabled === false && input.action === 'mark_remote') {
+    throw new AttendanceError(
+      'REMOTE_NOT_ALLOWED',
+      'working from home is switched off for this company',
+    )
   }
 
   const period = await periodFor(tx, input.workDate)

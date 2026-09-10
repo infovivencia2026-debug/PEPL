@@ -19,6 +19,7 @@ import { emit } from '../audit/index.ts'
 import { runOutbox } from '../mail/outbox.ts'
 import { deliverEmails } from '../comms/delivery.ts'
 import { purgeOldMessages } from '../comms/chat.ts'
+import { syncTenant } from '../mail/sync.ts'
 
 export interface JobResult {
   job: string
@@ -266,12 +267,36 @@ export async function runNotificationEmail(): Promise<JobResult> {
     }))
 }
 
+/**
+ * Pulls new mail into the local cache.
+ *
+ * Envelopes only unless the company switched on mail.store_bodies — the
+ * default is that PEPL holds enough to render a list and nothing more.
+ */
+export async function runMailSync(): Promise<JobResult> {
+  const master = process.env.PEPL_MAIL_KEY
+  if (!master) {
+    return { job: 'mail.sync', tenants: 0, affected: 0, durationMs: 0,
+      errors: [{ tenantId: '-', message: 'PEPL_MAIL_KEY is not set; mailboxes cannot be synced' }] }
+  }
+  return perTenant('mail.sync', async (tenantId) => {
+    const cfg = await withTenant(tenantId, (tx) => resolveConfig(tx, tenantId))
+    if (!cfg.isEnabled('mail.enabled')) return 0
+    const results = await syncTenant(tenantId, {
+      master,
+      storeBodies: cfg.get<boolean>('mail.store_bodies'),
+    })
+    return results.reduce((n, r) => n + r.messagesAdded, 0)
+  })
+}
+
 export const JOBS = {
   'leave.accrual': () => runLeaveAccrual(),
   'helpdesk.sla': runSlaBreaches,
   'data.retention': runRetentionPurge,
   'audit.seal': runAuditSeal,
   'mail.outbox': runMailOutbox,
+  'mail.sync': runMailSync,
   'notifications.email': runNotificationEmail,
 } as const
 

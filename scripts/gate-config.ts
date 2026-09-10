@@ -9,7 +9,15 @@
  *   4. the dependency graph is acyclic
  *   5. scopable dimensions are from the known set
  *   6. module-level flags declare a disableEffect (never silent data loss)
+ *   7. every setting is READ somewhere outside the registry
+ *
+ * Rule 7 exists because three settings once shipped that nothing ever read. An
+ * admin could move the upload limit, the chat retention window and the mail body
+ * cache, and nothing changed. A control that does not control anything is worse
+ * than a missing feature: it teaches the customer the product lies to them.
  */
+import { readdirSync, readFileSync, statSync } from 'node:fs'
+import { join } from 'node:path'
 import { REGISTRY } from '../src/config-registry/index.ts'
 import type { ScopeDimension } from '../src/config-registry/types.ts'
 
@@ -48,6 +56,38 @@ for (const [key, def] of Object.entries(REGISTRY)) {
 
   if (def.kind === 'flag' && !def.disableEffect) {
     fail(`"${key}" is a module flag without a disableEffect — disabling must never silently delete data`)
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Rule 7: is anything actually reading this?
+// ---------------------------------------------------------------------------
+
+/** Every .ts file under a directory, minus the registry that declares them. */
+function sources(dir: string, found: string[] = []): string[] {
+  for (const entry of readdirSync(dir)) {
+    const full = join(dir, entry)
+    if (statSync(full).isDirectory()) {
+      if (entry !== 'node_modules' && entry !== 'config-registry') sources(full, found)
+    } else if (entry.endsWith('.ts') || entry.endsWith('.tsx')) {
+      found.push(full)
+    }
+  }
+  return found
+}
+
+const haystack = [...sources('src'), ...sources('scripts'), ...sources('web/src')]
+  .map((file) => readFileSync(file, 'utf8'))
+  .join('\n')
+
+for (const key of Object.keys(REGISTRY)) {
+  // A module flag is read by requireModule/isEnabled with the full key, and a
+  // value by get(); either way the literal string has to appear somewhere.
+  if (!haystack.includes(`'${key}'`) && !haystack.includes(`"${key}"`)) {
+    fail(
+      `"${key}" is declared but never read outside the registry — an admin can ` +
+      'change it and nothing happens. Wire it up or remove it.',
+    )
   }
 }
 

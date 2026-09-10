@@ -14,6 +14,9 @@ import { setSetting } from '../src/config/write.ts'
 import { resolveConfig } from '../src/config/resolver.ts'
 import { createConversation, listMessages, purgeOldMessages, sendMessage } from '../src/comms/chat.ts'
 import { putDocument } from '../src/documents/index.ts'
+import {
+  applyCorrection, isWeeklyOff, recomputeDay, recordPunch,
+} from '../src/attendance/index.ts'
 
 let A: Tenant
 let B: Tenant
@@ -142,5 +145,140 @@ describe('chat.history_retention_days', () => {
 
     await withTenant(A.id, (tx) => purgeOldMessages(tx, 365))
     expect(await withTenant(B.id, (tx) => purgeOldMessages(tx, 365))).toBe(1)
+  })
+})
+
+describe('attendance.week_pattern', () => {
+  it('takes Sunday off on a six-day week', () => {
+    expect(isWeeklyOff('2026-09-13', 'six_day')).toBe(true)   // Sunday
+    expect(isWeeklyOff('2026-09-12', 'six_day')).toBe(false)  // Saturday
+  })
+
+  it('takes the weekend off on a five-day week', () => {
+    expect(isWeeklyOff('2026-09-12', 'five_day')).toBe(true)
+    expect(isWeeklyOff('2026-09-13', 'five_day')).toBe(true)
+    expect(isWeeklyOff('2026-09-14', 'five_day')).toBe(false)
+  })
+
+  it('takes the second and fourth Saturday on the alternate pattern', () => {
+    expect(isWeeklyOff('2026-09-12', 'alternate_saturday')).toBe(true)   // 2nd Sat
+    expect(isWeeklyOff('2026-09-26', 'alternate_saturday')).toBe(true)   // 4th Sat
+    expect(isWeeklyOff('2026-09-05', 'alternate_saturday')).toBe(false)  // 1st Sat
+    expect(isWeeklyOff('2026-09-19', 'alternate_saturday')).toBe(false)  // 3rd Sat
+  })
+
+  it('claims no weekly off on a roster, rather than guessing and docking pay', () => {
+    expect(isWeeklyOff('2026-09-13', 'roster')).toBe(false)
+    expect(isWeeklyOff('2026-09-13', undefined)).toBe(false)
+  })
+})
+
+describe('attendance.half_day_mode', () => {
+  const punch = async (tenantId: string, employeeId: string, date: string, hours: number) => {
+    await withTenant(tenantId, async (tx) => {
+      await recordPunch(tx, {
+        employeeId, punchedAt: `${date}T09:00:00.000Z`, localDate: date,
+        direction: 'in', source: 'web', clientPunchId: `in-${date}`,
+      })
+      await recordPunch(tx, {
+        employeeId,
+        punchedAt: new Date(Date.parse(`${date}T09:00:00.000Z`) + hours * 3_600_000).toISOString(),
+        localDate: date, direction: 'out', source: 'web', clientPunchId: `out-${date}`,
+      })
+    })
+  }
+
+  const dayOf = (tenantId: string, employeeId: string, date: string) =>
+    withTenant(tenantId, async (tx) => {
+      const r = await tx.query<{ status: string; day_fraction: string; fraction_source: string }>(
+        `SELECT status, day_fraction::text, fraction_source FROM daily_attendance
+          WHERE employee_id = $1 AND work_date = $2`, [employeeId, date])
+      return r.rows[0]!
+    })
+
+  it('leaves a short day whole when half days are explicit', async () => {
+    await punch(A.id, A.employeeId, '2026-09-14', 3)
+    await withTenant(A.id, (tx) =>
+      recomputeDay(tx, A.employeeId, '2026-09-14', { halfDayMode: 'explicit' }))
+    expect(Number((await dayOf(A.id, A.employeeId, '2026-09-14')).day_fraction)).toBe(1)
+  })
+
+  it('marks a short day as half when the company derives it from hours', async () => {
+    await punch(A.id, A.employeeId, '2026-09-14', 3)
+    await withTenant(A.id, (tx) =>
+      recomputeDay(tx, A.employeeId, '2026-09-14', {
+        halfDayMode: 'hours_derived', halfDayHours: 4,
+      }))
+    const day = await dayOf(A.id, A.employeeId, '2026-09-14')
+    expect(Number(day.day_fraction)).toBe(0.5)
+    expect(day.fraction_source).toBe('hours')
+  })
+
+  it('leaves a full day alone', async () => {
+    await punch(A.id, A.employeeId, '2026-09-14', 8)
+    await withTenant(A.id, (tx) =>
+      recomputeDay(tx, A.employeeId, '2026-09-14', {
+        halfDayMode: 'hours_derived', halfDayHours: 4,
+      }))
+    expect(Number((await dayOf(A.id, A.employeeId, '2026-09-14')).day_fraction)).toBe(1)
+  })
+
+  it('honours the threshold the company chose', async () => {
+    await punch(A.id, A.employeeId, '2026-09-14', 5)
+    await withTenant(A.id, (tx) =>
+      recomputeDay(tx, A.employeeId, '2026-09-14', {
+        halfDayMode: 'hours_derived', halfDayHours: 6,
+      }))
+    expect(Number((await dayOf(A.id, A.employeeId, '2026-09-14')).day_fraction)).toBe(0.5)
+  })
+
+  it('marks a weekly off rather than an absence when nobody punched', async () => {
+    await withTenant(A.id, (tx) =>
+      recomputeDay(tx, A.employeeId, '2026-09-13', { weekPattern: 'six_day' }))
+    const day = await dayOf(A.id, A.employeeId, '2026-09-13')
+    expect(day.status).toBe('weekly_off')
+    expect(Number(day.day_fraction)).toBe(0)
+  })
+
+  it('does not call it a weekly off when somebody actually came in', async () => {
+    await punch(A.id, A.employeeId, '2026-09-13', 8)
+    await withTenant(A.id, (tx) =>
+      recomputeDay(tx, A.employeeId, '2026-09-13', { weekPattern: 'six_day' }))
+    expect((await dayOf(A.id, A.employeeId, '2026-09-13')).status).toBe('present')
+  })
+})
+
+describe('attendance.correction_window_days and remote_enabled', () => {
+  const correct = (tenantId: string, workDate: string, policy: Record<string, unknown>, action = 'mark_present') =>
+    withTenant(tenantId, (tx) =>
+      applyCorrection(tx, {
+        employeeId: A.employeeId, workDate, action: action as never,
+        reason: 'device offline', actorUserId: ADMIN,
+        policy, now: new Date('2026-09-14T10:00:00Z'),
+      } as never))
+
+  it('allows a correction inside the window', async () => {
+    const result = await correct(A.id, '2026-09-10', { correctionWindowDays: 30 })
+    expect(result.applied).toBe(true)
+  })
+
+  it('refuses one older than the window', async () => {
+    await expect(correct(A.id, '2026-06-01', { correctionWindowDays: 30 }))
+      .rejects.toMatchObject({ code: 'CORRECTION_WINDOW_CLOSED' })
+  })
+
+  it('treats zero as no limit, which is what the registry says', async () => {
+    const result = await correct(A.id, '2020-01-01', { correctionWindowDays: 0 })
+    expect(result.applied).toBe(true)
+  })
+
+  it('refuses to mark somebody remote when the company disallows it', async () => {
+    await expect(correct(A.id, '2026-09-14', { remoteEnabled: false }, 'mark_remote'))
+      .rejects.toMatchObject({ code: 'REMOTE_NOT_ALLOWED' })
+  })
+
+  it('allows it when the company permits it', async () => {
+    const result = await correct(A.id, '2026-09-14', { remoteEnabled: true }, 'mark_remote')
+    expect(result.applied).toBe(true)
   })
 })

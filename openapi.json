@@ -5734,7 +5734,7 @@
         "description": "Requires the `document.read` permission."
       },
       "post": {
-        "summary": "Upload a document (base64, up to 10 MB)",
+        "summary": "Upload a document (base64, up to the company file-size limit)",
         "tags": [
           "documents"
         ],
@@ -8349,20 +8349,6 @@
         ]
       },
       {
-        "key": "leave.sandwich_holidays",
-        "label": "Count holidays inside a leave as leave",
-        "help": "When on, a weekly off or holiday falling between two leave days is itself deducted.",
-        "type": "bool",
-        "default": false,
-        "risk": "high",
-        "affectsPayroll": true,
-        "scopableBy": [
-          "department",
-          "location",
-          "grade"
-        ]
-      },
-      {
         "key": "leave.allow_negative_balance",
         "label": "Allow negative leave balance",
         "help": "Let employees apply beyond their balance, going negative instead of unpaid.",
@@ -8380,16 +8366,6 @@
         "default": 30,
         "risk": "low",
         "affectsPayroll": false,
-        "scopableBy": []
-      },
-      {
-        "key": "leave.encashment_enabled",
-        "label": "Leave encashment",
-        "help": "Pay out unused leave. Requires payroll.",
-        "type": "bool",
-        "default": false,
-        "risk": "high",
-        "affectsPayroll": true,
         "scopableBy": []
       },
       {
@@ -8450,20 +8426,6 @@
         "scopableBy": []
       },
       {
-        "key": "attendance.grace_minutes",
-        "label": "Late grace period (minutes)",
-        "help": "Arrival within this window of shift start is not marked late.",
-        "type": "int",
-        "default": 10,
-        "risk": "low",
-        "affectsPayroll": false,
-        "scopableBy": [
-          "location",
-          "department",
-          "grade"
-        ]
-      },
-      {
         "key": "attendance.remote_enabled",
         "label": "Work from home",
         "help": "Allow employees to be marked as working remotely.",
@@ -8495,7 +8457,11 @@
         "default": 30,
         "risk": "low",
         "affectsPayroll": false,
-        "scopableBy": []
+        "scopableBy": [
+          "location",
+          "department",
+          "grade"
+        ]
       },
       {
         "key": "attendance.geofence_required",
@@ -8526,16 +8492,6 @@
         "help": "Denominator used to prorate a day of unpaid leave.",
         "type": "enum",
         "default": "calendar_days",
-        "risk": "high",
-        "affectsPayroll": true,
-        "scopableBy": []
-      },
-      {
-        "key": "payroll.employer_pf_in_ctc",
-        "label": "Employer PF is part of CTC",
-        "help": "Whether the employer provident fund contribution sits inside the stated CTC.",
-        "type": "bool",
-        "default": true,
         "risk": "high",
         "affectsPayroll": true,
         "scopableBy": []
