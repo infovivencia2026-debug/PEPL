@@ -18,6 +18,8 @@ import { resolveConfig } from '../config/resolver.ts'
 import { emit } from '../audit/index.ts'
 import { runOutbox } from '../mail/outbox.ts'
 import { deliverEmails } from '../comms/delivery.ts'
+import { deliverPush } from '../comms/push.ts'
+import { generateVapidKeys, vapidFromEnv } from '../comms/web-push.ts'
 import { purgeOldMessages } from '../comms/chat.ts'
 import { syncTenant } from '../mail/sync.ts'
 
@@ -320,6 +322,36 @@ export async function runReprojectEntitlements(): Promise<JobResult> {
   return { job: 'control.reproject_entitlements', tenants: rows.length, affected, errors, durationMs: Date.now() - started }
 }
 
+/**
+ * Web Push for companies that switched it on. Nothing to do without VAPID keys
+ * in the environment — and that is reported, not swallowed.
+ */
+export async function runNotificationPush(): Promise<JobResult> {
+  const keys = vapidFromEnv()
+  if (!keys) {
+    return { job: 'notifications.push', tenants: 0, affected: 0, durationMs: 0,
+      errors: [{ tenantId: '-', message: 'PEPL_VAPID_* is not set; run `npm run job push.keygen` and set the keys' }] }
+  }
+  return perTenant('notifications.push', async (tenantId) =>
+    withTenant(tenantId, async (tx) => {
+      const cfg = await resolveConfig(tx, tenantId)
+      if (!cfg.isEnabled('notifications.enabled')) return 0
+      if (!cfg.get<boolean>('notifications.push_enabled')) return 0
+      const r = await deliverPush(tx, keys)
+      for (const e of r.errors) console.error(`[notifications.push] ${tenantId}: ${e}`)
+      return r.sent
+    }))
+}
+
+/** Prints a fresh VAPID keypair. Run once per deployment; put the output in the environment. */
+export async function runPushKeygen(): Promise<JobResult> {
+  const k = generateVapidKeys()
+  console.log(`PEPL_VAPID_PUBLIC_KEY=${k.publicKey}`)
+  console.log(`PEPL_VAPID_PRIVATE_KEY=${k.privateKey}`)
+  console.log('PEPL_VAPID_SUBJECT=mailto:ops@yourcompany.example')
+  return { job: 'push.keygen', tenants: 0, affected: 1, errors: [], durationMs: 0 }
+}
+
 export const JOBS = {
   'leave.accrual': () => runLeaveAccrual(),
   'helpdesk.sla': runSlaBreaches,
@@ -329,6 +361,8 @@ export const JOBS = {
   'mail.sync': runMailSync,
   'control.reproject_entitlements': runReprojectEntitlements,
   'notifications.email': runNotificationEmail,
+  'notifications.push': runNotificationPush,
+  'push.keygen': runPushKeygen,
 } as const
 
 export type JobName = keyof typeof JOBS

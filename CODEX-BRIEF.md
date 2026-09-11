@@ -706,6 +706,35 @@ up. Put that sentence next to the verify button.
 The payslip line `TDS` carries `calc_note.declaredDeductions` when a figure was
 applied — the payslip screen can show "after ₹1,50,000 declared deductions".
 
+## 2.17 Push notifications — 4 endpoints, no permission (own devices only)
+
+Standard Web Push. The service worker and the subscribe flow are yours; the
+server side is done.
+
+| Verb | Path | Notes |
+|---|---|---|
+| GET | `/api/v1/push/vapid-public-key` | `{ publicKey }` for `pushManager.subscribe({ userVisibleOnly: true, applicationServerKey })`. **503 `PUSH_NOT_CONFIGURED`** when the deployment has no keys or the company turned push off — hide the opt-in control in that case, do not show an error. |
+| GET | `/api/v1/push/subscriptions` | My devices: `endpoint`, `user_agent`, `created_at`, `last_used_at`. For a "devices" list in settings. |
+| POST | `/api/v1/push/subscriptions` | Body is exactly `subscription.toJSON()`: `{ endpoint, keys: { p256dh, auth } }`. Idempotent per endpoint. Call it after subscribing AND on `pushsubscriptionchange` in the worker. |
+| DELETE | `/api/v1/push/subscriptions` | `{ endpoint }`. Call it on sign-out for the current device, after `subscription.unsubscribe()`. |
+
+The payload the worker receives (`event.data.json()`) is
+`{ id, type, title, body, entityType, entityId }` — the same fields as a
+notification row, so tapping it can deep-link the same way the bell does.
+Keep the worker's `showNotification` to title + body; do not fetch in the
+worker.
+
+Rules that are not optional:
+
+- Ask for permission from a **user gesture** ("Turn on notifications" button),
+  never on page load. A browser that has been asked on load says no forever.
+- Only offer the control when `Notification` and `PushManager` exist AND the
+  key endpoint returned 200.
+- Push is a **second channel** for the same notification, not a different
+  notification. If the tab is open and the bell already updated via SSE, the
+  worker should still show it only when no window of ours is focused
+  (`clients.matchAll` + `focused`).
+
 ---
 
 # Part 3 — What to build, in order
@@ -720,7 +749,9 @@ applied — the payslip screen can show "after ₹1,50,000 declared deductions".
 5. **Import wizard** — upload, review, commit.
 6. **Settings screen regenerated** from `GET /api/v1/config`, so all 37 keys appear
    without hand-coding.
-7. **Tax declaration** — the employee form and the payroll queue (§2.16). The
+7. **Tax declaration** — the employee form and the payroll queue (§2.16).
+8. **Push opt-in** — service worker, the subscribe button, the devices list
+   (§2.17). Small, and it is what makes the phone buzz. The
    employee form is a one-page form with a live preview; the queue is a table
    with two actions.
 
@@ -743,8 +774,9 @@ process is up.
   scheduler, so a new message triggers a sync within seconds; it lands in the UI
   through the ordinary `mail.received` realtime event, nothing new to subscribe to.
   Over the socket cap it falls back to the five-minute poll.
-- **No push notifications.** Email and in-app only. Push needs APNs/FCM
-  credentials, which is a deployment decision, not code.
+- **Push exists now** (§2.17). What is NOT there: native iOS/Android apps. Web
+  Push covers desktop browsers, Android Chrome, and iOS 16.4+ when the site is
+  installed to the home screen.
 - **No notification sounds.** When they come: unlock audio on a real user gesture,
   never sound alone as a signal, per-channel tones, default OFF, DND from shift hours.
 - **No object storage.** Document bytes live in Postgres behind a `storage` column, so

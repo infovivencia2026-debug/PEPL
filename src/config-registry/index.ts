@@ -239,6 +239,11 @@ const notifications = defineConfig('notifications', {
     label: 'Send notifications by email',
     help: 'Requires a sender mailbox below. Without one, notifications stay in the app.',
   }),
+  push_enabled: bool({
+    default: true,
+    label: 'Send notifications to devices',
+    help: 'Browser and phone push for people who allowed it on a device. Nothing is sent to a device that did not opt in.',
+  }),
   sender_email: text({
     default: '',
     label: 'Send notification email from',

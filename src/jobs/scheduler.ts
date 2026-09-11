@@ -19,6 +19,7 @@ import { JOBS, type JobName, type JobResult } from './index.ts'
 import { closePools } from '../db/pool.ts'
 import { controlDb } from '../control-plane/index.ts'
 import { startIdleWatchers } from '../mail/idle.ts'
+import { vapidFromEnv } from '../comms/web-push.ts'
 import { withTenant } from '../db/tenant-tx.ts'
 import { resolveConfig } from '../config/resolver.ts'
 import { installProcessGuards } from '../http/process-guards.ts'
@@ -39,6 +40,8 @@ export const SCHEDULE: Schedule[] = [
   { job: 'mail.outbox', everyMs: 2 * MINUTE },
   { job: 'mail.sync', everyMs: 5 * MINUTE },
   { job: 'notifications.email', everyMs: 5 * MINUTE },
+  // Push is what people expect to buzz within a minute of the event.
+  { job: 'notifications.push', everyMs: MINUTE },
 
   // Operational hygiene.
   { job: 'helpdesk.sla', everyMs: 15 * MINUTE },
@@ -103,7 +106,13 @@ export function startScheduler(schedule: Schedule[] = SCHEDULE): () => void {
   const timers: NodeJS.Timeout[] = []
   const running = new Set<JobName>()
 
+  // Push without VAPID keys would report the same missing-key error every
+  // minute. Say it once here and leave the job out; `npm run job` still runs it.
+  const pushReady = (() => { try { return vapidFromEnv() !== null } catch { return false } })()
+  if (!pushReady) log({ level: 'info', msg: 'push off (PEPL_VAPID_* not set); run npm run job push.keygen' })
+
   for (const entry of schedule) {
+    if (entry.job === 'notifications.push' && !pushReady) continue
     const tick = async (): Promise<void> => {
       if (running.has(entry.job)) {
         log({ level: 'warn', msg: 'job still running, tick skipped', job: entry.job })

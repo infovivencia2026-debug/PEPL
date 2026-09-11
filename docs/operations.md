@@ -30,6 +30,7 @@ no benefit. If you scale the API to three instances, the scheduler stays at one.
 | `PEPL_MAIL_KEY` | for mail | decrypts stored mailbox passwords |
 | `PEPL_OBJECT_STORE_ENDPOINT`, `_BUCKET`, `_ACCESS_KEY`, `_SECRET_KEY`, `_REGION` | no | S3-compatible bucket for NEW document bytes (S3, R2, MinIO; path-style, SigV4). All four or none — half is refused at the first upload. Region defaults to `us-east-1`. |
 | `PEPL_MAIL_IDLE_MAX` | no | IMAP IDLE sockets the scheduler holds open across all tenants (default 50, 0 = off). Mailboxes over the cap are polled every five minutes instead |
+| `PEPL_VAPID_PUBLIC_KEY`, `PEPL_VAPID_PRIVATE_KEY`, `PEPL_VAPID_SUBJECT` | for push | Web Push identity. `npm run job push.keygen` prints a pair; subject is a `mailto:` the push services may contact. All three or none. The private key lets anyone push as PEPL — treat it like `PEPL_MAIL_KEY` |
 | `PEPL_METRICS_TOKEN` | no | bearer token for `GET /metrics`; without it the endpoint answers loopback only |
 | `PORT` | no | defaults to 3100 locally, 4010 in the image |
 
@@ -155,6 +156,24 @@ first or leave it on.
 The client is hand-rolled SigV4 over fetch and is proven against a fake bucket
 that re-derives the signature; it has not yet been run against a real S3
 endpoint from this machine.
+
+## Push notifications
+
+Web Push (RFC 8030/8291/8292), no APNs or FCM account: the browser vendor's push
+service relays ciphertext it cannot read, and PEPL proves itself with the VAPID
+keypair. Works in Chrome, Edge, Firefox and Safari 16+ (iOS needs the site
+added to the home screen). A person opts in per device; nothing is sent to a
+device that did not.
+
+The `notifications.push` job runs every minute in the scheduler when the keys
+are set, and is left out (logged once at start-up) when they are not. A
+subscription that answers 404/410, or fails five passes in a row, is deleted.
+`notifications.pushed_at` is the delivery fact, as `emailed_at` is for email.
+
+**Push is quiet.** Check the scheduler log for `push off`; check the company
+has `notifications.push_enabled` on; check the person has a row in
+`push_subscriptions`. Browsers rotate subscriptions — the UI must re-POST on
+`pushsubscriptionchange`.
 
 ## What is not here yet
 
