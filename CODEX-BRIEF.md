@@ -4,8 +4,8 @@ This supersedes `API-HANDOFF.md` and contains it. Part 1 is the original handoff
 corrected where the backend has moved on. Part 2 is everything built since. Part 3
 is what to build next and what is still genuinely missing.
 
-The backend is complete and tested for every feature described here: **524 tests,
-105 routes, 20 launch checks, all green in one run.**
+The backend is complete and tested for every feature described here: **539 tests,
+111 routes, 20 launch checks, all green in one run.**
 
 ---
 
@@ -658,6 +658,53 @@ Rules a screen must reflect, because the server enforces them:
 is `full_day | half_day | hourly`. Amounts are plain numbers of days (1.5, not
 paise).
 
+## 2.16 Tax declarations — 6 endpoints, Chapter VI-A and HRA
+
+Until now every payslip over-deducted TDS for anyone with a PPF, a health
+policy or a rented flat, because no deductions existed. Now an employee
+declares once per fiscal year, payroll verifies against proofs, and the
+NEXT freeze deducts the allowed figure. Two screens:
+
+**Employee — "My tax declaration"** (`payroll.read`, scope self):
+
+| Verb | Path | Notes |
+|---|---|---|
+| GET | `/api/v1/tax-declarations/me?fy=2026-27` | `{ declaration, preview }`. `declaration` is null until the first save. `preview.lines[]` shows each section's `declaredPaise` vs `allowedPaise` with a `note` when the cap bit — render that side by side. |
+| PATCH | `/api/v1/tax-declarations/me` | `{ fiscalYear, regime: 'old'\|'new', declared, proofDocumentIds? }`. ALWAYS returns the row to `draft`, even if it was verified — say so in the UI before an edit to a verified declaration. |
+| POST | `/api/v1/tax-declarations/me/submit` | `{ fiscalYear }`. From `draft` or `rejected` only; 409 `DECLARATION_NOT_EDITABLE` otherwise. |
+
+`declared` fields, all annual paise integers (anything else is silently
+dropped): `section80cPaise`, `section80ccd1bPaise`, `section80dSelfPaise`,
+`section80dParentsPaise`, `section80ePaise`, `section24bPaise`,
+`section80gPaise`, `rentPaidAnnualPaise`; booleans `metro`, `parentsSenior`.
+
+Regime matters: under `new` the preview is zero with a note explaining why —
+show the note, do not hide the section list. `80G` is recorded for the
+employee's return but never deducted through payroll; the note says so.
+
+Proofs are document ids from §2.3 — the upload component you already have,
+placed once more.
+
+**Payroll — "Declarations queue"** (`payroll.process`):
+
+| Verb | Path | Notes |
+|---|---|---|
+| GET | `/api/v1/tax-declarations?fy=2026-27&status=submitted` | `status` optional: `draft\|submitted\|verified\|rejected`. Default view is `submitted`. |
+| POST | `/api/v1/tax-declarations/:id/verify` | `submitted` → `verified`. 409 `DECLARATION_NOT_SUBMITTED` otherwise. |
+| POST | `/api/v1/tax-declarations/:id/reject` | `{ reason }`, required (422 `REASON_REQUIRED`). The employee sees `rejection_reason` on their screen. |
+
+Status is a lifecycle, so show it as a stepper: draft → submitted → verified,
+with rejected as a side exit that returns to editing. Colour alone is not
+enough (§ accessibility gates above).
+
+**What the UI must NOT imply:** verification changes the NEXT payroll freeze,
+never a run already frozen or locked. If a declaration is verified after
+September's freeze, September's payslip is unchanged and October's picks it
+up. Put that sentence next to the verify button.
+
+The payslip line `TDS` carries `calc_note.declaredDeductions` when a figure was
+applied — the payslip screen can show "after ₹1,50,000 declared deductions".
+
 ---
 
 # Part 3 — What to build, in order
@@ -672,6 +719,9 @@ paise).
 5. **Import wizard** — upload, review, commit.
 6. **Settings screen regenerated** from `GET /api/v1/config`, so all 37 keys appear
    without hand-coding.
+7. **Tax declaration** — the employee form and the payroll queue (§2.16). The
+   employee form is a one-page form with a live preview; the queue is a table
+   with two actions.
 
 ## Running it
 
@@ -697,9 +747,10 @@ process is up.
   never sound alone as a signal, per-channel tones, default OFF, DND from shift hours.
 - **No object storage.** Document bytes live in Postgres behind a `storage` column, so
   the swap is a value and a reader branch, not a migration.
-- **Chapter VI-A deductions** (80C, 80D, HRA exemption) are not modelled; TDS is a
-  real projection against real slabs, with `limitations` stating exactly what it
-  omits. Surface that string rather than implying a final tax figure.
+- **Chapter VI-A is now modelled** (§2.16), but only from a declaration payroll
+  has VERIFIED. House property loss, perquisites and marginal relief still are
+  not; TDS returns `limitations` stating exactly what it omits. Surface that
+  string rather than implying a final tax figure.
 
 ## The frontend as you will find it
 
@@ -738,7 +789,7 @@ default tiles is the lever.
 ## Sanity check
 
 ```bash
-npm test          # 524 tests, including 33 against the running HTTP API
+npm test          # 539 tests, including 33 against the running HTTP API
 npm run verify    # every gate, end to end
 npm run check:responsive   # eight devices, currently clean
 npm run job mail.outbox    # drains queued external mail
