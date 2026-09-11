@@ -31,6 +31,11 @@ services:
       # nothing — the jobs say so in their output rather than failing quietly.
       PEPL_MAIL_KEY: ${PEPL_MAIL_KEY:?set PEPL_MAIL_KEY}
       PORT: '4010'
+      # Optional. See docs/operations.md for each.
+      # PEPL_METRICS_TOKEN: ${PEPL_METRICS_TOKEN}          # GET /metrics for a scraper
+      # PEPL_MAIL_IDLE_MAX: '50'                            # IMAP IDLE sockets
+      # PEPL_VAPID_PUBLIC_KEY / PRIVATE_KEY / SUBJECT       # Web Push (npm run job push.keygen)
+      # PEPL_OBJECT_STORE_ENDPOINT / BUCKET / REGION / ACCESS_KEY / SECRET_KEY
     ports: ['4010:4010']
     # Migrations run on boot: the schema and the code that expects it ship
     # together, and a half-deployed schema is never a state anyone has to debug.

@@ -133,7 +133,8 @@ export function startScheduler(schedule: Schedule[] = SCHEDULE): () => void {
     setTimeout(() => void tick(), 5_000 + timers.length * 3_000)
   }
 
-  log({ level: 'info', msg: 'scheduler started', jobs: schedule.map((s) => s.job) })
+  log({ level: 'info', msg: 'scheduler started',
+    jobs: schedule.filter((s) => s.job !== 'notifications.push' || pushReady).map((s) => s.job) })
   return () => {
     for (const timer of timers) clearInterval(timer)
     log({ level: 'info', msg: 'scheduler stopped' })

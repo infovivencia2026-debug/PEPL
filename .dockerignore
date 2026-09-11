@@ -5,3 +5,5 @@ test
 *.log
 .env
 openapi.json
+dist
+web/node_modules

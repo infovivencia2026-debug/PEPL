@@ -202,6 +202,53 @@ const anon = await fetch(`${BASE}/api/v1/events`)
 record('realtime', 'stream refuses anonymous', anon.status === 401, `${anon.status}`)
 await anon.body?.cancel().catch(() => {})
 
+// --- tax declarations (Chapter VI-A) ----------------------------------------
+const anil = await login('anil@acme.test')
+const FY = '2026-27'
+const saved = await call('PATCH', '/api/v1/tax-declarations/me', {
+  token: rahul, body: { fiscalYear: FY, regime: 'old', declared: { section80cPaise: 20000000, rentPaidAnnualPaise: 18000000, metro: true } },
+})
+expectStatus('tax', 'employee saves own declaration', saved, 200)
+const mine = await call('GET', `/api/v1/tax-declarations/me?fy=${FY}`, { token: rahul })
+record('tax', '80C preview is capped at 1.5L',
+  mine.status === 200 &&
+    ((mine.body.preview as { lines?: { section: string; allowedPaise: number }[] })?.lines ?? [])
+      .some((l) => l.section === '80C' && l.allowedPaise === 15000000),
+  `${mine.status} ${JSON.stringify((mine.body.preview as { lines?: unknown })?.lines ?? []).slice(0, 80)}`)
+expectStatus('tax', 'employee submits', await call('POST', '/api/v1/tax-declarations/me/submit', {
+  token: rahul, body: { fiscalYear: FY } }), 200)
+expectStatus('tax', 'employee cannot see the payroll queue',
+  await call('GET', `/api/v1/tax-declarations?fy=${FY}`, { token: rahul }), 403)
+const queue = await call('GET', `/api/v1/tax-declarations?fy=${FY}&status=submitted`, { token: anil })
+expectStatus('tax', 'payroll sees the queue', queue, 200)
+const declId = ((queue.body.declarations as { id: string }[] | undefined) ?? [])[0]?.id
+if (declId) {
+  expectStatus('tax', 'rejection needs a reason',
+    await call('POST', `/api/v1/tax-declarations/${declId}/reject`, { token: anil, body: { reason: '' } }), 422)
+  expectStatus('tax', 'payroll verifies',
+    await call('POST', `/api/v1/tax-declarations/${declId}/verify`, { token: anil }), 200)
+  expectStatus('tax', 'verifying twice is a 409',
+    await call('POST', `/api/v1/tax-declarations/${declId}/verify`, { token: anil }), 409)
+} else {
+  record('tax', 'queue lists the submitted declaration', false, JSON.stringify(queue.body).slice(0, 80))
+}
+
+// --- push -------------------------------------------------------------------
+const vapid = await call('GET', '/api/v1/push/vapid-public-key', { token: rahul })
+record('push', 'VAPID key endpoint answers 200 (configured) or 503 (not configured), never 500',
+  vapid.status === 200 || vapid.status === 503, String(vapid.status))
+expectStatus('push', 'a bad subscription is refused with 422',
+  await call('POST', '/api/v1/push/subscriptions', { token: rahul, body: { endpoint: 'https://p.test/x', keys: { p256dh: 'AA', auth: 'BB' } } }), 422)
+expectStatus('push', 'own devices list', await call('GET', '/api/v1/push/subscriptions', { token: rahul }), 200)
+
+// --- ops --------------------------------------------------------------------
+const ready = await call('GET', '/health/ready')
+record('ops', 'readiness probe answers as the runtime role', ready.status === 200 && ready.body.status === 'ready',
+  `${ready.status} ${JSON.stringify(ready.body).slice(0, 80)}`)
+const metrics = await fetch(`${BASE}/metrics`).then((r) => r.status).catch(() => 0)
+record('ops', '/metrics is loopback-only or token-gated (200 here, 404 to a stranger)',
+  metrics === 200 || metrics === 404, String(metrics))
+
 const tooBig = await call('POST', '/api/v1/documents', {
   token: admin,
   body: {

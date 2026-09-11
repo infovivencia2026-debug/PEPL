@@ -27,7 +27,10 @@ const server = createServer(async (req, res) => {
     handleMetrics(req, res)
     return
   }
-  if (req.url === '/health') {
+  // Both probes: /health (liveness) and /health/ready (readiness). The
+  // container HEALTHCHECK uses the second; an exact match here once sent it to
+  // the static handler and every container reported unhealthy.
+  if (req.url === '/health' || req.url?.startsWith('/health/')) {
     await domainHandler(req, res)
     return
   }

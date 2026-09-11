@@ -119,6 +119,15 @@ describe('health and errors', () => {
     expect(r.body.status).toBe('ok')
   })
 
+  it('answers the readiness probe as the RUNTIME role, with the migration count', async () => {
+    // The container HEALTHCHECK calls this. It read _migrations, which 003 had
+    // revoked from the app role, so it was 503 everywhere but here.
+    const r = await api<{ status: string; migrations: number }>('GET', '/health/ready')
+    expect(r.status).toBe(200)
+    expect(r.body.status).toBe('ready')
+    expect(r.body.migrations).toBeGreaterThanOrEqual(30)
+  })
+
   it('returns a stable machine code, not just a status', async () => {
     const r = await api('GET', '/api/v1/employees')
     expect(r.status).toBe(401)

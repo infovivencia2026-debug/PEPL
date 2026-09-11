@@ -12,6 +12,7 @@
 import { readdirSync, readFileSync, statSync } from 'node:fs'
 import { join } from 'node:path'
 import { PERMISSIONS, ROLE_PERMISSIONS } from '../src/authz/permissions.ts'
+import { ACTIONS } from '../src/audit/index.ts'
 
 const failures: string[] = []
 const fail = (m: string): number => failures.push(m)
@@ -75,6 +76,21 @@ const held = new Set(Object.values(ROLE_PERMISSIONS).flatMap((r) => r.permission
 for (const permission of PERMISSIONS) {
   if (!held.has(permission)) {
     fail(`"${permission}" is held by no seeded role — nobody can be granted it`)
+  }
+}
+
+// Audit actions are a closed vocabulary: emit() rejects an unknown one with
+// UNKNOWN_ACTION at request time. A route emitting an action the vocabulary
+// lacks therefore works in every unit test that never calls the route and
+// fails for the first real user. Found live by the smoke rig: tax_declaration
+// verify/reject answered 422 on the running server. Every `action: '…'` literal
+// in src/ must name an action that exists.
+for (const file of sources('src').filter((f) => !f.includes('audit'))) {
+  const text = readFileSync(file, 'utf8')
+  for (const m of text.matchAll(/\baction:\s*'([a-z_]+(?:\.[a-z_]+)+)'/g)) {
+    if (!(m[1]! in ACTIONS)) {
+      fail(`${file} emits audit action "${m[1]}", which is not in the vocabulary in src/audit/index.ts`)
+    }
   }
 }
 

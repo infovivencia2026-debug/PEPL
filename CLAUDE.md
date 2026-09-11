@@ -335,3 +335,34 @@ a real finding in one gate masked by a stale list in the other.
 
 The design of record is in `docs/` — start at `docs/README.md`. `docs/architecture/tenancy-security.md`
 is the specification this harness implements.
+
+## Audit actions are a closed vocabulary
+
+`emit()` rejects an action that is not in `ACTIONS` (src/audit/index.ts) with
+`UNKNOWN_ACTION` — at request time. A route that emits a new action therefore
+passes every unit test that never calls it and answers 422 to the first real
+user. `gate:permissions` now scans `src/` for `action: '…'` literals and fails
+on one the vocabulary lacks; the smoke rig found the first instance live.
+
+## The router's verbs are `get`, `post`, `patch`, `del`
+
+There is no `put` and no `delete` method. A "replace" route is a `PATCH` here.
+
+## The production image, without Docker
+
+Docker is not installed on this machine, so the image has never been built
+here. The stage that CAN be simulated is the runtime one, and it found two
+real bugs on its first run: copy `package*.json`, `src`, `db`, `scripts` into
+a scratch directory, `npm ci --omit=dev --ignore-scripts`, run
+`src/http/server.ts` and `src/jobs/scheduler.ts`, and call `/health/ready`
+exactly as the HEALTHCHECK does. That is how `/health/ready` turned out to be
+served by the static handler (404) and then denied `_migrations` (503) — while
+every unit test was green because none of them called it.
+
+## `node -e` and this shell
+
+Backticks inside a `node -e "…"` string are eaten by bash, and a CRLF file
+defeats a replacement written with `\n`. For anything beyond a one-line `sed`,
+write a `.mjs` patch script to the scratchpad with the Write tool, detect the
+file's line ending, and run it. Every silent "no change" this session was one
+of those two.
