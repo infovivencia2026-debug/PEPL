@@ -82,6 +82,21 @@ context yields **zero rows, never all rows**. Do not invert that default.
   symptom is ~27 confusing auth failures in `api.test.ts` ("login failed for …"), which reads exactly
   like a real regression. Before believing a red suite, check no other run is in flight — including a
   backgrounded one you started yourself.
+- **Two agents share this tree.** With Codex working in the same checkout, the
+  overlapping-run hazard above is no longer hypothetical: it happened, and it
+  presented as FK violations on `tenants` inside a suite's own `beforeAll`, on
+  different tests each run. Before believing a red suite, LOOK:
+
+  ```powershell
+  Get-CimInstance Win32_Process |
+    Where-Object { $_.CommandLine -match 'vitest|npm run verify|npm test' } |
+    Select-Object ProcessId, CommandLine
+  ```
+
+  A `cmd.exe /c npm run typecheck && npm run db:setup && ...` row is a `verify` in
+  flight. Wait for it. Do not "fix" the config — `fileParallelism: false` was never
+  the problem, and `singleFork` made the symptoms worse without touching the cause.
+
 - **Mutation-test the gates.** A green isolation suite proves nothing until you have watched it go
   red. Both gates were verified this way:
 

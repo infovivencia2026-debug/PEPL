@@ -6,6 +6,7 @@
  * payroll data.
  */
 import type { IncomingMessage, ServerResponse } from 'node:http'
+import { PUBLIC_LIMIT, RateLimiter, SESSION_LIMIT, sessionKey, type Limit } from './rate-limit.ts'
 
 export type Method = 'GET' | 'POST' | 'PATCH' | 'PUT' | 'DELETE'
 
@@ -125,6 +126,7 @@ const STATUS_BY_CODE: Record<string, number> = {
   RUN_NOT_LOCKED: 409,
   MISSING_BANK_DETAILS: 422,
   NOT_READY: 503,
+  RATE_LIMITED: 429,
   // documents
   FILE_TOO_LARGE: 413,
   EMPTY_FILE: 422,
@@ -202,7 +204,16 @@ async function readBody(req: IncomingMessage): Promise<unknown> {
   }
 }
 
-export function createHandler(router: Router) {
+export interface HandlerOptions {
+  /** Override the defaults; tests set these low to exercise the 429 path. */
+  publicLimit?: Limit
+  sessionLimit?: Limit
+}
+
+export function createHandler(router: Router, options: HandlerOptions = {}) {
+  const publicLimiter = new RateLimiter(options.publicLimit ?? PUBLIC_LIMIT)
+  const sessionLimiter = new RateLimiter(options.sessionLimit ?? SESSION_LIMIT)
+
   return async (req: IncomingMessage, res: ServerResponse): Promise<void> => {
     const url = new URL(req.url ?? '/', 'http://localhost')
     const started = Date.now()
@@ -218,6 +229,30 @@ export function createHandler(router: Router) {
         ...headers,
       })
       res.end(payload)
+    }
+
+    // Rate limits, before any work is done on the request. Public routes are
+    // limited per IP — the per-email lockout stops a brute force against one
+    // account and does nothing against a spray across five hundred. Everything
+    // with a session is limited per session, so a leaked token degrades to 429s
+    // rather than taking the database with it. Probes and the event stream are
+    // exempt: a balancer polling readiness must never be told to back off.
+    if (!url.pathname.startsWith('/health') && url.pathname !== '/api/v1/events') {
+      const auth = req.headers.authorization
+      const token = auth?.startsWith('Bearer ') ? auth.slice(7).trim() : null
+      const verdict = token
+        ? sessionLimiter.check(sessionKey(token))
+        : publicLimiter.check(`ip:${req.socket.remoteAddress ?? 'unknown'}`)
+      if (!verdict.allowed) {
+        send(429, {
+          error: {
+            code: 'RATE_LIMITED',
+            message: `too many requests; try again in ${verdict.retryAfterSeconds} second(s)`,
+            requestId,
+          },
+        }, { 'retry-after': String(verdict.retryAfterSeconds) })
+        return
+      }
     }
 
     try {
