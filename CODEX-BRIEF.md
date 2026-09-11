@@ -4,8 +4,8 @@ This supersedes `API-HANDOFF.md` and contains it. Part 1 is the original handoff
 corrected where the backend has moved on. Part 2 is everything built since. Part 3
 is what to build next and what is still genuinely missing.
 
-The backend is complete and tested for every feature described here: **509 tests,
-98 routes, 20 launch checks, all green in one run.**
+The backend is complete and tested for every feature described here: **524 tests,
+105 routes, 20 launch checks, all green in one run.**
 
 ---
 
@@ -621,6 +621,45 @@ to exercise the proxy path you develop on.
 
 ---
 
+## 2.15 Leave administration — 7 endpoints, `leave.policy.write`
+
+A company can now manage its own leave types and the rules behind them. This
+belongs on the settings surface, next to the holiday calendar (§2.x holidays).
+
+```
+GET   /api/v1/leave/types?includeRetired=&asOf=     leave.read
+POST  /api/v1/leave/types          { code, name, isPaid?, affectsLop?, reason }
+PATCH /api/v1/leave/types/:id      { name?, isPaid?, affectsLop?, reason }
+POST  /api/v1/leave/types/:id/retire      { reason }
+POST  /api/v1/leave/types/:id/reinstate   { reason }
+GET   /api/v1/leave/types/:id/policies    leave.read      -> every version, newest first
+POST  /api/v1/leave/types/:id/policies    { accrualMethod, accrualUnitsPerPeriod, carryForwardLimit?,
+                                            maxBalance?, encashable?, allowNegativeBalance?,
+                                            minUnit?, probationAllowed?, effectiveFrom, reason }
+```
+
+The list returns each type with `policy` — the version **in force on `asOf`**
+(today by default) — or `null` if none has started yet.
+
+Rules a screen must reflect, because the server enforces them:
+
+- **A policy is never edited.** There is no PATCH on a policy. A change is a new
+  version with `effectiveFrom`; the current one is closed the day before. Show
+  history, not an edit form.
+- **`effectiveFrom` is today or later** — `422 POLICY_NOT_BACKDATABLE`. Default
+  the date picker to the first of next month, like payroll-affecting settings.
+- **A type is retired, not deleted.** Retired types vanish from the default
+  list but keep every balance and request. Offer "Retire", never "Delete".
+- **The code is immutable and upper-case** (1–12 chars, `[A-Z][A-Z0-9_]*`) —
+  it appears on payslips. `422 INVALID_LEAVE_CODE`, `409 LEAVE_TYPE_EXISTS`.
+- Every write takes a `reason` and lands in the activity log.
+
+`accrualMethod` is one of `monthly | yearly | on_joining | none`; `minUnit`
+is `full_day | half_day | hourly`. Amounts are plain numbers of days (1.5, not
+paise).
+
+---
+
 # Part 3 — What to build, in order
 
 1. **Chat UI.** The largest visible hole. Conversation list, thread, composer,
@@ -699,7 +738,7 @@ default tiles is the lever.
 ## Sanity check
 
 ```bash
-npm test          # 509 tests, including 33 against the running HTTP API
+npm test          # 524 tests, including 33 against the running HTTP API
 npm run verify    # every gate, end to end
 npm run check:responsive   # eight devices, currently clean
 npm run job mail.outbox    # drains queued external mail
