@@ -406,6 +406,7 @@ Event types published today:
 | `chat.message` | `conversationId`, `messageId`, `senderUserId` | conversation members |
 | `chat.conversation` | `conversationId` | its participants |
 | `mail.delivered` | `subject`, `from` | the recipients with a mailbox here |
+| `mail.received` | `accountId`, `folderId`, `folder` (role), `added` | the mailbox owner — external mail synced from IMAP (IDLE push or poll). Refetch the folder list and, if that folder is open, its envelopes |
 | `approval.decided` | `requestId`, `status`, `action` | whoever raised it |
 | `announcement.published` | `announcementId` | the audience |
 
@@ -737,10 +738,11 @@ process is up.
 
 ## Still genuinely missing — do not design around these as if present
 
-- **IMAP now syncs** (imapflow), so external mail arrives as well as sends —
-  envelopes only, unless the company switches on mail.store_bodies. What is NOT
-  there: IDLE push, so new mail appears on the sync interval rather than the
-  instant it lands.
+- **IMAP syncs and pushes.** External mail arrives as well as sends — envelopes
+  only, unless the company switches on mail.store_bodies. IDLE is on in the
+  scheduler, so a new message triggers a sync within seconds; it lands in the UI
+  through the ordinary `mail.received` realtime event, nothing new to subscribe to.
+  Over the socket cap it falls back to the five-minute poll.
 - **No push notifications.** Email and in-app only. Push needs APNs/FCM
   credentials, which is a deployment decision, not code.
 - **No notification sounds.** When they come: unlock audio on a real user gesture,

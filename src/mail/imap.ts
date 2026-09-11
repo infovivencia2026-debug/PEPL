@@ -71,6 +71,12 @@ export interface Connection {
   fetchBody(uid: number): Promise<{ html: string | null; text: string | null }>
   setFlag(uid: number, flag: '\\Seen' | '\\Flagged', on: boolean): Promise<void>
   moveTo(uid: number, path: string): Promise<void>
+  /**
+   * IDLE on the selected folder until the server announces new mail, the
+   * timeout passes, or the connection drops. Optional: a connector that cannot
+   * push (the test fake by default) simply has no IDLE and is polled.
+   */
+  waitForNewMail?(timeoutMs: number): Promise<'new' | 'timeout' | 'closed'>
   close(): Promise<void>
 }
 
@@ -105,8 +111,9 @@ function addressList(list: { address?: string; name?: string }[] | undefined): s
 /**
  * Connects and authenticates.
  *
- * `disableAutoIdle` because this is a polling sync: an IDLE connection held open
- * per mailbox is a socket per employee, and the watermark makes polling cheap.
+ * `disableAutoIdle` so IDLE is something the caller ASKS for (idle.ts holds a
+ * bounded number of connections open) rather than something every sync
+ * connection drifts into between commands.
  */
 export async function connectImap(config: ImapConfig): Promise<Connection> {
   /**
@@ -248,6 +255,32 @@ export async function connectImap(config: ImapConfig): Promise<Connection> {
 
     async moveTo(uid, path) {
       await client.messageMove({ uid: String(uid) }, path, { uid: true })
+    },
+
+    waitForNewMail(timeoutMs) {
+      return new Promise((resolve) => {
+        let done = false
+        const finish = (r: 'new' | 'timeout' | 'closed'): void => {
+          if (done) return
+          done = true
+          clearTimeout(timer)
+          client.off('exists', onExists)
+          client.off('close', onClose)
+          // Any command ends IDLE; NOOP is the one that changes nothing.
+          if (r !== 'closed') client.noop().catch(() => { /* the socket is gone; caller sees it next */ })
+          resolve(r)
+        }
+        const onExists = (): void => finish('new')
+        const onClose = (): void => finish('closed')
+        const timer = setTimeout(() => finish('timeout'), timeoutMs)
+        client.on('exists', onExists)
+        client.on('close', onClose)
+        // imapflow ends IDLE itself every maxIdleTime; re-enter until we are done.
+        const loop = (): void => {
+          client.idle().then(() => { if (!done) loop() }).catch(() => finish('closed'))
+        }
+        loop()
+      })
     },
 
     async close() {

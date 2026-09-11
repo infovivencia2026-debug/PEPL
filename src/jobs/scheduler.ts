@@ -18,6 +18,9 @@ import { jobDuration, jobRuns } from '../lib/metrics.ts'
 import { JOBS, type JobName, type JobResult } from './index.ts'
 import { closePools } from '../db/pool.ts'
 import { controlDb } from '../control-plane/index.ts'
+import { startIdleWatchers } from '../mail/idle.ts'
+import { withTenant } from '../db/tenant-tx.ts'
+import { resolveConfig } from '../config/resolver.ts'
 import { installProcessGuards } from '../http/process-guards.ts'
 
 interface Schedule {
@@ -128,13 +131,47 @@ export function startScheduler(schedule: Schedule[] = SCHEDULE): () => void {
   }
 }
 
+/**
+ * IMAP IDLE runs in the scheduler process alongside the poll. Without
+ * PEPL_MAIL_KEY there is nothing to decrypt, so nothing to watch; the poll job
+ * already reports that. PEPL_MAIL_IDLE_MAX caps the sockets (default 50; 0 off).
+ */
+export function startIdle(): { stop: () => Promise<void> } | null {
+  const master = process.env.PEPL_MAIL_KEY
+  const max = Number(process.env.PEPL_MAIL_IDLE_MAX ?? 50)
+  if (!master || !Number.isFinite(max) || max <= 0) return null
+  return startIdleWatchers({
+    master,
+    maxConnections: max,
+    tenants: async () => {
+      const { rows } = await controlDb.query<{ id: string }>(
+        `SELECT t.id FROM tenants t JOIN tenant_entitlements e ON e.tenant_id = t.id
+          WHERE t.status = 'active' AND e.status IN ('trialing','active','past_due')`)
+      const out: string[] = []
+      for (const r of rows) {
+        const cfg = await withTenant(r.id, (tx) => resolveConfig(tx, r.id))
+        if (cfg.isEnabled('mail.enabled')) out.push(r.id)
+      }
+      return out
+    },
+    storeBodies: async (tenantId) => {
+      const cfg = await withTenant(tenantId, (tx) => resolveConfig(tx, tenantId))
+      return cfg.get<boolean>('mail.store_bodies')
+    },
+    log,
+  })
+}
+
 if (import.meta.url === pathToFileURL(process.argv[1] ?? '').href) {
   installProcessGuards()
   const stop = startScheduler()
+  const idle = startIdle()
+  log({ level: 'info', msg: idle ? 'imap idle watchers started' : 'imap idle off (no PEPL_MAIL_KEY or PEPL_MAIL_IDLE_MAX=0)' })
 
   const shutdown = async (signal: string): Promise<void> => {
     log({ level: 'info', msg: 'shutting down', signal })
     stop()
+    await idle?.stop().catch(() => {})
     await closePools().catch(() => {})
     await controlDb.end().catch(() => {})
     process.exit(0)

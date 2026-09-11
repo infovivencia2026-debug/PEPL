@@ -16,6 +16,7 @@
  *      one condition where the cache is dropped and rebuilt rather than merged.
  */
 import { randomUUID } from 'node:crypto'
+import { publish } from '../realtime/bus.ts'
 import type { PoolClient } from 'pg'
 import { withTenant } from '../db/tenant-tx.ts'
 import { decryptSecret } from '../comms/index.ts'
@@ -33,7 +34,7 @@ export interface SyncResult {
   errors: string[]
 }
 
-interface AccountRow {
+export interface AccountRow {
   id: string
   user_id: string
   email: string
@@ -222,6 +223,7 @@ export async function syncAccount(
         }
 
         const envelopes = await connection.fetchSince(state.highestUid, pageSize)
+        let addedHere = 0
 
         for (const envelope of envelopes) {
           const body = opts.storeBodies ? await connection.fetchBody(envelope.uid) : null
@@ -254,7 +256,18 @@ export async function syncAccount(
                 [tenantId, id, body.html, body.text],
               )
             }
-            if (inserted.rowCount) result.messagesAdded++
+            if (inserted.rowCount) { result.messagesAdded++; addedHere++ }
+          })
+        }
+
+        // After the commits above, never before: the browser must be able to
+        // refetch what it was just told about. One event per folder pass, not
+        // per message — the client refetches the list either way.
+        if (addedHere > 0) {
+          publish(tenantId, {
+            type: 'mail.received',
+            userIds: [account.user_id],
+            data: { accountId: account.id, folderId: state.id, folder: folder.role, added: addedHere },
           })
         }
 

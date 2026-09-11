@@ -18,6 +18,7 @@ import {
   ensureAccount, folderByRole, listEnvelopes, listFolders, openMessage,
 } from '../src/mail/index.ts'
 import { encryptSecret } from '../src/comms/index.ts'
+import { subscribe, type DeliveredEvent } from '../src/realtime/bus.ts'
 
 const MASTER = 'test-master-key-not-a-real-secret'
 const ALICE = 'e0000000-0000-0000-0000-00000000000e'
@@ -163,6 +164,32 @@ describe('folder roles', () => {
 })
 
 describe('syncing a mailbox', () => {
+  it('announces new mail to the mailbox owner only, once per folder, after commit', async () => {
+    const accountId = await connectedMailbox(A.id)
+    const mine: DeliveredEvent[] = []
+    const theirs: DeliveredEvent[] = []
+    const off1 = subscribe(A.id, ALICE, (e) => mine.push(e))
+    const off2 = subscribe(A.id, 'f0000000-0000-0000-0000-00000000000f', (e) => theirs.push(e))
+    try {
+      const mailbox = MAILBOX()
+      await sync(A.id, mailbox)
+      const received = mine.filter((e) => e.type === 'mail.received')
+      expect(received).toHaveLength(1)            // two messages, one INBOX pass
+      expect(received[0]!.data).toMatchObject({ folder: 'inbox', added: 2 })
+      expect(theirs.filter((e) => e.type === 'mail.received')).toHaveLength(0)
+      // the envelopes it announces are already readable
+      const folders = await withTenant(A.id, (tx) => listFolders(tx, accountId))
+      expect(folders.find((f) => f.role === 'inbox')!.unread).toBeGreaterThan(0)
+
+      mine.length = 0
+      await sync(A.id, mailbox)                    // nothing new: no event
+      expect(mine.filter((e) => e.type === 'mail.received')).toHaveLength(0)
+    } finally {
+      off1()
+      off2()
+    }
+  })
+
   it('caches the envelopes and skips unselectable folders', async () => {
     const accountId = await connectedMailbox(A.id)
     const result = await sync(A.id, MAILBOX())

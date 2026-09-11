@@ -29,6 +29,7 @@ no benefit. If you scale the API to three instances, the scheduler stays at one.
 | `PEPL_DB` | yes | the database name |
 | `PEPL_MAIL_KEY` | for mail | decrypts stored mailbox passwords |
 | `PEPL_OBJECT_STORE_ENDPOINT`, `_BUCKET`, `_ACCESS_KEY`, `_SECRET_KEY`, `_REGION` | no | S3-compatible bucket for NEW document bytes (S3, R2, MinIO; path-style, SigV4). All four or none — half is refused at the first upload. Region defaults to `us-east-1`. |
+| `PEPL_MAIL_IDLE_MAX` | no | IMAP IDLE sockets the scheduler holds open across all tenants (default 50, 0 = off). Mailboxes over the cap are polled every five minutes instead |
 | `PEPL_METRICS_TOKEN` | no | bearer token for `GET /metrics`; without it the endpoint answers loopback only |
 | `PORT` | no | defaults to 3100 locally, 4010 in the image |
 
@@ -116,6 +117,13 @@ permanently and the row's `last_error` says why.
 ```sql
 SELECT status, count(*), max(last_error) FROM mail_commands GROUP BY status;
 ```
+
+**Mail arrives late.** IDLE is running in the scheduler when the start-up log
+says `imap idle watchers started`; each push logs `idle sync`. A mailbox over
+`PEPL_MAIL_IDLE_MAX` or on a server without IDLE waits for the five-minute poll,
+which is slow, not broken. A watcher that drops logs `idle reconnecting` with
+the backoff; one that logs `idle gave up` hit a permanent auth failure and the
+person has to reconnect.
 
 **Mail is not arriving.** `mail_accounts.status` and `quarantined_until`. Three
 consecutive failures quarantine an account for an hour; an authentication
