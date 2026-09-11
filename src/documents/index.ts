@@ -8,6 +8,22 @@
  */
 import { createHash, randomUUID } from 'node:crypto'
 import type { PoolClient } from 'pg'
+import { objectStoreFromEnv, type ObjectStore } from './object-store.ts'
+
+/**
+ * The backend for NEW documents. Existing rows carry their own `storage`, so
+ * this can change between deploys without touching what was already written.
+ * Resolved lazily so importing this module never throws on a half-set
+ * environment; tests inject a fake through `setObjectStore`.
+ */
+let store: ObjectStore | null | undefined
+export function setObjectStore(s: ObjectStore | null | undefined): void { store = s }
+function objectStore(): ObjectStore | null {
+  if (store === undefined) store = objectStoreFromEnv()
+  return store
+}
+
+const objectKey = (tenantId: string, id: string): string => `tenants/${tenantId}/documents/${id}`
 
 /** 10 MB. Larger than any policy PDF, smaller than anything that should stream. */
 export const MAX_BYTES = 10 * 1024 * 1024
@@ -83,18 +99,28 @@ export async function putDocument(
   const id = randomUUID()
   const sha256 = createHash('sha256').update(args.bytes).digest('hex')
 
+  // Upload BEFORE the row: if this transaction later rolls back the bucket
+  // holds an orphan nobody references, which is cheap; a row whose bytes never
+  // arrived is a document that fails to open.
+  const os = objectStore()
+  if (os) await os.put(objectKey(tid, id), args.bytes, args.contentType)
+
   await tx.query(
     `INSERT INTO documents (tenant_id, id, owner_type, owner_id, category, file_name,
-                            content_type, size_bytes, sha256, is_confidential, uploaded_by_user_id)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`,
+                            content_type, size_bytes, sha256, is_confidential, uploaded_by_user_id,
+                            storage, storage_key)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)`,
     [tid, id, args.ownerType, args.ownerId ?? null, args.category ?? null, name,
      args.contentType, args.bytes.length, sha256, args.isConfidential ?? false,
-     args.uploadedByUserId ?? null],
+     args.uploadedByUserId ?? null,
+     os ? 'object' : 'db', os ? objectKey(tid, id) : null],
   )
-  await tx.query(
-    `INSERT INTO document_blobs (tenant_id, document_id, bytes) VALUES ($1,$2,$3)`,
-    [tid, id, args.bytes],
-  )
+  if (!os) {
+    await tx.query(
+      `INSERT INTO document_blobs (tenant_id, document_id, bytes) VALUES ($1,$2,$3)`,
+      [tid, id, args.bytes],
+    )
+  }
 
   const meta = await getDocument(tx, id)
   if (!meta) throw new DocumentError('NOT_FOUND', 'the document vanished after writing')
@@ -131,11 +157,27 @@ export async function readDocument(
 ): Promise<{ meta: DocumentMeta; bytes: Buffer } | null> {
   const meta = await getDocument(tx, id)
   if (!meta) return null
-  const { rows } = await tx.query<{ bytes: Buffer }>(
-    `SELECT bytes FROM document_blobs WHERE document_id = $1`, [id],
+  const { rows } = await tx.query<{ storage: 'db' | 'object'; storage_key: string | null }>(
+    `SELECT storage, storage_key FROM documents WHERE id = $1`, [id],
   )
-  const bytes = rows[0]?.bytes
+  let bytes: Buffer | null | undefined
+  if (rows[0]?.storage === 'object') {
+    const os = objectStore()
+    if (!os) throw new DocumentError('OBJECT_STORE_MISCONFIGURED',
+      'this document lives in object storage, which is not configured here')
+    bytes = await os.get(rows[0].storage_key!)
+  } else {
+    const blob = await tx.query<{ bytes: Buffer }>(
+      `SELECT bytes FROM document_blobs WHERE document_id = $1`, [id],
+    )
+    bytes = blob.rows[0]?.bytes
+  }
   if (!bytes) throw new DocumentError('CONTENT_MISSING', 'the document has no stored content')
+  // Integrity is checked on every read, whichever backend: a bucket is a
+  // different trust boundary from the database that holds the hash.
+  if (createHash('sha256').update(bytes).digest('hex') !== meta.sha256) {
+    throw new DocumentError('CONTENT_CORRUPT', 'the stored content does not match its recorded hash')
+  }
   return { meta, bytes }
 }
 
@@ -153,8 +195,17 @@ export async function deleteDocument(
 ): Promise<void> {
   const meta = await getDocument(tx, id)
   if (!meta) throw new DocumentError('NOT_FOUND', 'no such document')
+  const { rows } = await tx.query<{ storage: string; storage_key: string | null }>(
+    `SELECT storage, storage_key FROM documents WHERE id = $1`, [id],
+  )
   await tx.query(
     `UPDATE documents SET deleted_at = now(), deleted_reason = $2 WHERE id = $1`, [id, reason],
   )
   await tx.query(`DELETE FROM document_blobs WHERE document_id = $1`, [id])
+  if (rows[0]?.storage === 'object' && rows[0].storage_key) {
+    const os = objectStore()
+    if (!os) throw new DocumentError('OBJECT_STORE_MISCONFIGURED',
+      'cannot destroy content in an object store that is not configured here')
+    await os.delete(rows[0].storage_key)
+  }
 }

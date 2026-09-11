@@ -28,6 +28,7 @@ no benefit. If you scale the API to three instances, the scheduler stays at one.
 | `APP_USER`, `APP_PASSWORD` | yes | **every** runtime query; `NOBYPASSRLS` |
 | `PEPL_DB` | yes | the database name |
 | `PEPL_MAIL_KEY` | for mail | decrypts stored mailbox passwords |
+| `PEPL_OBJECT_STORE_ENDPOINT`, `_BUCKET`, `_ACCESS_KEY`, `_SECRET_KEY`, `_REGION` | no | S3-compatible bucket for NEW document bytes (S3, R2, MinIO; path-style, SigV4). All four or none — half is refused at the first upload. Region defaults to `us-east-1`. |
 | `PEPL_METRICS_TOKEN` | no | bearer token for `GET /metrics`; without it the endpoint answers loopback only |
 | `PORT` | no | defaults to 3100 locally, 4010 in the image |
 
@@ -132,9 +133,21 @@ process alive for mail and network faults and exits on anything else. An exit
 loop therefore means a real bug in our own code, and the log line before it
 carries the stack.
 
+## Object storage
+
+Documents carry their own `storage` (`db` or `object`) and `storage_key`, so
+turning the bucket on is a deploy, not a migration: rows written before keep
+reading from Postgres, rows written after read from the bucket. Keys are
+`tenants/<tenant_id>/documents/<id>`. Every read re-checks the SHA-256 recorded
+in the database, whichever backend served the bytes — the bucket is a different
+trust boundary. Turning the bucket OFF while object rows exist makes those
+documents fail to open with `OBJECT_STORE_MISCONFIGURED`; migrate them back
+first or leave it on.
+
+The client is hand-rolled SigV4 over fetch and is proven against a fake bucket
+that re-derives the signature; it has not yet been run against a real S3
+endpoint from this machine.
+
 ## What is not here yet
 
-- **No object storage.** Document bytes live in Postgres behind a `storage`
-  column, so a dump contains them and grows accordingly. Moving to S3 is a new
-  value in that column and a reader branch, not a migration.
 - **No multi-region anything.** One database, one scheduler.

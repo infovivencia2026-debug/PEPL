@@ -15,6 +15,7 @@
  *      visible failure, not an invisible retry loop.
  */
 import type { PoolClient } from 'pg'
+import { readDocument } from '../documents/index.ts'
 import { withTenant } from '../db/tenant-tx.ts'
 import { decryptSecret } from '../comms/index.ts'
 import { buildMessage, type Attachment } from './mime.ts'
@@ -201,17 +202,12 @@ async function deliver(
 
     const attachments: Attachment[] = []
     for (const documentId of envelope.attachment_document_ids ?? []) {
-      const { rows: files } = await tx.query<{
-        file_name: string; content_type: string; bytes: Buffer
-      }>(
-        `SELECT d.file_name, d.content_type, b.bytes
-           FROM documents d JOIN document_blobs b ON b.document_id = d.id
-          WHERE d.id = $1 AND d.deleted_at IS NULL`, [documentId],
-      )
-      const file = files[0]
+      // Through the documents module, so an attachment in object storage is
+      // read from the bucket rather than silently dropped by a blob join.
+      const file = await readDocument(tx, documentId)
       if (file) {
         attachments.push({
-          fileName: file.file_name, contentType: file.content_type, bytes: file.bytes,
+          fileName: file.meta.file_name, contentType: file.meta.content_type, bytes: file.bytes,
         })
       }
     }
