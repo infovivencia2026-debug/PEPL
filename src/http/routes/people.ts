@@ -31,9 +31,10 @@ export function register(router: Router): void {
         : [...ctx.auth.reportIds, ctx.auth.employeeId].filter(Boolean)
 
       const { rows } = await ctx.tx.query(
-        `SELECT employee_id, employee_number, first_name, last_name, status,
-                date_of_joining, department, designation
-           FROM current_employee_profile
+        `SELECT p.employee_id, p.employee_number, p.first_name, p.last_name, p.status,
+                p.date_of_joining, p.department, p.designation,
+                (SELECT u.id FROM app_users u WHERE u.employee_id = p.employee_id LIMIT 1) AS user_id
+           FROM current_employee_profile p
           WHERE ($1::uuid[] IS NULL OR employee_id = ANY($1))
             AND ($2::text IS NULL OR (first_name || ' ' || coalesce(last_name,'')) ILIKE '%' || $2 || '%'
                  OR employee_number ILIKE '%' || $2 || '%')

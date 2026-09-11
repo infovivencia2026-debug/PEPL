@@ -229,10 +229,11 @@ describe('the manager/salary boundary holds over HTTP', () => {
   it('an employee list is scoped, not filtered client-side', async () => {
     const managerToken = await loginAs(ids.manager!)
     const hrToken = await loginAs(ids.hr!)
-    const asManager = await api<{ employees: unknown[] }>('GET', '/api/v1/employees', { token: managerToken })
-    const asHr = await api<{ employees: unknown[] }>('GET', '/api/v1/employees', { token: hrToken })
+    const asManager = await api<{ employees: { user_id: string | null }[] }>('GET', '/api/v1/employees', { token: managerToken })
+    const asHr = await api<{ employees: { user_id: string | null }[] }>('GET', '/api/v1/employees', { token: hrToken })
     expect(asManager.body.employees.length).toBe(2) // self + one report
     expect(asHr.body.employees.length).toBeGreaterThanOrEqual(3)
+    expect(asHr.body.employees.some(employee => employee.user_id)).toBe(true)
   })
 
   it('an employee cannot write compensation', async () => {
