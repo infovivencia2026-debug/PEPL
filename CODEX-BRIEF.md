@@ -767,8 +767,11 @@ Route load-balancer traffic on GET /health/ready, not /health: readiness
 answers whether the instance can actually serve, liveness only whether the
 process is up.
 
-## Still genuinely missing — do not design around these as if present
+## What changed underneath since the last brief, and what is still missing
 
+- **Backend gaps closed this round:** Chapter VI-A (§2.16), Web Push (§2.17),
+  IMAP IDLE + `mail.received`, S3-compatible document storage, `GET /metrics`,
+  and the readiness probe now actually answers in a container.
 - **IMAP syncs and pushes.** External mail arrives as well as sends — envelopes
   only, unless the company switches on mail.store_bodies. IDLE is on in the
   scheduler, so a new message triggers a sync within seconds; it lands in the UI
@@ -779,8 +782,8 @@ process is up.
   installed to the home screen.
 - **No notification sounds.** When they come: unlock audio on a real user gesture,
   never sound alone as a signal, per-channel tones, default OFF, DND from shift hours.
-- **No object storage.** Document bytes live in Postgres behind a `storage` column, so
-  the swap is a value and a reader branch, not a migration.
+- **Object storage is a deploy-time switch**, not a UI concern: documents read
+  and write the same way whichever backend holds the bytes. Nothing to do.
 - **Chapter VI-A is now modelled** (§2.16), but only from a declaration payroll
   has VERIFIED. House property loss, perquisites and marginal relief still are
   not; TDS returns `limitations` stating exactly what it omits. Surface that
