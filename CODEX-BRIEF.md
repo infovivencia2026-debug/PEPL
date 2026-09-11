@@ -4,8 +4,8 @@ This supersedes `API-HANDOFF.md` and contains it. Part 1 is the original handoff
 corrected where the backend has moved on. Part 2 is everything built since. Part 3
 is what to build next and what is still genuinely missing.
 
-The backend is complete and tested for every feature described here: **477 tests,
-94 routes, 19 launch checks, all green in one run.**
+The backend is complete and tested for every feature described here: **509 tests,
+98 routes, 20 launch checks, all green in one run.**
 
 ---
 
@@ -579,6 +579,48 @@ from `GET /api/v1/config`.
 
 ---
 
+## 2.14 Review of `Communications.tsx` against the API contract
+
+Read after the first chat/mail screens landed. The important things are right:
+the cookie → bearer path works through the dev proxy, HTML is parsed to text
+on the way in and escaped on the way out, and the idempotency key rotates only
+after a successful send, so a failed send retries with the same key. No
+security findings. Five logic gaps, in order of user impact:
+
+**1. Unread counts never clear.** Nothing calls
+`POST /chat/conversations/:id/read { upToMessageId }`, so the badge in the
+sidebar stays forever once a message arrives. Call it when the thread's
+messages are actually on screen — after `setMessages`, with the highest `id`
+in the list — not when the conversation is merely selected.
+
+**2. The sidebar does not refresh on a new message.** It subscribes to
+`chat.conversation` (a new conversation) but not `chat.message`, so
+`last_message_body` and `unread` for *other* conversations go stale until a
+manual refresh. Subscribe to both; refresh the list on either.
+
+**3. Sending a saved draft leaves the draft behind.** `POST /mail/drafts`
+returns `{ id }`; keep it, and pass `draftId` on the eventual
+`POST /mail/messages`. The server deletes the draft on send. Without it, every
+draft that is later sent is also still in Drafts.
+
+**4. There is no way to start a conversation.** The screen lists what exists.
+`POST /chat/conversations { kind: 'dm' | 'group', participantUserIds, title? }`
+is built; the demo tenant now has chat enabled, so it can be exercised. A
+directory to pick colleagues from is `GET /api/v1/employees` (already scoped).
+
+**5. Threads show only the latest page.** `GET …/messages` returns
+`{ messages, hasMore }`; the UI ignores `hasMore`. Load older with
+`?beforeId=<lowest id shown>` when the user scrolls to the top.
+
+One more, about the verification script: `scripts/check-connect.mjs` intercepts
+`**/api/v1/mail/**` and answers with fixtures, so "compose and draft flow
+passed" there proves the UI, not the wiring. `npm run smoke` drives the real
+backend as the seeded users (39 checks, chat and mail included) — run it as
+well, with the app up, and run it against `SMOKE_BASE=http://127.0.0.1:5173`
+to exercise the proxy path you develop on.
+
+---
+
 # Part 3 — What to build, in order
 
 1. **Chat UI.** The largest visible hole. Conversation list, thread, composer,
@@ -657,7 +699,7 @@ default tiles is the lever.
 ## Sanity check
 
 ```bash
-npm test          # 477 tests, including 33 against the running HTTP API
+npm test          # 509 tests, including 33 against the running HTTP API
 npm run verify    # every gate, end to end
 npm run check:responsive   # eight devices, currently clean
 npm run job mail.outbox    # drains queued external mail
