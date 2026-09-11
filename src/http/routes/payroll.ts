@@ -33,7 +33,7 @@ import {
  * rather than silently deducting a wrong figure.
  */
 function tdsFor(statutory: Awaited<ReturnType<typeof loadStatutory>>) {
-  return (args: { monthlyTaxableGrossPaise: bigint; regime: 'old' | 'new' }) => {
+  return (args: { monthlyTaxableGrossPaise: bigint; regime: 'old' | 'new'; declaredDeductionsPaise: bigint }) => {
     const rules = statutory.taxRules[args.regime]
     const slabs = statutory.taxSlabs[args.regime]
     if (!rules || slabs.length === 0) {
@@ -44,6 +44,7 @@ function tdsFor(statutory: Awaited<ReturnType<typeof loadStatutory>>) {
         monthlyTaxableGrossPaise: args.monthlyTaxableGrossPaise,
         monthsRemaining: monthsRemainingInFY(new Date()),
         regime: args.regime,
+        declaredDeductionsPaise: args.declaredDeductionsPaise,
       },
       slabs,
       rules,

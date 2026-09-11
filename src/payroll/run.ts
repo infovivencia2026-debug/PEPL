@@ -8,6 +8,8 @@
  */
 import type { PoolClient } from 'pg'
 import { computePayroll, validateRun, type EngineOptions, type PayrollInput, type StatutoryConfig } from './engine.ts'
+import { allowanceFor } from './declarations.ts'
+import { fiscalYearOf } from './tds.ts'
 
 export class PayrollError extends Error {
   readonly code: string
@@ -54,6 +56,8 @@ export interface FreezeRow {
   pfApplicable?: boolean
   esiApplicable?: boolean
   taxRegime?: 'old' | 'new'
+  /** Allowed Chapter VI-A deductions + HRA exemption for the year, resolved at freeze. */
+  chapterViaPaise?: bigint | number
   adhoc?: { code: string; amountPaise: number }[]
   joinedMidPeriod?: boolean
   exitedMidPeriod?: boolean
@@ -76,18 +80,37 @@ export async function freezeInputs(
     throw new PayrollError('RUN_NOT_DRAFT', `inputs can only be frozen from draft, not ${run.status}`)
   }
 
-  for (const r of rows) {
+  // The fiscal year of the period decides which declaration (and which caps) apply.
+  const { rows: period } = await tx.query<{ period_start: string }>(
+    `SELECT period_start::text FROM payroll_periods WHERE id = $1`, [run.period_id])
+  if (!period[0]) throw new PayrollError('PERIOD_NOT_FOUND', `run ${runId} has no period`)
+  const fiscalYear = fiscalYearOf(new Date(period[0].period_start))
+
+  for (const row of rows) {
+    // Chapter VI-A is resolved HERE, once, into a value. A caller may pass its own
+    // figure (tests, a corrected revision); otherwise the verified declaration decides.
+    let r = row
+    if (r.chapterViaPaise === undefined) {
+      const c = (code: string) => r.monthlyComponents[code] ?? r.monthlyComponents[code.toUpperCase()] ?? 0
+      const resolved = await allowanceFor(tx, {
+        employeeId: r.employeeId, fiscalYear,
+        salary: { basicAnnualPaise: (c('basic') + c('da')) * 12, hraAnnualPaise: c('hra') * 12 },
+      })
+      r = { ...r, chapterViaPaise: resolved.allowance.totalPaise, taxRegime: r.taxRegime ?? resolved.regime }
+    }
     await tx.query(
       `INSERT INTO payroll_inputs
          (tenant_id, run_id, employee_id, calendar_days, payable_days, lop_days,
           paid_leave_days, ot_minutes, monthly_components, annual_ctc_paise, state_code,
-          pf_applicable, esi_applicable, tax_regime, adhoc, joined_mid_period, exited_mid_period)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9::jsonb,$10,$11,$12,$13,$14,$15::jsonb,$16,$17)`,
+          pf_applicable, esi_applicable, tax_regime, adhoc, joined_mid_period, exited_mid_period,
+          chapter_via_paise)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9::jsonb,$10,$11,$12,$13,$14,$15::jsonb,$16,$17,$18)`,
       [tid, runId, r.employeeId, r.calendarDays, r.payableDays, r.lopDays,
        r.paidLeaveDays ?? 0, r.otMinutes ?? 0,
        JSON.stringify(r.monthlyComponents), String(r.annualCtcPaise), r.stateCode,
        r.pfApplicable ?? true, r.esiApplicable ?? false, r.taxRegime ?? 'new',
-       JSON.stringify(r.adhoc ?? []), r.joinedMidPeriod ?? false, r.exitedMidPeriod ?? false],
+       JSON.stringify(r.adhoc ?? []), r.joinedMidPeriod ?? false, r.exitedMidPeriod ?? false,
+       String(r.chapterViaPaise ?? 0)],
     )
   }
 
@@ -317,11 +340,11 @@ async function readInputs(tx: PoolClient, runId: string): Promise<PayrollInput[]
     monthly_components: Record<string, number>; state_code: string
     pf_applicable: boolean; esi_applicable: boolean; tax_regime: 'old' | 'new'
     adhoc: { code: string; amountPaise: number }[]
-    joined_mid_period: boolean; exited_mid_period: boolean
+    joined_mid_period: boolean; exited_mid_period: boolean; chapter_via_paise: string
   }>(
     `SELECT employee_id, calendar_days::text, payable_days::text, lop_days::text,
             monthly_components, state_code, pf_applicable, esi_applicable, tax_regime,
-            adhoc, joined_mid_period, exited_mid_period
+            adhoc, joined_mid_period, exited_mid_period, chapter_via_paise::text
        FROM payroll_inputs WHERE run_id = $1 ORDER BY employee_id`,
     [runId],
   )
@@ -338,5 +361,6 @@ async function readInputs(tx: PoolClient, runId: string): Promise<PayrollInput[]
     adhoc: r.adhoc ?? [],
     joinedMidPeriod: r.joined_mid_period,
     exitedMidPeriod: r.exited_mid_period,
+    chapterViaPaise: BigInt(r.chapter_via_paise ?? '0'),
   }))
 }

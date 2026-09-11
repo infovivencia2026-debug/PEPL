@@ -10,9 +10,11 @@
  * all DATA with effective dates (tax_slabs / tax_rules), so a Finance Act change
  * is an INSERT rather than a deploy, and a locked run keeps the numbers it saw.
  *
- * NOT a substitute for a compliance review. Chapter VI-A deductions, house
- * property loss, perquisites and marginal relief are out of scope here; see
- * `limitations` on the result, which the payslip and the API surface.
+ * NOT a substitute for a compliance review. Chapter VI-A deductions and the HRA
+ * exemption arrive as `declaredDeductionsPaise`, resolved at freeze from the
+ * VERIFIED declaration by payroll/chapter-via.ts. House property loss,
+ * perquisites and marginal relief are out of scope here; see `limitations` on
+ * the result, which the payslip and the API surface.
  */
 
 export interface TaxSlab {
@@ -73,7 +75,7 @@ export function computeTds(
   rules: TaxRules,
 ): TdsResult {
   const limitations = [
-    'Chapter VI-A deductions beyond the declared figure are not modelled',
+    'Chapter VI-A and HRA apply only from a declaration payroll has verified',
     'house property loss, perquisites and marginal relief are not modelled',
   ]
 

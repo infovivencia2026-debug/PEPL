@@ -40,6 +40,8 @@ export interface PayrollInput {
   pfApplicable: boolean
   esiApplicable: boolean
   taxRegime: 'old' | 'new'
+  /** Allowed Chapter VI-A + HRA exemption for the year, resolved at freeze. */
+  chapterViaPaise?: bigint
   adhoc: { code: string; amountPaise: number; taxable?: boolean }[]
   joinedMidPeriod?: boolean
   exitedMidPeriod?: boolean
@@ -60,6 +62,8 @@ export interface EngineOptions {
   computeTds?: (args: {
     monthlyTaxableGrossPaise: bigint
     regime: 'old' | 'new'
+    /** Allowed Chapter VI-A + HRA exemption for the year, resolved at freeze. */
+    declaredDeductionsPaise: bigint
   }) => { monthlyTdsPaise: bigint; trace: Record<string, unknown> }
 }
 
@@ -179,6 +183,7 @@ export function computePayroll(input: PayrollInput, opts: EngineOptions): Comput
     const result = opts.computeTds({
       monthlyTaxableGrossPaise: taxableGross,
       regime: input.taxRegime,
+      declaredDeductionsPaise: input.chapterViaPaise ?? 0n,
     })
     if (result.monthlyTdsPaise > 0n) {
       lines.push({
