@@ -32,12 +32,13 @@ import { register as mail } from './routes/mail.ts'
 import { register as imports } from './routes/imports.ts'
 import { register as payments } from './routes/payments.ts'
 import { register as holidays } from './routes/holidays.ts'
+import { register as leavePolicy } from './routes/leave-policy.ts'
 
 export const router = new Router()
 
 for (const register of [
   system, config, people, attendance, leave, inbox,
-  payroll, helpdesk, incentives, comms, activity, roles, documents, chat, mail, imports, payments, holidays,
+  payroll, helpdesk, incentives, comms, activity, roles, documents, chat, mail, imports, payments, holidays, leavePolicy,
 ]) {
   register(router)
 }
