@@ -6,6 +6,7 @@ import { buildUiRouter } from './ui-routes.ts'
 import { router } from './routes.ts'
 import { handleEvents } from '../realtime/sse.ts'
 import { installProcessGuards } from './process-guards.ts'
+import { handleMetrics } from './metrics-endpoint.ts'
 
 installProcessGuards()
 
@@ -22,6 +23,10 @@ const server = createServer(async (req, res) => {
   res.setHeader('X-Content-Type-Options', 'nosniff')
   res.setHeader('Referrer-Policy', 'same-origin')
   res.setHeader('X-Frame-Options', 'DENY')
+  if (req.url === '/metrics') {
+    handleMetrics(req, res)
+    return
+  }
   if (req.url === '/health') {
     await domainHandler(req, res)
     return

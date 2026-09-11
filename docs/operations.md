@@ -28,6 +28,7 @@ no benefit. If you scale the API to three instances, the scheduler stays at one.
 | `APP_USER`, `APP_PASSWORD` | yes | **every** runtime query; `NOBYPASSRLS` |
 | `PEPL_DB` | yes | the database name |
 | `PEPL_MAIL_KEY` | for mail | decrypts stored mailbox passwords |
+| `PEPL_METRICS_TOKEN` | no | bearer token for `GET /metrics`; without it the endpoint answers loopback only |
 | `PORT` | no | defaults to 3100 locally, 4010 in the image |
 
 **`PEPL_MAIL_KEY` is a data key, not a password.** Rotating it strands every
@@ -43,6 +44,7 @@ nothing" is diagnosable from the job output.
 |---|---|---|
 | `GET /health` | is the process alive? | container restart policy |
 | `GET /health/ready` | can it actually serve? | load balancer membership |
+| `GET /metrics` | how is it doing? | Prometheus scrape — requests by route pattern and status class, latency histogram, rate-limit rejections, job outcomes, SSE connections, memory |
 
 Route traffic on **readiness**. Liveness only says the process is running; an
 instance whose database is unreachable is running and cannot serve, and a
@@ -135,7 +137,4 @@ carries the stack.
 - **No object storage.** Document bytes live in Postgres behind a `storage`
   column, so a dump contains them and grows accordingly. Moving to S3 is a new
   value in that column and a reader branch, not a migration.
-- **No rate limiting** beyond the login attempt lockout.
-- **No metrics endpoint.** Logs are structured JSON on stdout; there is no
-  Prometheus surface.
 - **No multi-region anything.** One database, one scheduler.

@@ -7,6 +7,7 @@
  */
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { PUBLIC_LIMIT, RateLimiter, SESSION_LIMIT, sessionKey, type Limit } from './rate-limit.ts'
+import { httpDuration, httpRequests, rateLimited } from '../lib/metrics.ts'
 
 export type Method = 'GET' | 'POST' | 'PATCH' | 'PUT' | 'DELETE'
 
@@ -225,8 +226,14 @@ export function createHandler(router: Router, options: HandlerOptions = {}) {
     const started = Date.now()
     const requestId = crypto.randomUUID()
 
+    // The route PATTERN (`/api/v1/employees/:id`), so ids never become label values.
+    let routeLabel = 'unmatched'
+
     const send = (status: number, body: unknown, headers: Record<string, string> = {}): void => {
       const payload = JSON.stringify(body ?? null)
+      const labels = { method: req.method ?? 'GET', route: routeLabel, status: `${Math.floor(status / 100)}xx` }
+      httpRequests.inc(labels)
+      httpDuration.observe({ method: labels.method, route: routeLabel }, (Date.now() - started) / 1000)
       res.writeHead(status, {
         'content-type': 'application/json; charset=utf-8',
         'x-request-id': requestId,
@@ -250,6 +257,7 @@ export function createHandler(router: Router, options: HandlerOptions = {}) {
         ? sessionLimiter.check(sessionKey(token))
         : publicLimiter.check(`ip:${req.socket.remoteAddress ?? 'unknown'}`)
       if (!verdict.allowed) {
+        rateLimited.inc({ limiter: token ? 'session' : 'public' })
         send(429, {
           error: {
             code: 'RATE_LIMITED',
@@ -268,6 +276,7 @@ export function createHandler(router: Router, options: HandlerOptions = {}) {
         return
       }
 
+      routeLabel = '/' + hit.route.segments.join('/')
       const body = await readBody(req)
       const result = await hit.route.handler({
         method: req.method as Method,

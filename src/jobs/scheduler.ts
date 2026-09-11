@@ -14,6 +14,7 @@
  *   npm run scheduler
  */
 import { pathToFileURL } from 'node:url'
+import { jobDuration, jobRuns } from '../lib/metrics.ts'
 import { JOBS, type JobName, type JobResult } from './index.ts'
 import { closePools } from '../db/pool.ts'
 import { controlDb } from '../control-plane/index.ts'
@@ -71,6 +72,8 @@ export async function runOnce(job: JobName): Promise<JobResult | null> {
   const started = Date.now()
   try {
     const result = await JOBS[job]()
+    jobRuns.inc({ job, outcome: result.errors.length ? 'errors' : 'ok' })
+    jobDuration.observe({ job }, (Date.now() - started) / 1000)
     log({
       level: result.errors.length ? 'warn' : 'info',
       msg: 'job finished', job,
@@ -79,6 +82,7 @@ export async function runOnce(job: JobName): Promise<JobResult | null> {
     })
     return result
   } catch (err) {
+    jobRuns.inc({ job, outcome: 'failed' })
     log({ level: 'error', msg: 'job failed', job, err: (err as Error).message })
     return null
   }
