@@ -47,7 +47,12 @@ export interface PayrollInput {
   ytdTdsPaise?: bigint
   /** Months left in the fiscal year including this period's. From the period, not the clock. */
   monthsRemaining?: number
-  adhoc: { code: string; amountPaise: number; taxable?: boolean }[]
+  /**
+   * One-off lines. Earnings by default; `type: 'deduction'` for a recovery
+   * (notice shortfall, unreturned asset). `taxable: false` keeps an exempt
+   * payment — gratuity within the cap, encashment at exit — out of TDS.
+   */
+  adhoc: { code: string; amountPaise: number; taxable?: boolean; type?: 'earning' | 'deduction' }[]
   joinedMidPeriod?: boolean
   exitedMidPeriod?: boolean
 }
@@ -136,12 +141,21 @@ export function computePayroll(input: PayrollInput, opts: EngineOptions): Comput
     })
   }
 
-  // 4. Ad-hoc earnings: OT, arrears, bonus, incentive.
+  // 4. Ad-hoc lines: OT, arrears, bonus, incentive — and at exit, gratuity,
+  // encashment and recoveries. Deductions are written now and counted at
+  // step 10; they do not reduce gross.
   let adhocTotal = 0n
+  let exemptAdhoc = 0n
   for (const a of input.adhoc) {
     const amt = toRupee(a.amountPaise)
-    lines.push({ code: a.code.toUpperCase(), type: 'earning', amountPaise: amt, note: { adhoc: true } })
+    if (a.type === 'deduction') {
+      lines.push({ code: a.code.toUpperCase(), type: 'deduction', amountPaise: amt, note: { adhoc: true } })
+      continue
+    }
+    lines.push({ code: a.code.toUpperCase(), type: 'earning', amountPaise: amt,
+      note: { adhoc: true, ...(a.taxable === false ? { taxExempt: true } : {}) } })
     adhocTotal += amt
+    if (a.taxable === false) exemptAdhoc += amt
   }
 
   // 5. Gross is the sum of rounded lines, minus LOP.
@@ -185,9 +199,10 @@ export function computePayroll(input: PayrollInput, opts: EngineOptions): Comput
   }
 
   // 9. TDS. Taxable gross excludes the employee's own PF contribution, which is
-  // deductible; the projection and slab work live in payroll/tds.ts.
+  // deductible, and any exempt one-off; the projection and slab work live in
+  // payroll/tds.ts.
   if (opts.computeTds) {
-    const taxableGross = grossPaise - pfEmployee
+    const taxableGross = grossPaise - pfEmployee - exemptAdhoc
     const result = opts.computeTds({
       monthlyTaxableGrossPaise: taxableGross,
       regime: input.taxRegime,

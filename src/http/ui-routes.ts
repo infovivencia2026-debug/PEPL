@@ -556,8 +556,13 @@ function registerPayroll(r: Router) {
             {
               lop_basis: c.config.get('payroll.lop_basis'),
               pf_on_full_wage: c.config.get('payroll.pf_on_full_wage'),
+              exit_day_divisor: c.config.get('payroll.exit_day_divisor'),
             },
             statutory.id,
+            { settlement: {
+              encashmentDivisor: c.config.get<number>('payroll.exit_day_divisor'),
+              noticeDivisor: c.config.get<number>('payroll.exit_day_divisor'),
+            } },
           ),
         })
       } else

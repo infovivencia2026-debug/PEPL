@@ -53,6 +53,8 @@ export const ACTIONS: Readonly<Record<string, ActionDef>> = Object.freeze({
   // A statutory return leaves the building with UANs, PANs and pay in it.
   'payroll.filing.generated': { category: 'payroll', severity: 'critical' },
   'employee.statutory_ids.changed': { category: 'people', severity: 'notice' },
+  'employee.separation.initiated': { category: 'people', severity: 'notice' },
+  'employee.separation.cancelled': { category: 'people', severity: 'notice', requiresReason: true },
 
   'config.setting.changed': { category: 'config', severity: 'notice', requiresReason: false },
   'config.module.disabled': { category: 'config', severity: 'warning', requiresReason: true },

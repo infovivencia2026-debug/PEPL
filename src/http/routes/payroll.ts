@@ -77,11 +77,14 @@ export function register(router: Router): void {
     authed('payroll.process', async (ctx) => {
       const b = requireBody<{ rows: unknown[] }>(ctx.req, ['rows'])
       const statutory = await loadStatutory(ctx.tx)
+      const divisor = ctx.config.get<number>('payroll.exit_day_divisor')
       const n = await freezeInputs(
         ctx.tx, asUuid(ctx.req.params.id, 'id'), b.rows as never,
         { lop_basis: ctx.config.get('payroll.lop_basis'),
-          pf_on_full_wage: ctx.config.get('payroll.pf_on_full_wage') },
-        statutory.id)
+          pf_on_full_wage: ctx.config.get('payroll.pf_on_full_wage'),
+          exit_day_divisor: divisor },
+        statutory.id,
+        { settlement: { encashmentDivisor: divisor, noticeDivisor: divisor } })
       return ok({ frozen: n })
     }))
 

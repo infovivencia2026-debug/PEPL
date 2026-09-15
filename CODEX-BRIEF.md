@@ -4,8 +4,8 @@ This supersedes `API-HANDOFF.md` and contains it. Part 1 is the original handoff
 corrected where the backend has moved on. Part 2 is everything built since. Part 3
 is what to build next and what is still genuinely missing.
 
-The backend is complete and tested for every feature described here: **587 tests,
-120 routes, 20 launch checks, all green in one run.**
+The backend is complete and tested for every feature described here: **595 tests,
+125 routes, 20 launch checks, all green in one run.**
 
 ---
 
@@ -775,6 +775,34 @@ PT state) are four new settings in the payroll block of `GET /api/v1/config`
 — they appear in the generated settings screen automatically and name the
 files.
 
+## 2.19 Exit — separations and full-and-final settlement, 4 endpoints
+
+`exitedMidPeriod` was a flag with nothing behind it. Now an exit is a record,
+and the settlement lands on the final payslip.
+
+| Verb | Path | Who | Notes |
+|---|---|---|---|
+| GET | `/api/v1/employees/:id/separation` | `employee.read` (scoped) | The open one, else the latest. `settlement` is `null` for anyone without `compensation.read` — a manager sees THAT someone is leaving and when, never what it pays. |
+| POST | `/api/v1/employees/:id/separation` | `employee.write` | `{ reason, lastWorkingDay, initiatedOn?, noticeDaysRequired?, noticeWaived?, recoveriesPaise?, recoveriesNote?, note? }`. `reason` ∈ `resignation \| termination \| retirement \| end_of_contract \| death \| absconding`. 409 `SEPARATION_OPEN` / `ALREADY_EXITED`. |
+| POST | `/api/v1/separations/:id/cancel` | `employee.write` | `{ reason }`. Only while `initiated`; once payroll has frozen the final run it is 409 `SEPARATION_NOT_OPEN`. |
+| GET | `/api/v1/separations/:id/settlement-preview` | `payroll.process` | `{ settlement, final }`. `final: false` is today's figures from live balances; `final: true` (with `runId`) is what was actually paid. Label them differently. |
+
+`settlement` shape: `{ gratuity: { eligible, yearsCounted, amountPaise, computedPaise, note },
+encashment: { days, amountPaise, byType[] }, notice: { servedDays, shortfallDays, amountPaise },
+recoveriesPaise, adhoc[] }`. Show `gratuity.note` verbatim — it says why someone is
+ineligible or that the ₹20L cap bit.
+
+**Status is a stepper**: `initiated → in_payroll → settled`, with `cancelled` as a
+side exit. `in_payroll` means the final run is frozen and the numbers are fixed;
+`settled` means locked, and the employee's status is now `exited` with
+`date_of_exit` set. There is no "settle" button — freezing and locking the run
+that contains the last working day IS the settlement. Say that on the screen.
+
+On the payslip the settlement appears as ordinary lines: `GRATUITY` and
+`LEAVE_ENCASH` (earnings, `calc_note.taxExempt: true` — badge them "tax-free"),
+`NOTICE_RECOVERY` and `RECOVERY` (deductions). One new payroll setting,
+`payroll.exit_day_divisor`, appears in the generated settings screen.
+
 ---
 
 # Part 3 — What to build, in order
@@ -793,7 +821,9 @@ files.
 8. **Push opt-in** — service worker, the subscribe button, the devices list
    (§2.17). Small, and it is what makes the phone buzz.
 9. **Statutory identifiers on the profile and filings on the run page** (§2.18).
-   The `omitted` list is the UX; the download is the easy part. The
+   The `omitted` list is the UX; the download is the easy part.
+10. **Exit** — start/cancel on the profile, the settlement preview for payroll,
+    the stepper (§2.19). The
    employee form is a one-page form with a live preview; the queue is a table
    with two actions.
 
@@ -868,7 +898,7 @@ default tiles is the lever.
 ## Sanity check
 
 ```bash
-npm test          # 587 tests, including 33 against the running HTTP API
+npm test          # 595 tests, including 33 against the running HTTP API
 npm run verify    # every gate, end to end
 npm run check:responsive   # eight devices, currently clean
 npm run job mail.outbox    # drains queued external mail

@@ -162,6 +162,15 @@ const payroll = defineConfig('payroll', {
   // The employer's own registration numbers. Not behaviour — identity on a
   // return — but they belong with the company's other payroll settings rather
   // than in a table of four strings.
+  exit_day_divisor: int({
+    default: 30,
+    min: 26,
+    max: 31,
+    label: 'Days in a month for exit settlement',
+    help: 'Leave encashment and notice recovery are paid or recovered per day at monthly pay divided by this. 30 is the convention; some contracts say 26.',
+    risk: 'high',
+    affects: ['payroll'],
+  }),
   pf_establishment_code: text({
     default: '',
     label: 'PF establishment code',

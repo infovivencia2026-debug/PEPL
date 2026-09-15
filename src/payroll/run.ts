@@ -10,6 +10,7 @@ import type { PoolClient } from 'pg'
 import { computePayroll, validateRun, type EngineOptions, type PayrollInput, type StatutoryConfig } from './engine.ts'
 import { allowanceFor } from './declarations.ts'
 import { fiscalYearOf, monthsRemainingInFY } from './tds.ts'
+import { finalizeSettlements, releaseSettlements, settlementForFreeze, type SettlementOptions } from './exit.ts'
 
 export class PayrollError extends Error {
   readonly code: string
@@ -62,7 +63,7 @@ export interface FreezeRow {
   ytdTaxablePaise?: bigint | number
   /** TDS already deducted this fiscal year in locked runs. Resolved at freeze if omitted. */
   ytdTdsPaise?: bigint | number
-  adhoc?: { code: string; amountPaise: number }[]
+  adhoc?: { code: string; amountPaise: number; taxable?: boolean; type?: 'earning' | 'deduction' }[]
   joinedMidPeriod?: boolean
   exitedMidPeriod?: boolean
 }
@@ -77,6 +78,7 @@ export async function freezeInputs(
   rows: readonly FreezeRow[],
   configSnapshot: Record<string, unknown>,
   statutoryConfigId: string,
+  extra: { settlement?: SettlementOptions } = {},
 ): Promise<number> {
   const tid = await tenantId(tx)
   const run = await getRun(tx, runId)
@@ -85,10 +87,11 @@ export async function freezeInputs(
   }
 
   // The fiscal year of the period decides which declaration (and which caps) apply.
-  const { rows: period } = await tx.query<{ period_start: string }>(
-    `SELECT period_start::text FROM payroll_periods WHERE id = $1`, [run.period_id])
+  const { rows: period } = await tx.query<{ period_start: string; period_end: string }>(
+    `SELECT period_start::text, period_end::text FROM payroll_periods WHERE id = $1`, [run.period_id])
   if (!period[0]) throw new PayrollError('PERIOD_NOT_FOUND', `run ${runId} has no period`)
   const periodStart = new Date(period[0].period_start)
+  const settlementOpts: SettlementOptions = extra.settlement ?? { encashmentDivisor: 30, noticeDivisor: 30 }
   const fiscalYear = fiscalYearOf(periodStart)
   // From the PERIOD, never the clock: September processed in October is September.
   const monthsRemaining = monthsRemainingInFY(periodStart)
@@ -108,6 +111,20 @@ export async function freezeInputs(
     if (r.ytdTaxablePaise === undefined || r.ytdTdsPaise === undefined) {
       const ytd = await yearToDate(tx, r.employeeId, periodStart)
       r = { ...r, ytdTaxablePaise: r.ytdTaxablePaise ?? ytd.taxablePaise, ytdTdsPaise: r.ytdTdsPaise ?? ytd.tdsPaise }
+    }
+    // A leaver's final run: the settlement is resolved HERE, once, and its
+    // lines join the row. The caller's day counts stand — attendance knows
+    // how many days were worked — but the run knows the person left.
+    const exit = await settlementForFreeze(tx, {
+      employeeId: r.employeeId, runId, periodStart: period[0].period_start, periodEnd: period[0].period_end,
+      opts: settlementOpts,
+    })
+    if (exit) {
+      r = {
+        ...r,
+        adhoc: [...(r.adhoc ?? []), ...exit.settlement.adhoc],
+        exitedMidPeriod: r.exitedMidPeriod || exit.separation.last_working_day < period[0].period_end,
+      }
     }
     await tx.query(
       `INSERT INTO payroll_inputs
@@ -188,6 +205,7 @@ export async function unfreezeInputs(tx: PoolClient, runId: string): Promise<voi
     throw new PayrollError('CANNOT_UNFREEZE', `cannot unfreeze a run in status ${run.status}`)
   }
   await tx.query('DELETE FROM payroll_inputs WHERE tenant_id = $1 AND run_id = $2', [tid, runId])
+  await releaseSettlements(tx, runId)
   await tx.query(
     `UPDATE payroll_runs SET status = 'draft', frozen_at = NULL WHERE tenant_id = $1 AND id = $2`,
     [tid, runId],
@@ -311,6 +329,8 @@ export async function lock(
       WHERE tenant_id = $1 AND id = $2`,
     [tid, runId, lockerUserId],
   )
+  // Leavers paid in this run have now left.
+  await finalizeSettlements(tx, runId)
 }
 
 /**
@@ -395,7 +415,7 @@ async function readInputs(tx: PoolClient, runId: string): Promise<PayrollInput[]
     employee_id: string; calendar_days: string; payable_days: string; lop_days: string
     monthly_components: Record<string, number>; state_code: string
     pf_applicable: boolean; esi_applicable: boolean; tax_regime: 'old' | 'new'
-    adhoc: { code: string; amountPaise: number }[]
+    adhoc: { code: string; amountPaise: number; taxable?: boolean; type?: 'earning' | 'deduction' }[]
     joined_mid_period: boolean; exited_mid_period: boolean; chapter_via_paise: string
     ytd_taxable_paise: string; ytd_tds_paise: string; months_remaining: number
   }>(
