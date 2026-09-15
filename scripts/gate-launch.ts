@@ -7,6 +7,7 @@
  * Exit 1 means: do not open signup.
  */
 import pg from 'pg'
+import { PT_STATES } from '../db/reference/pt-slabs.ts'
 import { config } from '../src/config.ts'
 import { REGISTRY } from '../src/config-registry/index.ts'
 import { ACTIONS } from '../src/audit/index.ts'
@@ -151,6 +152,26 @@ async function main(): Promise<void> {
     'every entitlement a setting names is sold by some plan',
     unsellable.length === 0,
     unsellable.length ? `no plan grants: ${unsellable.join(', ')}` : `${declared.length} entitlement(s)`,
+  )
+
+  // Professional tax is state law: every state the reference file knows must
+  // have slabs in force today, and every tenant's chosen PT state must be one of them.
+  const { rows: ptRows } = await db.query<{ state_code: string }>(
+    `SELECT DISTINCT state_code FROM pt_slabs WHERE effective_from <= CURRENT_DATE AND (effective_to IS NULL OR effective_to >= CURRENT_DATE)`)
+  const loaded = new Set(ptRows.map((r) => r.state_code))
+  const missingPt = PT_STATES.map((s) => s.code).filter((c) => !loaded.has(c))
+  record(
+    'professional-tax slabs loaded for every PT state (npm run seed:statutory)',
+    missingPt.length === 0,
+    missingPt.length ? `no slabs in force for: ${missingPt.join(', ')}` : `${loaded.size} state(s)`,
+  )
+  const { rows: tenantStates } = await db.query<{ v: string }>(
+    `SELECT DISTINCT trim(both '"' from value::text) AS v FROM tenant_settings WHERE key = 'payroll.pt_state_code' AND value::text <> '""'`)
+  const unknownStates = tenantStates.map((r) => r.v).filter((v) => v && !loaded.has(v))
+  record(
+    "every tenant's PT state has slabs (or levies no PT)",
+    unknownStates.length === 0,
+    unknownStates.length ? `configured but no slabs: ${unknownStates.join(', ')}` : `${tenantStates.length} tenant state(s)`,
   )
 
   await db.end()

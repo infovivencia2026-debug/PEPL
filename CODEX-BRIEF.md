@@ -4,8 +4,8 @@ This supersedes `API-HANDOFF.md` and contains it. Part 1 is the original handoff
 corrected where the backend has moved on. Part 2 is everything built since. Part 3
 is what to build next and what is still genuinely missing.
 
-The backend is complete and tested for every feature described here: **644 tests,
-188 routes, 20 launch checks, all green in one run.**
+The backend is complete and tested for every feature described here: **650 tests,
+189 routes, 20 launch checks, all green in one run.**
 
 ---
 
@@ -1073,6 +1073,16 @@ deduction (the balance if smaller), unfreeze gives it back, the loan becomes
 whole balance is taken as `LOAN_SETTLEMENT`. Show the balance and "N of M
 instalments taken" on the profile; nothing to trigger.
 
+## 2.32 Professional-tax coverage — 1 endpoint
+
+`GET /api/v1/statutory/pt-states` → `{ states: [{ code, name, verifiedOn, note, loaded, slabs, since }], exempt: [{ code, name }] }`.
+Use it to drive the **state picker** for `payroll.pt_state_code` and for a
+location's `stateCode`: list levying states and exempt ones together (exempt
+ones labelled "no professional tax"), and show `verifiedOn` and `note` beside
+the chosen state so the company knows the slabs are reference figures to
+reconcile. A state with `loaded: false` should be selectable but flagged: "no
+slabs loaded — ask your administrator to run the statutory seed".
+
 ---
 
 # Part 3 — What to build, in order
@@ -1119,7 +1129,9 @@ instalments taken" on the profile; nothing to trigger.
 20. **202 on the compensation and correction forms** — "sent for approval"
     state instead of a success toast (§2.29). Small.
 21. **Loans** — grant form with schedule preview, the balance card on the
-    profile, repay/close actions (§2.31). The
+    profile, repay/close actions (§2.31).
+22. **PT state picker** from the coverage endpoint, in settings and on the
+    location editor (§2.32). Small. The
    employee form is a one-page form with a live preview; the queue is a table
    with two actions.
 
@@ -1194,7 +1206,7 @@ default tiles is the lever.
 ## Sanity check
 
 ```bash
-npm test          # 644 tests, including 33 against the running HTTP API
+npm test          # 650 tests, including 33 against the running HTTP API
 npm run verify    # every gate, end to end
 npm run check:responsive   # eight devices, currently clean
 npm run job mail.outbox    # drains queued external mail

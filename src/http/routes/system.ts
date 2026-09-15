@@ -1,5 +1,6 @@
 /** Health and identity. */
 import type { Router } from '../router.ts'
+import { PT_EXEMPT_STATES, PT_STATES } from '../../../db/reference/pt-slabs.ts'
 import {
   type Req,
   authed,
@@ -53,6 +54,21 @@ export function register(router: Router): void {
           checkMs: Date.now() - started,
         })
       }
+    }))
+
+  router.get('/api/v1/statutory/pt-states',
+    { summary: 'Professional-tax coverage: states with slabs (and when they were checked), and states that levy none',
+      tag: 'system' },
+    authed(null, async (ctx) => {
+      const { rows } = await ctx.tx.query<{ state_code: string; n: string; since: string }>(
+        `SELECT state_code, count(*)::text AS n, min(effective_from)::text AS since FROM pt_slabs
+          WHERE effective_from <= CURRENT_DATE AND (effective_to IS NULL OR effective_to >= CURRENT_DATE) GROUP BY state_code`)
+      const loaded = new Map(rows.map((r) => [r.state_code, r]))
+      return ok({
+        states: PT_STATES.map((s) => ({ code: s.code, name: s.name, verifiedOn: s.verifiedOn, note: s.note ?? null,
+          loaded: loaded.has(s.code), slabs: Number(loaded.get(s.code)?.n ?? 0), since: loaded.get(s.code)?.since ?? null })),
+        exempt: PT_EXEMPT_STATES,
+      })
     }))
 
   router.post('/api/v1/auth/login',

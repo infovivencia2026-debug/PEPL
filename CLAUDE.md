@@ -14,7 +14,7 @@ npm run verify     # the whole chain, in order — use this before claiming anyt
                        AND that every setting is read by code somewhere
   npm run gate:permissions  every permission is asserted by a route and held by a role
   npm test             vitest: all suites
-  npm run gate:launch  launch readiness — 19 checks against the live database
+  npm run gate:launch  launch readiness — 22 checks against the live database
 ```
 
 `npm run db:reset` drops the dev database so migrations re-apply from scratch. **Pre-launch only.**

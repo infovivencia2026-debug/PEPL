@@ -175,6 +175,23 @@ The client is hand-rolled SigV4 over fetch and is proven against a fake bucket
 that re-derives the signature; it has not yet been run against a real S3
 endpoint from this machine.
 
+## Professional tax by state
+
+`npm run seed:statutory` loads `db/reference/pt-slabs.ts` — slabs for the 22
+states that levy professional tax, and a list of the 14 that do not — into
+`pt_slabs`, effective from the current fiscal year (or a date you pass). It is
+REFERENCE DATA: the commonly published slabs as of the `verifiedOn` date on
+each state. States amend by notification, often around April; before paying
+anyone in a state, reconcile its entry against the current notification, edit
+the file, and re-run the seed — it replaces that effective date and closes the
+previous set the day before. `GET /api/v1/statutory/pt-states` shows what is
+loaded and when each state was last checked; `gate:launch` fails when a PT
+state has no slabs in force or a tenant has chosen a state without any.
+
+Two states need care the model does not give them: Maharashtra exempts women
+up to ₹25,000 (PEPL applies the general slab), and Tamil Nadu / Kerala assess
+half-yearly by local body (PEPL deducts the monthly equivalent).
+
 ## Push notifications
 
 Web Push (RFC 8030/8291/8292), no APNs or FCM account: the browser vendor's push

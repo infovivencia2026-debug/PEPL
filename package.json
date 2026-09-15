@@ -27,7 +27,8 @@
     "check:responsive": "node --experimental-strip-types scripts/responsive-check.ts",
     "scheduler": "node --experimental-strip-types src/jobs/scheduler.ts",
     "gate:permissions": "node --experimental-strip-types scripts/gate-permissions.ts",
-    "smoke": "node --experimental-strip-types scripts/smoke.ts"
+    "smoke": "node --experimental-strip-types scripts/smoke.ts",
+    "seed:statutory": "node --experimental-strip-types scripts/seed-statutory.ts"
   },
   "dependencies": {
     "@dnd-kit/core": "^6.3.1",
