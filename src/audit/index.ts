@@ -58,6 +58,8 @@ export const ACTIONS: Readonly<Record<string, ActionDef>> = Object.freeze({
   'attendance.geofence.changed': { category: 'config', severity: 'notice' },
   'attendance.shift.changed': { category: 'config', severity: 'notice' },
   'payroll.structure.changed': { category: 'payroll', severity: 'notice' },
+  'incentive.plan.published': { category: 'payroll', severity: 'notice' },
+  'incentive.targets.set': { category: 'payroll', severity: 'info' },
   'employee.separation.cancelled': { category: 'people', severity: 'notice', requiresReason: true },
 
   'config.setting.changed': { category: 'config', severity: 'notice', requiresReason: false },

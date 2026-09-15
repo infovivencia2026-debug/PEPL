@@ -4,8 +4,8 @@ This supersedes `API-HANDOFF.md` and contains it. Part 1 is the original handoff
 corrected where the backend has moved on. Part 2 is everything built since. Part 3
 is what to build next and what is still genuinely missing.
 
-The backend is complete and tested for every feature described here: **626 tests,
-162 routes, 20 launch checks, all green in one run.**
+The backend is complete and tested for every feature described here: **629 tests,
+169 routes, 20 launch checks, all green in one run.**
 
 ---
 
@@ -949,6 +949,30 @@ The engine follows the master: PF wages are the `pf_wage` components (not a
 hard-coded basic + DA), non-taxable components stay out of TDS (`calc_note.taxExempt`),
 non-ESI components stay out of ESI gross. `bill_required` is for the UI only.
 
+## 2.26 Incentive administration — 7 endpoints
+
+The incentive engine (close → calculate → approve → push) existed with no way
+to feed it but a seed. Now a company can.
+
+| Verb | Path | Who | Notes |
+|---|---|---|---|
+| GET | `/api/v1/incentives/plans` | `incentive.read` | `?asOf=` (default today) for what is in force; `?includeClosed=true` for every version. `{ plans: [{ id, name, version, metric, calc_type, config, effective_from, effective_to, clawback_enabled }] }` |
+| POST | `/api/v1/incentives/plans` | `incentive.write` | `{ name, calcType, config, effectiveFrom, metric?, clawbackEnabled? }`. Same name = **new version**, old one closes the day before. 422 `PLAN_NOT_BACKDATABLE` (past date, or a date inside a period already calculated). |
+| POST | `/api/v1/incentives/plans/:name/retire` | `incentive.write` | `{ lastDay }` |
+| POST | `/api/v1/incentives/periods` | `incentive.write` | `{ label, periodStart, periodEnd }`; 409 `PERIOD_EXISTS` |
+| GET | `/api/v1/incentives/periods/:id/targets` | `incentive.read` (scoped: a manager sees their reports) | |
+| PATCH | `/api/v1/incentives/periods/:id/targets` | `incentive.write` | `{ targets: [{ employeeId, planId, targetValue, weight? }] }` — replaces per (employee, plan). **`targetValue` is in the metric's unit: rupees for sales_value, not paise.** 409 `PERIOD_CLOSED`; 422 `PLAN_NOT_IN_FORCE` when the plan version does not cover the period start. |
+| POST | `/api/v1/incentives/periods/:id/sales` | `incentive.write` | `{ source?, sales: [{ employeeId, occurredOn, valuePaise, quantity?, externalRef? }] }`. Idempotent by (source, externalRef) — the response says `recorded` and `duplicates`, so a CSV can be re-uploaded safely. |
+
+`calcType` ∈ `slab \| percent_of_metric \| flat_on_target \| per_unit`, and the
+editor changes with it: slabs are `[{ fromPct, toPct?, ratePct | flatPaise }]`
+that must tile from 0 with no gaps (validated server-side, 422 with the exact
+gap); `ratePct` is a **fraction** (0.02 = 2%) — show a percent input and divide.
+`capPaise` and `floorAchievementPct` are optional on every type.
+
+Plan versions render as a timeline (like leave policies); the version in force
+today is the one to highlight.
+
 ---
 
 # Part 3 — What to build, in order
@@ -983,7 +1007,9 @@ non-ESI components stay out of ESI gross. `bill_required` is for the UI only.
     profile, and replace the typed freeze form with the summary review table
     (§2.24). This one changes how payroll is run every month.
 16. **Salary structures** — component master with the three flags, structure
-    editor with live preview, and the compensation form by structure (§2.25). The
+    editor with live preview, and the compensation form by structure (§2.25).
+17. **Incentive plans** — the slab editor per calc type, plan version timeline,
+    period targets grid, sales upload (§2.26). The
    employee form is a one-page form with a live preview; the queue is a table
    with two actions.
 
@@ -1058,7 +1084,7 @@ default tiles is the lever.
 ## Sanity check
 
 ```bash
-npm test          # 626 tests, including 33 against the running HTTP API
+npm test          # 629 tests, including 33 against the running HTTP API
 npm run verify    # every gate, end to end
 npm run check:responsive   # eight devices, currently clean
 npm run job mail.outbox    # drains queued external mail
