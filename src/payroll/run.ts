@@ -12,6 +12,7 @@ import { allowanceFor } from './declarations.ts'
 import { fiscalYearOf, monthsRemainingInFY } from './tds.ts'
 import { finalizeSettlements, releaseSettlements, settlementForFreeze, type SettlementOptions } from './exit.ts'
 import { arrearsOwed, recordArrears, releaseArrears } from './arrears.ts'
+import { deductForRun, releaseRun as releaseLoanRun, settleClearedByRun } from './loans.ts'
 
 export class PayrollError extends Error {
   readonly code: string
@@ -127,6 +128,13 @@ export async function freezeInputs(
         exitedMidPeriod: r.exitedMidPeriod || exit.separation.last_working_day < period[0].period_end,
       }
     }
+    // Loan and advance instalments; the whole balance when this is the final run.
+    if (!(r.adhoc ?? []).some((a) => a.code.toUpperCase() === 'LOAN_EMI')) {
+      const emi = await deductForRun(tx, { employeeId: r.employeeId, runId, periodStart: period[0].period_start, all: !!exit })
+      if (emi.amountPaise > 0) {
+        r = { ...r, adhoc: [...(r.adhoc ?? []), { code: exit ? 'LOAN_SETTLEMENT' : 'LOAN_EMI', amountPaise: emi.amountPaise, type: 'deduction' }] }
+      }
+    }
     // A revision dated into months already paid: the difference is owed and
     // paid HERE, once. A caller that supplies its own ARREARS line is trusted.
     if (!(r.adhoc ?? []).some((a) => a.code.toUpperCase() === 'ARREARS')) {
@@ -219,6 +227,7 @@ export async function unfreezeInputs(tx: PoolClient, runId: string): Promise<voi
   await tx.query('DELETE FROM payroll_inputs WHERE tenant_id = $1 AND run_id = $2', [tid, runId])
   await releaseSettlements(tx, runId)
   await releaseArrears(tx, runId)
+  await releaseLoanRun(tx, runId)
   await tx.query(
     `UPDATE payroll_runs SET status = 'draft', frozen_at = NULL WHERE tenant_id = $1 AND id = $2`,
     [tid, runId],
@@ -344,6 +353,7 @@ export async function lock(
   )
   // Leavers paid in this run have now left.
   await finalizeSettlements(tx, runId)
+  await settleClearedByRun(tx, runId)
 }
 
 /**

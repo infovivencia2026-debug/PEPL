@@ -4,8 +4,8 @@ This supersedes `API-HANDOFF.md` and contains it. Part 1 is the original handoff
 corrected where the backend has moved on. Part 2 is everything built since. Part 3
 is what to build next and what is still genuinely missing.
 
-The backend is complete and tested for every feature described here: **639 tests,
-183 routes, 20 launch checks, all green in one run.**
+The backend is complete and tested for every feature described here: **642 tests,
+188 routes, 20 launch checks, all green in one run.**
 
 ---
 
@@ -1048,6 +1048,22 @@ when `effectiveFrom` is before the current period, "the difference for the
 past months will be paid as arrears in the next payroll"; and the payslip
 detail already lists the line — badge it "arrears".
 
+## 2.31 Loans and advances — 5 endpoints
+
+| Verb | Path | Who | Notes |
+|---|---|---|---|
+| GET | `/api/v1/employees/:id/loans?includeClosed=` | `payroll.read` (scoped: own) | `{ loans: [{ id, kind, principal_paise, annual_interest_pct, instalments, instalment_paise, starts_on, status, total_paise, repaid_paise, balance_paise, instalments_taken }] }` — the balance is live |
+| GET | `/api/v1/loans/schedule-preview?principalPaise=&annualInterestPct=&instalments=` | `compensation.read` | `{ totalPaise, instalmentPaise }` for the form's live preview |
+| POST | `/api/v1/employees/:id/loans` | `compensation.write` | `{ kind: 'loan'\|'advance', principalPaise, instalments, startsOn, annualInterestPct?, disbursedOn?, reason? }`. An advance is ≤12 instalments. `startsOn` picks the first payroll period that deducts. |
+| POST | `/api/v1/loans/:id/repay` | `compensation.write` | `{ amountPaise, note? }` for money received outside payroll |
+| POST | `/api/v1/loans/:id/close` | `compensation.write` | `{ status: 'written_off'\|'cancelled', reason }` |
+
+Recovery is automatic: each freeze takes one instalment as a `LOAN_EMI`
+deduction (the balance if smaller), unfreeze gives it back, the loan becomes
+`settled` when the run that clears it is locked. On a leaver's final run the
+whole balance is taken as `LOAN_SETTLEMENT`. Show the balance and "N of M
+instalments taken" on the profile; nothing to trigger.
+
 ---
 
 # Part 3 — What to build, in order
@@ -1092,7 +1108,9 @@ detail already lists the line — badge it "arrears".
     department picker, the users list with a roles multi-select, the
     who-has-what matrix (§2.28).
 20. **202 on the compensation and correction forms** — "sent for approval"
-    state instead of a success toast (§2.29). Small. The
+    state instead of a success toast (§2.29). Small.
+21. **Loans** — grant form with schedule preview, the balance card on the
+    profile, repay/close actions (§2.31). The
    employee form is a one-page form with a live preview; the queue is a table
    with two actions.
 
@@ -1167,7 +1185,7 @@ default tiles is the lever.
 ## Sanity check
 
 ```bash
-npm test          # 639 tests, including 33 against the running HTTP API
+npm test          # 642 tests, including 33 against the running HTTP API
 npm run verify    # every gate, end to end
 npm run check:responsive   # eight devices, currently clean
 npm run job mail.outbox    # drains queued external mail
