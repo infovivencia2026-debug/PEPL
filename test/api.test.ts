@@ -485,3 +485,75 @@ describe('custom roles', () => {
     expect(good.status).toBe(201)
   })
 })
+
+describe('the account: forgotten and changed passwords, devices', () => {
+  it('forgot-password answers 202 for any address and never says whether it exists', async () => {
+    const real = await api('POST', '/api/v1/auth/forgot-password', { body: { email: ids.employee } })
+    const fake = await api('POST', '/api/v1/auth/forgot-password', { body: { email: 'nobody@nowhere.test' } })
+    expect(real.status).toBe(202)
+    expect(fake.status).toBe(202)
+    expect(real.body).toEqual(fake.body)
+    // a token row exists for the real one, hashed, unused
+    const rows = await withTenant(tenantId, async (tx) =>
+      (await tx.query<{ n: string }>(`SELECT count(*)::text AS n FROM password_resets WHERE used_at IS NULL`)).rows[0]!.n)
+    expect(Number(rows)).toBe(1)
+  })
+
+  it('an admin-issued link resets the password once, signs out every session, and is then dead', async () => {
+    const admin = await loginAs(ids.admin!)
+    const before = await loginAs(ids.employee!)
+    const userId = (await withTenant(tenantId, async (tx) =>
+      (await tx.query<{ id: string }>(`SELECT id FROM app_users WHERE email = $1`, [ids.employee])).rows[0]!.id))
+
+    const asEmployee = await api('POST', `/api/v1/users/${userId}/password-reset-link`, { token: before })
+    expect(asEmployee.status).toBe(403)
+
+    const issued = await api<{ link: string }>('POST', `/api/v1/users/${userId}/password-reset-link`, { token: admin })
+    expect(issued.status).toBe(200)
+    const token = new URL(issued.body.link).searchParams.get('token')!
+    expect(token.length).toBeGreaterThan(30)
+
+    const weak = await api('POST', '/api/v1/auth/reset-password', { body: { token, newPassword: 'short' } })
+    expect(weak.status).toBe(422)
+    expect(weak.body.error?.code).toBe('WEAK_PASSWORD')
+
+    const ok = await api('POST', '/api/v1/auth/reset-password', { body: { token, newPassword: 'a-brand-new-passphrase-1' } })
+    expect(ok.status).toBe(200)
+
+    // the old session is gone, the old password is gone, the new one works, the token is spent
+    expect((await api('GET', '/api/v1/notifications', { token: before })).status).toBe(401)
+    expect((await api('POST', '/api/v1/auth/login', { body: { email: ids.employee, password: PASSWORD } })).status).toBe(401)
+    const again = await api<{ token: string }>('POST', '/api/v1/auth/login', { body: { email: ids.employee, password: 'a-brand-new-passphrase-1' } })
+    expect(again.status).toBe(200)
+    expect((await api('POST', '/api/v1/auth/reset-password', { body: { token, newPassword: 'another-long-passphrase-2' } })).status).toBe(400)
+
+    // change it back so later tests can log in, and prove change-password keeps THIS session
+    const other = await api<{ token: string }>('POST', '/api/v1/auth/login', { body: { email: ids.employee, password: 'a-brand-new-passphrase-1' } })
+    const wrong = await api('POST', '/api/v1/auth/change-password', { token: again.body.token, body: { currentPassword: 'nope', newPassword: PASSWORD } })
+    expect(wrong.status).toBe(401)
+    const changed = await api<{ sessionsRevoked: number }>('POST', '/api/v1/auth/change-password',
+      { token: again.body.token, body: { currentPassword: 'a-brand-new-passphrase-1', newPassword: PASSWORD } })
+    expect(changed.status).toBe(200)
+    expect(changed.body.sessionsRevoked).toBe(1)
+    expect((await api('GET', '/api/v1/notifications', { token: other.body.token })).status).toBe(401)
+    expect((await api('GET', '/api/v1/notifications', { token: again.body.token })).status).toBe(200)
+  })
+
+  it('lists my devices and signs one out, never someone else\'s', async () => {
+    const a = await loginAs(ids.employee!)
+    const b = await loginAs(ids.employee!)
+    const hr = await loginAs(ids.hr!)
+    const list = await api<{ sessions: { id: string; current: boolean }[] }>('GET', '/api/v1/auth/sessions', { token: a })
+    expect(list.status).toBe(200)
+    expect(list.body.sessions.length).toBeGreaterThanOrEqual(2)
+    expect(list.body.sessions[0]!.current).toBe(true)
+    const otherId = list.body.sessions.find((x) => !x.current)!.id
+    const hrSessions = await api<{ sessions: { id: string }[] }>('GET', '/api/v1/auth/sessions', { token: hr })
+    // HR cannot revoke the employee's session through this route
+    expect((await api('DELETE', `/api/v1/auth/sessions/${otherId}`, { token: hr, body: {} })).status).toBe(404)
+    expect((await api('DELETE', `/api/v1/auth/sessions/${otherId}`, { token: a, body: {} })).status).toBe(204)
+    expect((await api('GET', '/api/v1/notifications', { token: b })).status).toBe(401)
+    expect((await api('GET', '/api/v1/notifications', { token: a })).status).toBe(200)
+    void hrSessions
+  })
+})

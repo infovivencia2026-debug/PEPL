@@ -31,6 +31,7 @@ no benefit. If you scale the API to three instances, the scheduler stays at one.
 | `PEPL_OBJECT_STORE_ENDPOINT`, `_BUCKET`, `_ACCESS_KEY`, `_SECRET_KEY`, `_REGION` | no | S3-compatible bucket for NEW document bytes (S3, R2, MinIO; path-style, SigV4). All four or none — half is refused at the first upload. Region defaults to `us-east-1`. |
 | `PEPL_MAIL_IDLE_MAX` | no | IMAP IDLE sockets the scheduler holds open across all tenants (default 50, 0 = off). Mailboxes over the cap are polled every five minutes instead |
 | `PEPL_VAPID_PUBLIC_KEY`, `PEPL_VAPID_PRIVATE_KEY`, `PEPL_VAPID_SUBJECT` | for push | Web Push identity. `npm run job push.keygen` prints a pair; subject is a `mailto:` the push services may contact. All three or none. The private key lets anyone push as PEPL — treat it like `PEPL_MAIL_KEY` |
+| `PEPL_PUBLIC_URL` | recommended | The address employees open, e.g. `https://hr.yourcompany.com`. Used to build password-reset links; without it the request's Host header is used, which a proxy can get wrong |
 | `PEPL_METRICS_TOKEN` | no | bearer token for `GET /metrics`; without it the endpoint answers loopback only |
 | `PORT` | no | defaults to 3100 locally, 4010 in the image |
 
@@ -118,6 +119,13 @@ permanently and the row's `last_error` says why.
 ```sql
 SELECT status, count(*), max(last_error) FROM mail_commands GROUP BY status;
 ```
+
+**Someone forgot their password.** `POST /api/v1/auth/forgot-password` emails a
+30-minute single-use link — through the company's notification sender mailbox,
+so a company that has not connected one gets nothing. For those, an admin with
+`roles.write` issues a link from the person's user record
+(`POST /api/v1/users/:id/password-reset-link`) and hands it over; issuing one is
+logged as a security event. A reset signs the person out everywhere.
 
 **Mail arrives late.** IDLE is running in the scheduler when the start-up log
 says `imap idle watchers started`; each push logs `idle sync`. A mailbox over

@@ -4,8 +4,8 @@ This supersedes `API-HANDOFF.md` and contains it. Part 1 is the original handoff
 corrected where the backend has moved on. Part 2 is everything built since. Part 3
 is what to build next and what is still genuinely missing.
 
-The backend is complete and tested for every feature described here: **595 tests,
-125 routes, 20 launch checks, all green in one run.**
+The backend is complete and tested for every feature described here: **598 tests,
+131 routes, 20 launch checks, all green in one run.**
 
 ---
 
@@ -803,6 +803,22 @@ On the payslip the settlement appears as ordinary lines: `GRATUITY` and
 `NOTICE_RECOVERY` and `RECOVERY` (deductions). One new payroll setting,
 `payroll.exit_day_divisor`, appears in the generated settings screen.
 
+## 2.20 Account — forgot / reset / change password, devices, 6 endpoints
+
+| Verb | Path | Auth | Notes |
+|---|---|---|---|
+| POST | `/api/v1/auth/forgot-password` | public | `{ email }` → **always 202** `{ accepted, ttlMinutes }`. The screen says "if that address has an account, a link is on its way" — never "no such user". |
+| POST | `/api/v1/auth/reset-password` | public | `{ token, newPassword }` from the `/reset-password?token=…` link. 400 `RESET_TOKEN_INVALID` (used, expired, wrong — one message for all three); 422 `WEAK_PASSWORD` with a human message. On 200, send them to sign in: every session was revoked. |
+| POST | `/api/v1/auth/change-password` | session | `{ currentPassword, newPassword }`. 401 `INVALID_CREDENTIALS` on the current one. Keeps THIS session, revokes the rest; response has `sessionsRevoked`. |
+| GET | `/api/v1/auth/sessions` | session | `{ sessions: [{ id, issued_at, last_seen_at, expires_at, ip, user_agent, current }] }`, current first. |
+| DELETE | `/api/v1/auth/sessions/:id` | session | Sign out one device. 404 for anything not mine. |
+| POST | `/api/v1/users/:id/password-reset-link` | `roles.write` | `{ link, expiresAt }` for an admin to hand to a locked-out person when email is not set up. Show the link once with a copy button and a warning that it signs in as that person. |
+
+Passwords: at least 10 characters; that is the only rule, so say it up front
+rather than after a failed submit. The public routes are rate-limited per IP —
+a 429 with `retry-after` is possible on forgot-password; show the wait, do not
+retry silently.
+
 ---
 
 # Part 3 — What to build, in order
@@ -823,7 +839,10 @@ On the payslip the settlement appears as ordinary lines: `GRATUITY` and
 9. **Statutory identifiers on the profile and filings on the run page** (§2.18).
    The `omitted` list is the UX; the download is the easy part.
 10. **Exit** — start/cancel on the profile, the settlement preview for payroll,
-    the stepper (§2.19). The
+    the stepper (§2.19).
+11. **Account** — forgot-password on the sign-in screen, the reset page the link
+    lands on, change-password and the devices list in profile settings (§2.20).
+    The first support ticket every deployment gets. The
    employee form is a one-page form with a live preview; the queue is a table
    with two actions.
 
@@ -898,7 +917,7 @@ default tiles is the lever.
 ## Sanity check
 
 ```bash
-npm test          # 595 tests, including 33 against the running HTTP API
+npm test          # 598 tests, including 33 against the running HTTP API
 npm run verify    # every gate, end to end
 npm run check:responsive   # eight devices, currently clean
 npm run job mail.outbox    # drains queued external mail

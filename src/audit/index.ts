@@ -61,6 +61,9 @@ export const ACTIONS: Readonly<Record<string, ActionDef>> = Object.freeze({
 
   'security.login.failed': { category: 'security', severity: 'notice' },
   'security.permission.denied': { category: 'security', severity: 'notice' },
+  'security.password_reset.requested': { category: 'security', severity: 'notice' },
+  'security.password_reset.issued': { category: 'security', severity: 'warning' },
+  'security.password.changed': { category: 'security', severity: 'notice' },
 
   // READS of sensitive data are logged. This is the half usually skipped, and
   // the half that makes a breach investigation answerable at all.
