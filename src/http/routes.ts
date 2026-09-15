@@ -39,12 +39,13 @@ import { register as filings } from './routes/filings.ts'
 import { register as exits } from './routes/exit.ts'
 import { register as account } from './routes/account.ts'
 import { register as privacy } from './routes/privacy.ts'
+import { register as org } from './routes/org.ts'
 
 export const router = new Router()
 
 for (const register of [
   system, config, people, attendance, leave, inbox,
-  payroll, helpdesk, incentives, comms, activity, roles, documents, chat, mail, imports, payments, holidays, leavePolicy, taxDeclarations, push, filings, exits, account, privacy,
+  payroll, helpdesk, incentives, comms, activity, roles, documents, chat, mail, imports, payments, holidays, leavePolicy, taxDeclarations, push, filings, exits, account, privacy, org,
 ]) {
   register(router)
 }

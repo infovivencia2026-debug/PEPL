@@ -54,6 +54,7 @@ export const ACTIONS: Readonly<Record<string, ActionDef>> = Object.freeze({
   'payroll.filing.generated': { category: 'payroll', severity: 'critical' },
   'employee.statutory_ids.changed': { category: 'people', severity: 'notice' },
   'employee.separation.initiated': { category: 'people', severity: 'notice' },
+  'org.unit.changed': { category: 'config', severity: 'notice' },
   'employee.separation.cancelled': { category: 'people', severity: 'notice', requiresReason: true },
 
   'config.setting.changed': { category: 'config', severity: 'notice', requiresReason: false },

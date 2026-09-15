@@ -14,6 +14,7 @@
  * is ever deleted.
  */
 import type { PoolClient } from 'pg'
+import { resolveUnitCode } from './org.ts'
 
 export class HistoryError extends Error {
   readonly code: string
@@ -52,6 +53,12 @@ async function tenantId(tx: PoolClient): Promise<string> {
 /** A real-world change: close the open row, then open a new one. */
 export async function changeAssignment(tx: PoolClient, input: AssignmentInput): Promise<string> {
   const tid = await tenantId(tx)
+  // Masters, once defined, are the only valid values; free text until then.
+  input = {
+    ...input,
+    department: await resolveUnitCode(tx, 'department', input.department),
+    designation: await resolveUnitCode(tx, 'designation', input.designation),
+  }
 
   const open = await tx.query<{ id: string; effective_from: string }>(
     `SELECT id, effective_from::text

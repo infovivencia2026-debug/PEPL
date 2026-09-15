@@ -4,8 +4,8 @@ This supersedes `API-HANDOFF.md` and contains it. Part 1 is the original handoff
 corrected where the backend has moved on. Part 2 is everything built since. Part 3
 is what to build next and what is still genuinely missing.
 
-The backend is complete and tested for every feature described here: **607 tests,
-134 routes, 20 launch checks, all green in one run.**
+The backend is complete and tested for every feature described here: **611 tests,
+139 routes, 20 launch checks, all green in one run.**
 
 ---
 
@@ -831,6 +831,31 @@ An erased person renders as "Erased employee" everywhere their name used to
 be — that is the data, not a UI special case — and `employees.erased_at` is
 set so the profile can say why.
 
+## 2.22 Organisation masters — departments, locations, designations, grades, 5 endpoints
+
+Until now these were free text. Every rule the company will configure next
+(shifts per location, incentive plans per grade, approval chains per
+department) points at one of these, so they come first.
+
+| Verb | Path | Who | Notes |
+|---|---|---|---|
+| GET | `/api/v1/org/:kind` | anyone signed in | `kind` ∈ `department \| location \| designation \| grade`. `?includeRetired=true` for history views. Sorted by `sort_order`, then name. |
+| POST | `/api/v1/org/:kind` | `settings.write` | `{ code, name, parentId?, attributes?, sortOrder? }`. Code is upper-cased and permanent. 409 `UNIT_EXISTS` (retired units keep their code). |
+| PATCH | `/api/v1/org/:kind/:id` | `settings.write` | Rename / re-parent / attributes. Never the code. 409 `UNIT_RETIRED` — reinstate first. |
+| POST | `/api/v1/org/:kind/:id/retire` | `settings.write` | Returns `{ unit, inUseBy }` — how many current assignments still name it. Show that number in the confirm dialog. 409 `UNIT_HAS_CHILDREN` for a department with active children. |
+| POST | `/api/v1/org/:kind/:id/reinstate` | `settings.write` | |
+
+Only departments nest (`parentId`); render them as a tree. `attributes` is
+per kind: a grade carries `minCtcPaise`/`maxCtcPaise`, a location carries
+`stateCode` (drives professional tax), a department may carry `costCentre`.
+
+**The behavioural change to know about:** once a company has ANY active
+department (or designation), an assignment change must name one — free text
+is refused with 422 `UNKNOWN_UNIT` and a message that says so. So the
+assignment form's department/designation inputs become pickers from
+`GET /api/v1/org/department` the moment the list is non-empty, and stay free
+text while it is empty. Values submitted by name resolve to the code.
+
 ---
 
 # Part 3 — What to build, in order
@@ -856,7 +881,9 @@ set so the profile can say why.
     lands on, change-password and the devices list in profile settings (§2.20).
     The first support ticket every deployment gets.
 12. **Privacy** — "Download my data" on the profile; erasure on the exited
-    employee's record for HR, with the eligibility sentence (§2.21). The
+    employee's record for HR, with the eligibility sentence (§2.21).
+13. **Organisation masters** — one settings screen with four tabs, departments
+    as a tree; switch the assignment form to pickers (§2.22). The
    employee form is a one-page form with a live preview; the queue is a table
    with two actions.
 
@@ -931,7 +958,7 @@ default tiles is the lever.
 ## Sanity check
 
 ```bash
-npm test          # 607 tests, including 33 against the running HTTP API
+npm test          # 611 tests, including 33 against the running HTTP API
 npm run verify    # every gate, end to end
 npm run check:responsive   # eight devices, currently clean
 npm run job mail.outbox    # drains queued external mail
