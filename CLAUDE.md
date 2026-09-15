@@ -167,7 +167,14 @@ later as a foreign-key violation.
 
 ## Realtime
 
-`src/realtime/bus.ts` is in-process pub/sub; `src/realtime/sse.ts` is the stream.
+`src/realtime/bus.ts` is in-process pub/sub; `src/realtime/sse.ts` is the stream;
+`src/realtime/relay.ts` forwards every publish through Postgres `LISTEN/NOTIFY`
+so a second API instance (and the scheduler's jobs) reach the same browsers.
+The bus never imports pg — the relay installs itself with `setRelay`, and
+`server.ts` / `scheduler.ts` start it. Event ids are wall-clock milliseconds,
+not a counter, so `Last-Event-ID` from one instance means the same thing on
+another; tests must not hardcode `1, 2, 3`. `pg_notify` caps a payload at
+8000 bytes — an event carries ids and badge counts, never a document.
 Two rules hold the guarantees:
 
 - **Publish AFTER commit.** Routes call `ctx.publish(event)`, which QUEUES it;

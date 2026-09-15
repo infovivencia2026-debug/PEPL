@@ -1,11 +1,11 @@
 /**
  * The event bus behind live updates.
  *
- * In-process and deliberately so: one Node process serves this product today,
- * and a Redis fan-out would be infrastructure to run, secure and pay for before
- * anything needs it. The interface is the part that matters — `publish` and
- * `subscribe` are all a second process would have to reimplement, and every
- * caller already goes through them.
+ * Delivery is in-process: a subscriber is a live SSE connection on THIS
+ * instance. What makes a second instance see the same events is the relay in
+ * `relay.ts`, which forwards every published event through Postgres
+ * LISTEN/NOTIFY and feeds the ones from elsewhere back in through `deliver`.
+ * The bus itself never imports pg, so it stays testable without a database.
  *
  * Two rules hold the guarantees the rest of the system depends on:
  *
@@ -47,17 +47,36 @@ const REPLAY_LIMIT = 200
 
 const subscribers = new Map<string, Set<Subscriber>>()
 const history = new Map<string, DeliveredEvent[]>()
+
+/**
+ * Event ids are milliseconds-since-epoch, bumped by one when two land in the
+ * same millisecond. That keeps them monotonic on one instance AND comparable
+ * across instances, so a browser that reconnects to a different instance can
+ * still say "everything after this one" and get a sensible answer.
+ */
 let nextId = 1
+function allocateId(): number {
+  const id = Math.max(nextId, Date.now())
+  nextId = id + 1
+  return id
+}
 
-/** Publishes to one tenant. Returns how many connections received it. */
-export function publish(tenantId: string, event: PeplEvent): number {
-  if (!tenantId) throw new Error('publish: tenantId is required')
+type Relay = (tenantId: string, event: DeliveredEvent) => void
+let relay: Relay | null = null
 
-  const delivered: DeliveredEvent = {
-    ...event,
-    id: nextId++,
-    at: new Date().toISOString(),
-  }
+/** Installed by relay.ts; called once per locally published event. */
+export function setRelay(fn: Relay | null): void {
+  relay = fn
+}
+
+/**
+ * Hands an already-stamped event to this instance's subscribers and its
+ * replay ring. Used for local publishes and for events arriving from another
+ * instance, which keep the id they were given there.
+ */
+export function deliver(tenantId: string, delivered: DeliveredEvent): number {
+  if (!tenantId) throw new Error('deliver: tenantId is required')
+  if (delivered.id >= nextId) nextId = delivered.id + 1
 
   const ring = history.get(tenantId) ?? []
   ring.push(delivered)
@@ -66,7 +85,7 @@ export function publish(tenantId: string, event: PeplEvent): number {
 
   let sent = 0
   for (const sub of subscribers.get(tenantId) ?? []) {
-    if (event.userIds && !event.userIds.includes(sub.userId)) continue
+    if (delivered.userIds && !delivered.userIds.includes(sub.userId)) continue
     try {
       sub.listener(delivered)
       sent++
@@ -74,6 +93,15 @@ export function publish(tenantId: string, event: PeplEvent): number {
       // A broken pipe on one connection must not stop delivery to the rest.
     }
   }
+  return sent
+}
+
+/** Publishes to one tenant. Returns how many LOCAL connections received it. */
+export function publish(tenantId: string, event: PeplEvent): number {
+  if (!tenantId) throw new Error('publish: tenantId is required')
+  const delivered: DeliveredEvent = { ...event, id: allocateId(), at: new Date().toISOString() }
+  const sent = deliver(tenantId, delivered)
+  relay?.(tenantId, delivered)
   return sent
 }
 

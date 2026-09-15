@@ -1199,6 +1199,16 @@ The setting `payroll.email_payslips` (default on) turns the automatic run off.
 
 ---
 
+## 2.39 Live events survive a second server — nothing to build
+
+The event stream (`GET /api/v1/events`) now behaves the same whether the
+product runs as one process or ten behind a load balancer: an event raised
+on any instance reaches every connected browser. Event ids became large
+numbers (milliseconds) instead of 1, 2, 3; keep sending `Last-Event-ID`
+exactly as received and nothing else changes.
+
+---
+
 # Part 3 — What to build, in order
 
 1. **Chat UI.** The largest visible hole. Conversation list, thread, composer,

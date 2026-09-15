@@ -23,6 +23,8 @@ import { vapidFromEnv } from '../comms/web-push.ts'
 import { withTenant } from '../db/tenant-tx.ts'
 import { resolveConfig } from '../config/resolver.ts'
 import { installProcessGuards } from '../http/process-guards.ts'
+import { startRelay } from '../realtime/relay.ts'
+import { appPool } from '../db/pool.ts'
 
 interface Schedule {
   job: JobName
@@ -179,12 +181,15 @@ if (import.meta.url === pathToFileURL(process.argv[1] ?? '').href) {
   installProcessGuards()
   const stop = startScheduler()
   const idle = startIdle()
+  // Events a job publishes (mail sync, escalations) must reach the API instances' browsers.
+  const relay = startRelay(appPool)
   log({ level: 'info', msg: idle ? 'imap idle watchers started' : 'imap idle off (no PEPL_MAIL_KEY or PEPL_MAIL_IDLE_MAX=0)' })
 
   const shutdown = async (signal: string): Promise<void> => {
     log({ level: 'info', msg: 'shutting down', signal })
     stop()
     await idle?.stop().catch(() => {})
+    await relay.stop().catch(() => {})
     await closePools().catch(() => {})
     await controlDb.end().catch(() => {})
     process.exit(0)

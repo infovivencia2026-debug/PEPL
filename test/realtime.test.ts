@@ -62,21 +62,27 @@ describe('an event addressed to some people reaches only them', () => {
 
 describe('a dropped connection can catch up', () => {
   it('replays what this user missed, and nothing else', () => {
-    publish(A, { type: 'a', data: {} })                       // id 1, everyone
-    publish(A, { type: 'b', userIds: [BOB], data: {} })        // id 2, Bob only
-    publish(A, { type: 'c', data: {} })                       // id 3, everyone
+    publish(A, { type: 'a', data: {} })                       // everyone
+    publish(A, { type: 'b', userIds: [BOB], data: {} })        // Bob only
+    publish(A, { type: 'c', data: {} })                       // everyone
 
+    const all = replay(A, BOB, 0)
+    expect(all.map((e) => e.type)).toEqual(['a', 'b', 'c'])
     expect(replay(A, ALICE, 0).map((e) => e.type)).toEqual(['a', 'c'])
-    expect(replay(A, BOB, 0).map((e) => e.type)).toEqual(['a', 'b', 'c'])
-    expect(replay(A, ALICE, 1).map((e) => e.type)).toEqual(['c'])
-    expect(replay(A, ALICE, 99)).toEqual([])
+    expect(replay(A, ALICE, all[0]!.id).map((e) => e.type)).toEqual(['c'])
+    expect(replay(A, ALICE, all[2]!.id + 1)).toEqual([])
   })
 
   it('keeps ids monotonic across tenants so a client can trust them', () => {
     publish(A, { type: 'a', data: {} })
     publish(B, { type: 'b', data: {} })
     publish(A, { type: 'c', data: {} })
-    expect(replay(A, ALICE, 0).map((e) => e.id)).toEqual([1, 3])
+    const [a, c] = replay(A, ALICE, 0).map((e) => e.id)
+    const [b] = replay(B, ALICE, 0).map((e) => e.id)
+    expect(a!).toBeLessThan(b!)
+    expect(b!).toBeLessThan(c!)
+    // ids are wall-clock based so two instances hand out comparable numbers
+    expect(a!).toBeGreaterThan(Date.now() - 60_000)
   })
 
   it('caps its memory rather than growing forever', () => {
@@ -268,9 +274,10 @@ describe('GET /api/v1/events', () => {
     resetBus()
     publish(tenantId, { type: 'chat.message', data: { conversationId: 'missed-1' } })
     publish(tenantId, { type: 'chat.message', data: { conversationId: 'missed-2' } })
+    const firstId = replay(tenantId, adminUserId, 0)[0]!.id
 
     const r = await fetch(`${base}/api/v1/events`, {
-      headers: { authorization: `Bearer ${token}`, 'last-event-id': '1' },
+      headers: { authorization: `Bearer ${token}`, 'last-event-id': String(firstId) },
     })
     const events = await readEvents(r, 1)
     expect(events.map((e) => e.data.conversationId)).toEqual(['missed-2'])

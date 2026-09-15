@@ -7,8 +7,12 @@ import { router } from './routes.ts'
 import { handleEvents } from '../realtime/sse.ts'
 import { installProcessGuards } from './process-guards.ts'
 import { handleMetrics } from './metrics-endpoint.ts'
+import { startRelay } from '../realtime/relay.ts'
+import { appPool } from '../db/pool.ts'
 
 installProcessGuards()
+// Live events reach browsers on every instance, not just the one that handled the request.
+startRelay(appPool)
 
 const handler = createHandler(buildUiRouter())
 const domainHandler = createHandler(router)
