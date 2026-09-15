@@ -366,3 +366,17 @@ defeats a replacement written with `\n`. For anything beyond a one-line `sed`,
 write a `.mjs` patch script to the scratchpad with the Write tool, detect the
 file's line ending, and run it. Every silent "no change" this session was one
 of those two.
+
+## Jobs report errors nobody reads
+
+`data.retention` failed on every tenant, every night, from the day it was
+written: 007 revoked UPDATE on `attendance_punches` (correct — a punch is
+evidence) and the job UPDATEs two columns of it. The job's own output said
+`permission denied for table attendance_punches` and the scheduler logged it
+at `warn`. Found while writing erasure, months later.
+
+Two rules from it: a job that touches a table must have a test that RUNS the
+statement as the app role (`test/privacy.test.ts` now does for this one), and
+"immutable table" is refined with column-level grants
+(`GRANT UPDATE (geo_lat, geo_lng)`) rather than abandoned when one column has
+to age out.

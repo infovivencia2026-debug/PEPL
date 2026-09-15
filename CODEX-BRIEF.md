@@ -4,8 +4,8 @@ This supersedes `API-HANDOFF.md` and contains it. Part 1 is the original handoff
 corrected where the backend has moved on. Part 2 is everything built since. Part 3
 is what to build next and what is still genuinely missing.
 
-The backend is complete and tested for every feature described here: **598 tests,
-131 routes, 20 launch checks, all green in one run.**
+The backend is complete and tested for every feature described here: **602 tests,
+134 routes, 20 launch checks, all green in one run.**
 
 ---
 
@@ -819,6 +819,18 @@ rather than after a failed submit. The public routes are rate-limited per IP —
 a 429 with `retry-after` is possible on forgot-password; show the wait, do not
 retry silently.
 
+## 2.21 Privacy — my data, and erasure, 3 endpoints
+
+| Verb | Path | Who | Notes |
+|---|---|---|---|
+| GET | `/api/v1/employees/:id/data-export` | the person themself, or `compensation.read` at company scope | `{ export: { generatedAt, tables: { <table>: rows[] }, documents[], messagesAuthored } }`. Offer it as "Download my data" on the profile; it is JSON, hand it over as a file. Large. |
+| GET | `/api/v1/employees/:id/erasure-eligibility` | `employee.write`, company scope | `{ ok: true }` or `{ ok: false, reason }` — the reason is a sentence to show ("statutory retention runs until 2034-10-20"). |
+| POST | `/api/v1/employees/:id/erase` | `employee.write`, company scope | `{ reason }`. Irreversible; confirm with the reason typed, not a checkbox. 409 `NOT_ERASABLE` with the same sentence. Returns counts per table. |
+
+An erased person renders as "Erased employee" everywhere their name used to
+be — that is the data, not a UI special case — and `employees.erased_at` is
+set so the profile can say why.
+
 ---
 
 # Part 3 — What to build, in order
@@ -842,7 +854,9 @@ retry silently.
     the stepper (§2.19).
 11. **Account** — forgot-password on the sign-in screen, the reset page the link
     lands on, change-password and the devices list in profile settings (§2.20).
-    The first support ticket every deployment gets. The
+    The first support ticket every deployment gets.
+12. **Privacy** — "Download my data" on the profile; erasure on the exited
+    employee's record for HR, with the eligibility sentence (§2.21). The
    employee form is a one-page form with a live preview; the queue is a table
    with two actions.
 
@@ -917,7 +931,7 @@ default tiles is the lever.
 ## Sanity check
 
 ```bash
-npm test          # 598 tests, including 33 against the running HTTP API
+npm test          # 602 tests, including 33 against the running HTTP API
 npm run verify    # every gate, end to end
 npm run check:responsive   # eight devices, currently clean
 npm run job mail.outbox    # drains queued external mail

@@ -299,6 +299,17 @@ const documents = defineConfig('documents', {
   }),
 })
 
+const privacy = defineConfig('privacy', {
+  erasure_after_days: int({
+    default: 2922,
+    min: 365,
+    max: 3653,
+    label: 'Keep a former employee\'s identity for (days)',
+    help: 'How long after the last working day before their personal data may be erased. The default is eight years, the income-tax record retention period; payroll ledger rows are kept regardless — erasure removes the person, not the numbers.',
+    risk: 'high',
+  }),
+})
+
 export const REGISTRY: Readonly<Record<string, Definition>> = Object.freeze({
   ...leave,
   ...attendance,
@@ -308,6 +319,7 @@ export const REGISTRY: Readonly<Record<string, Definition>> = Object.freeze({
   ...mail,
   ...documents,
   ...notifications,
+  ...privacy,
 })
 
 /** A typed error so the transport can classify it, rather than returning a 500. */

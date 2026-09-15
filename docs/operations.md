@@ -120,6 +120,15 @@ permanently and the row's `last_error` says why.
 SELECT status, count(*), max(last_error) FROM mail_commands GROUP BY status;
 ```
 
+**A data-subject request (DPDP Act).** A copy: `GET /api/v1/employees/:id/data-export`
+— the person can pull their own from their profile; payroll can pull anyone's,
+and either is logged as `data.export.completed`. Erasure:
+`POST /api/v1/employees/:id/erase` anonymises the person (name, login, bank,
+statutory ids, declarations, documents, coordinates, devices) and KEEPS the
+payroll ledger, which the Income-tax Act requires for eight years. It is
+refused until `privacy.erasure_after_days` after the last working day;
+`GET …/erasure-eligibility` says when.
+
 **Someone forgot their password.** `POST /api/v1/auth/forgot-password` emails a
 30-minute single-use link — through the company's notification sender mailbox,
 so a company that has not connected one gets nothing. For those, an admin with

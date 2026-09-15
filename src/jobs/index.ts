@@ -11,6 +11,7 @@
  * boundary the whole system rests on.
  */
 import { controlDb, projectEntitlements } from '../control-plane/index.ts'
+import type { PoolClient } from 'pg'
 import { withTenant } from '../db/tenant-tx.ts'
 import { accrueMonthly, rollover } from '../leave/ledger.ts'
 import { evaluateBreaches } from '../work/helpdesk.ts'
@@ -166,16 +167,20 @@ export async function runSlaBreaches(): Promise<JobResult> {
  * Retention purge. Deletes only what the policy allows and records that it ran —
  * a purge nobody can see is indistinguishable from data loss.
  */
+/** Coordinates older than 180 days are blanked; the punch itself is evidence and stays. */
+export async function purgeOldCoordinates(tx: PoolClient, olderThanDays = 180): Promise<number> {
+  const r = await tx.query(
+    `UPDATE attendance_punches SET geo_lat = NULL, geo_lng = NULL
+      WHERE local_date < CURRENT_DATE - $1::int AND (geo_lat IS NOT NULL OR geo_lng IS NOT NULL)`, [olderThanDays])
+  return r.rowCount ?? 0
+}
+
 export async function runRetentionPurge(): Promise<JobResult> {
   return perTenant('data.retention', async (tenantId) =>
     withTenant(tenantId, async (tx) => {
       // Attendance selfies and raw coordinates age out first: they are the
       // highest-volume tier-3 data and the least useful once verified.
-      const { rowCount } = await tx.query(
-        `UPDATE attendance_punches
-            SET geo_lat = NULL, geo_lng = NULL
-          WHERE local_date < CURRENT_DATE - 180
-            AND (geo_lat IS NOT NULL OR geo_lng IS NOT NULL)`)
+      const rowCount = await purgeOldCoordinates(tx)
 
       // Chat history, if this company set a retention window. Zero keeps
       // everything, which is the default.
