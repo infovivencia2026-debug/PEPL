@@ -11,6 +11,7 @@ import { createShift, listShifts, renameShift, retireShift, rosterEmployee, rost
 import { summarisePeriod, type SummaryPolicy } from '../../attendance/summary.ts'
 import { getRun } from '../../payroll/run.ts'
 import type { Ctx } from '../context.ts'
+import { today as localToday } from '../../lib/timezone.ts'
 
 function summaryPolicy(ctx: Ctx): SummaryPolicy {
   return {
@@ -59,7 +60,7 @@ export function register(router: Router): void {
       permission: 'settings.write' },
     authed('settings.write', async (ctx) => {
       const id = asUuid(ctx.req.params.id, 'id')
-      const r = await retireShift(ctx.tx, id, new Date().toISOString().slice(0, 10))
+      const r = await retireShift(ctx.tx, id, localToday(ctx.config.get<string>('attendance.timezone')))
       await emit(ctx.tx, { action: 'attendance.shift.changed', entityType: 'shift', entityId: id,
         actorUserId: ctx.auth.userId, metadata: { op: 'retire', code: r.shift.code, rosteredNow: r.rosteredNow } })
       return ok(r)
@@ -70,7 +71,7 @@ export function register(router: Router): void {
     authed('attendance.read', async (ctx) => {
       const id = asUuid(ctx.req.params.id, 'id')
       assertScope(ctx.auth, id)
-      return ok({ current: await shiftFor(ctx.tx, id, new Date().toISOString().slice(0, 10)), history: await rosterHistory(ctx.tx, id) })
+      return ok({ current: await shiftFor(ctx.tx, id, localToday(ctx.config.get<string>('attendance.timezone'))), history: await rosterHistory(ctx.tx, id) })
     }))
 
   router.post('/api/v1/employees/:id/roster',

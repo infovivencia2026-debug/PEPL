@@ -4,7 +4,7 @@ This supersedes `API-HANDOFF.md` and contains it. Part 1 is the original handoff
 corrected where the backend has moved on. Part 2 is everything built since. Part 3
 is what to build next and what is still genuinely missing.
 
-The backend is complete and tested for every feature described here: **666 tests,
+The backend is complete and tested for every feature described here: **671 tests,
 199 routes, 22 launch checks, all green in one run.**
 
 ---
@@ -1159,6 +1159,20 @@ People are matched by **employee_number**, never id. Columns:
 skipped or that will fail on write. Render them as two lists with row numbers;
 the whole point is that the customer fixes one spreadsheet, not twenty uploads.
 
+## 2.37 The company's clock — one setting, no new endpoints
+
+`attendance.timezone` (an IANA name, default `Asia/Kolkata`) now decides which
+calendar day a punch belongs to, when "today" ends for a correction window,
+and how a shift's clock times are read. It is high-risk and payroll-affecting,
+so it appears in the generated settings screen with an effective date like any
+other money setting — offer a searchable list of IANA zones rather than free
+text, and say "change this only between payroll periods".
+
+Nothing in the API shape changes. What changes is that a company in Dubai or
+Singapore now gets the right answers: a shift starting 09:00 means 09:00 where
+they are, and a punch at 23:30 local belongs to that local day, not to
+tomorrow because the server thought in UTC.
+
 ---
 
 # Part 3 — What to build, in order
@@ -1288,7 +1302,7 @@ default tiles is the lever.
 ## Sanity check
 
 ```bash
-npm test          # 666 tests, including 33 against the running HTTP API
+npm test          # 671 tests, including 33 against the running HTTP API
 npm run verify    # every gate, end to end
 npm run check:responsive   # eight devices, currently clean
 npm run job mail.outbox    # drains queued external mail

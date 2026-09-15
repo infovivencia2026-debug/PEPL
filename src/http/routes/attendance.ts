@@ -21,6 +21,7 @@ import {
 } from './deps.ts'
 import { evaluatePunch } from '../../attendance/geofence.ts'
 import { hold, listPending } from '../../approvals/pending.ts'
+import { today as localToday } from '../../lib/timezone.ts'
 
 /**
  * The company's attendance rules, read once per request.
@@ -34,6 +35,7 @@ function dayPolicy(ctx: Ctx) {
     halfDayHours: ctx.config.get<number>('attendance.half_day_hours'),
     weekPattern: ctx.config.get<'five_day' | 'six_day' | 'alternate_saturday' | 'roster'>(
       'attendance.week_pattern'),
+    timezone: ctx.config.get<string>('attendance.timezone'),
     remoteIsPaid: ctx.config.get<boolean>('attendance.remote_is_paid'),
     remoteEnabled: ctx.config.get<boolean>('attendance.remote_enabled'),
     correctionWindowDays: ctx.config.get<number>('attendance.correction_window_days'),
@@ -172,10 +174,10 @@ export function register(router: Router): void {
       }
       if (!String(b.reason).trim()) throw new HttpError(422, 'REASON_REQUIRED', 'say what happened')
       const workDate = asDate(b.workDate, 'workDate')
-      const today = new Date().toISOString().slice(0, 10)
+      const today = localToday(ctx.config.get<string>('attendance.timezone'))
       if (workDate > today) throw new HttpError(422, 'VALIDATION_FAILED', 'a regularisation is for a day that has happened')
       const windowDays = ctx.config.get<number>('attendance.correction_window_days')
-      const oldest = new Date(Date.now() - windowDays * 86_400_000).toISOString().slice(0, 10)
+      const oldest = localToday(ctx.config.get<string>('attendance.timezone'), new Date(Date.now() - windowDays * 86_400_000))
       if (workDate < oldest) {
         throw new HttpError(422, 'CORRECTION_WINDOW_CLOSED', `corrections are accepted for the last ${windowDays} days`)
       }

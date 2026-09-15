@@ -7,6 +7,7 @@
  * never defines a shift sees no change.
  */
 import type { PoolClient } from 'pg'
+import { offsetMinutes } from '../lib/timezone.ts'
 
 export class ShiftError extends Error {
   readonly code: string
@@ -154,16 +155,19 @@ const minutesOf = (t: string): number => Number(t.slice(0, 2)) * 60 + Number(t.s
 
 /**
  * Pure. `workDate` is the local date the shift STARTS on; a night shift's
- * scheduled end is the next day. Times are compared in UTC against the
- * shift's clock times treated as the tenant's local clock — the punch rows
- * store local_date for exactly this reason.
+ * scheduled end is the next day. The shift's clock times are the COMPANY's
+ * wall clock, so the caller passes its zone (or an offset, for a test) —
+ * defaulting to India, which is where every tenant was until it was not.
  */
 export function evaluateShiftDay(
   shift: Pick<Shift, 'start_time' | 'end_time' | 'grace_in_min' | 'grace_out_min' | 'break_min' | 'full_day_min' | 'half_day_min' | 'ot_after_min' | 'ot_eligible' | 'weekly_off_days'>,
   workDate: string,
   punches: { firstIn: Date | null; lastOut: Date | null },
-  tzOffsetMinutes = 330,
+  zoneOrOffset: string | number = 'Asia/Kolkata',
 ): ShiftDay {
+  const tzOffsetMinutes = typeof zoneOrOffset === 'number'
+    ? zoneOrOffset
+    : offsetMinutes(zoneOrOffset, new Date(workDate + 'T12:00:00Z'))
   const dayStartUtc = Date.parse(workDate + 'T00:00:00Z') - tzOffsetMinutes * 60_000
   const start = minutesOf(shift.start_time), end = minutesOf(shift.end_time)
   const scheduledStart = new Date(dayStartUtc + start * 60_000)

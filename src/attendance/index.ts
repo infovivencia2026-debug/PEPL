@@ -15,6 +15,7 @@
  */
 import type { PoolClient } from 'pg'
 import { evaluateShiftDay, shiftFor } from './shifts.ts'
+import { today as localToday } from '../lib/timezone.ts'
 
 export class AttendanceError extends Error {
   readonly code: string
@@ -102,6 +103,8 @@ export interface DayPolicy {
   weekPattern?: 'five_day' | 'six_day' | 'alternate_saturday' | 'roster'
   /** When false, a work-from-home day is not a paid working day. */
   remoteIsPaid?: boolean
+  /** The company's IANA zone. Decides which day a shift's clock times fall on. */
+  timezone?: string
 }
 
 /**
@@ -228,7 +231,8 @@ export async function recomputeDay(
   // the company-wide pattern below, so a company with no shifts sees no change.
   const shift = await shiftFor(tx, employeeId, workDate)
   let lateMinutes = 0, earlyMinutes = 0, otMinutes = 0
-  const weeklyOff = shift ? evaluateShiftDay(shift, workDate, { firstIn: null, lastOut: null }).isWeeklyOff
+  const zone = policy.timezone ?? 'Asia/Kolkata'
+  const weeklyOff = shift ? evaluateShiftDay(shift, workDate, { firstIn: null, lastOut: null }, zone).isWeeklyOff
     : isWeeklyOff(workDate, policy.weekPattern)
 
   // A weekly off is not an absence. Nobody was expected in, so the day carries
@@ -243,7 +247,7 @@ export async function recomputeDay(
   if (shift && firstIn) {
     const day = evaluateShiftDay(shift, workDate, {
       firstIn: new Date(firstIn), lastOut: lastOut ? new Date(lastOut) : null,
-    })
+    }, zone)
     lateMinutes = day.lateMinutes
     earlyMinutes = day.earlyMinutes
     otMinutes = day.otMinutes
@@ -345,7 +349,7 @@ export async function applyCorrection(
   if (windowDays > 0) {
     const now = input.now ?? new Date()
     const ageDays = Math.floor(
-      (Date.parse(now.toISOString().slice(0, 10)) - Date.parse(input.workDate)) / 86_400_000,
+      (Date.parse(localToday(input.policy?.timezone ?? 'Asia/Kolkata', now)) - Date.parse(input.workDate)) / 86_400_000,
     )
     if (ageDays > windowDays) {
       throw new AttendanceError(

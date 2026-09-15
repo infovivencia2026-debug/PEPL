@@ -112,6 +112,13 @@ const attendance = defineConfig('attendance', {
     label: 'Attendance corrections need approval',
     help: 'none: a person with the permission corrects a day directly. Otherwise the correction is held and applied when the chain approves it (an approval policy for attendance_correction overrides the chain here).',
   }),
+  timezone: text({
+    default: 'Asia/Kolkata',
+    label: 'Company timezone',
+    help: 'An IANA name, e.g. Asia/Kolkata or Asia/Dubai. Decides which calendar day a punch belongs to, when "today" ends for a correction, and how a shift\'s clock times are read. Change it only between payroll periods.',
+    risk: 'high',
+    affects: ['payroll'],
+  }),
   regularisation_chain: enumOf(['manager', 'manager_then_hr', 'hr_only'] as const, {
     default: 'manager',
     label: 'Who approves an employee\'s own attendance request',
