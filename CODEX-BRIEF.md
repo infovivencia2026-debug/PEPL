@@ -4,7 +4,7 @@ This supersedes `API-HANDOFF.md` and contains it. Part 1 is the original handoff
 corrected where the backend has moved on. Part 2 is everything built since. Part 3
 is what to build next and what is still genuinely missing.
 
-The backend is complete and tested for every feature described here: **637 tests,
+The backend is complete and tested for every feature described here: **639 tests,
 183 routes, 20 launch checks, all green in one run.**
 
 ---
@@ -1038,6 +1038,16 @@ The profile can show pending revisions: they live in `pending_changes`
 (`status`, `payload`, `approval_request_id`) — surfaced through the inbox
 request's `entity_type` for now; a list endpoint follows if you need one.
 
+## 2.30 Arrears — automatic, no UI to build
+
+A salary revision effective-dated into months already paid produces one
+`ARREARS` earning line (or `ARREARS_RECOVERY` deduction for a backdated cut) on
+the next freeze, prorated by the days each past month actually paid, and paid
+once. Nothing to build; two things to show: the compensation form should say,
+when `effectiveFrom` is before the current period, "the difference for the
+past months will be paid as arrears in the next payroll"; and the payslip
+detail already lists the line — badge it "arrears".
+
 ---
 
 # Part 3 — What to build, in order
@@ -1157,7 +1167,7 @@ default tiles is the lever.
 ## Sanity check
 
 ```bash
-npm test          # 637 tests, including 33 against the running HTTP API
+npm test          # 639 tests, including 33 against the running HTTP API
 npm run verify    # every gate, end to end
 npm run check:responsive   # eight devices, currently clean
 npm run job mail.outbox    # drains queued external mail
