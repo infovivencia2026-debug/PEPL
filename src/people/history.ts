@@ -38,6 +38,8 @@ export interface CompensationInput {
   employeeId: string
   annualCtcPaise: bigint | number
   components?: Record<string, number>
+  /** The structure the components were derived from, for the record. */
+  structureCode?: string
   effectiveFrom: string
   reason?: string
   actorUserId?: string
@@ -165,12 +167,12 @@ export async function changeCompensation(tx: PoolClient, input: CompensationInpu
   const { rows } = await tx.query<{ id: string }>(
     `INSERT INTO compensation_records
        (tenant_id, employee_id, annual_ctc_paise, components, effective_from,
-        changed_by_user_id, change_reason)
-     VALUES ($1, $2, $3, $4::jsonb, $5, $6, $7)
+        changed_by_user_id, change_reason, structure_code)
+     VALUES ($1, $2, $3, $4::jsonb, $5, $6, $7, $8)
      RETURNING id`,
     [tid, input.employeeId, String(input.annualCtcPaise),
      JSON.stringify(input.components ?? {}), input.effectiveFrom,
-     input.actorUserId ?? null, input.reason ?? null],
+     input.actorUserId ?? null, input.reason ?? null, input.structureCode ?? null],
   )
   return rows[0]!.id
 }

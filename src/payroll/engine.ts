@@ -65,6 +65,16 @@ export interface EngineOptions {
   /** payroll.lop_basis */
   lopBasis: 'calendar_days' | 'fixed_30' | 'working_days'
   /**
+   * From the salary component master, when the company has one. Absent, the
+   * convention applies: PF wages are basic + DA and every component is
+   * taxable ESI gross.
+   */
+  components?: {
+    pfWageCodes: ReadonlySet<string>
+    nonTaxableCodes: ReadonlySet<string>
+    nonEsiCodes: ReadonlySet<string>
+  }
+  /**
    * Real TDS: projects the year, applies slabs, 87A, surcharge and cess.
    * Supplied by the caller so the engine stays pure and the slab data stays
    * snapshotted on the run. Falls back to no deduction when unconfigured.
@@ -116,7 +126,14 @@ export function computePayroll(input: PayrollInput, opts: EngineOptions): Comput
       ? Math.min(1, (input.payableDays + input.lopDays) / denominator)
       : 1
 
+  const pfCodes = opts.components?.pfWageCodes ?? PF_WAGE_COMPONENTS
+  const isPfWage = (code: string): boolean => pfCodes.has(code.toUpperCase()) || pfCodes.has(code.toLowerCase())
+  const isTaxFree = (code: string): boolean => opts.components?.nonTaxableCodes.has(code.toUpperCase()) ?? false
+  const isNonEsi = (code: string): boolean => opts.components?.nonEsiCodes.has(code.toUpperCase()) ?? false
+
   let earnings = 0n
+  let taxFreeEarnings = 0n
+  let nonEsiEarnings = 0n
   for (const [code, monthly] of Object.entries(input.monthlyComponents)) {
     const prorated = toRupee(monthly * presenceFactor)
     if (prorated === 0n) continue
@@ -124,9 +141,11 @@ export function computePayroll(input: PayrollInput, opts: EngineOptions): Comput
       code: code.toUpperCase(),
       type: 'earning',
       amountPaise: prorated,
-      note: { monthly, presenceFactor },
+      note: { monthly, presenceFactor, ...(isTaxFree(code) ? { taxExempt: true } : {}) },
     })
     earnings += prorated
+    if (isTaxFree(code)) taxFreeEarnings += prorated
+    if (isNonEsi(code)) nonEsiEarnings += prorated
   }
 
   // 3. Loss of pay.
@@ -166,7 +185,7 @@ export function computePayroll(input: PayrollInput, opts: EngineOptions): Comput
   if (input.pfApplicable) {
     let pfWage = 0n
     for (const [code, monthly] of Object.entries(input.monthlyComponents)) {
-      if (PF_WAGE_COMPONENTS.has(code.toLowerCase())) pfWage += toRupee(monthly * presenceFactor)
+      if (isPfWage(code)) pfWage += toRupee(monthly * presenceFactor)
     }
     if (input.lopDays > 0) pfWage -= toRupee(Number(pfWage) * (input.lopDays / denominator))
 
@@ -184,11 +203,12 @@ export function computePayroll(input: PayrollInput, opts: EngineOptions): Comput
 
   // 7. ESI applies only below the gross threshold.
   let esiEmployee = 0n
-  const esiEligible = input.esiApplicable && grossPaise <= opts.statutory.esi_gross_threshold_paise
+  const esiGross = grossPaise - nonEsiEarnings
+  const esiEligible = input.esiApplicable && esiGross <= opts.statutory.esi_gross_threshold_paise
   if (esiEligible) {
-    esiEmployee = toRupee(Number(grossPaise) * opts.statutory.esi_employee_rate)
-    const esiEmployer = toRupee(Number(grossPaise) * opts.statutory.esi_employer_rate)
-    lines.push({ code: 'ESI_EE', type: 'deduction', amountPaise: esiEmployee, note: { gross: Number(grossPaise) } })
+    esiEmployee = toRupee(Number(esiGross) * opts.statutory.esi_employee_rate)
+    const esiEmployer = toRupee(Number(esiGross) * opts.statutory.esi_employer_rate)
+    lines.push({ code: 'ESI_EE', type: 'deduction', amountPaise: esiEmployee, note: { gross: Number(esiGross) } })
     lines.push({ code: 'ESI_ER', type: 'employer_contribution', amountPaise: esiEmployer })
   }
 
@@ -202,7 +222,7 @@ export function computePayroll(input: PayrollInput, opts: EngineOptions): Comput
   // deductible, and any exempt one-off; the projection and slab work live in
   // payroll/tds.ts.
   if (opts.computeTds) {
-    const taxableGross = grossPaise - pfEmployee - exemptAdhoc
+    const taxableGross = grossPaise - pfEmployee - exemptAdhoc - taxFreeEarnings
     const result = opts.computeTds({
       monthlyTaxableGrossPaise: taxableGross,
       regime: input.taxRegime,

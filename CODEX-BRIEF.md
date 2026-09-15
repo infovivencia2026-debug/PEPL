@@ -4,8 +4,8 @@ This supersedes `API-HANDOFF.md` and contains it. Part 1 is the original handoff
 corrected where the backend has moved on. Part 2 is everything built since. Part 3
 is what to build next and what is still genuinely missing.
 
-The backend is complete and tested for every feature described here: **621 tests,
-154 routes, 20 launch checks, all green in one run.**
+The backend is complete and tested for every feature described here: **626 tests,
+162 routes, 20 launch checks, all green in one run.**
 
 ---
 
@@ -917,6 +917,38 @@ Two new settings appear in the attendance block: `unmarked_day_is_lop` and
 edge cases, but the primary freeze button should call
 `freeze-from-attendance`.
 
+## 2.25 Salary components and structures — 8 endpoints; compensation by structure
+
+**Components** are the master of what a payslip line can be, with the flags
+payroll needs (`settings.write` to define, anyone to list):
+
+| Verb | Path | Notes |
+|---|---|---|
+| GET | `/api/v1/salary/components` | `{ components: [{ id, code, name, kind, taxable, pf_wage, esi_wage, bill_required, sort_order, status }] }` |
+| POST | `/api/v1/salary/components` | `{ code, name, kind: 'earning'\|'deduction', taxable?, pfWage?, esiWage?, billRequired?, sortOrder? }`. The three flags are **permanent** — show them read-only after creation with the hint "retire and recreate to change". |
+| PATCH | `/api/v1/salary/components/:id` | `{ name?, billRequired?, sortOrder? }` |
+| POST | `/api/v1/salary/components/:id/retire` | 409 `COMPONENT_IN_USE` names the active structures using it |
+
+**Structures** turn an annual figure into the monthly breakdown:
+
+| Verb | Path | Notes |
+|---|---|---|
+| GET | `/api/v1/salary/structures` | `lines[]` is ordered: `{ component, formula }` where formula is `{ type: 'percent_of', of: 'CTC' \| '<component above>', pct }`, `{ type: 'fixed', paise }` or `{ type: 'balance' }` (exactly one). `grade_codes[]` from the grade master, empty = any. |
+| POST | `/api/v1/salary/structures` | Lines are **immutable** after creation; the editor is for new structures, existing ones show read-only + "retire and create successor". 422 `UNKNOWN_COMPONENT`, `STRUCTURE_EXCEEDS_PAY` (the fixed + percent lines exceed the monthly figure). |
+| POST | `/api/v1/salary/structures/:id/retire` | existing compensation records keep their breakdown |
+| GET | `/api/v1/salary/structures/:code/preview?annualPaise=` | `{ monthlyComponents, monthlyTotalPaise }` — drive a live preview as the CTC field changes |
+
+**The compensation form changes:** `POST /api/v1/employees/:id/compensation`
+now accepts `structureCode` instead of `components` — pick a structure, enter
+the annual figure, show the preview, submit; the server resolves and stores
+`structure_code` on the record. Hand-entered `components` still work, but once
+the company has defined any component they must be codes from the master
+(422 `UNKNOWN_COMPONENT`) — so that input becomes a picker, like departments.
+
+The engine follows the master: PF wages are the `pf_wage` components (not a
+hard-coded basic + DA), non-taxable components stay out of TDS (`calc_note.taxExempt`),
+non-ESI components stay out of ESI gross. `bill_required` is for the UI only.
+
 ---
 
 # Part 3 — What to build, in order
@@ -949,7 +981,9 @@ edge cases, but the primary freeze button should call
     shown on every punch; drop `withinGeofence` from the punch body (§2.23).
 15. **Shifts and the attendance-driven freeze** — shift editor, roster on the
     profile, and replace the typed freeze form with the summary review table
-    (§2.24). This one changes how payroll is run every month. The
+    (§2.24). This one changes how payroll is run every month.
+16. **Salary structures** — component master with the three flags, structure
+    editor with live preview, and the compensation form by structure (§2.25). The
    employee form is a one-page form with a live preview; the queue is a table
    with two actions.
 
@@ -1024,7 +1058,7 @@ default tiles is the lever.
 ## Sanity check
 
 ```bash
-npm test          # 621 tests, including 33 against the running HTTP API
+npm test          # 626 tests, including 33 against the running HTTP API
 npm run verify    # every gate, end to end
 npm run check:responsive   # eight devices, currently clean
 npm run job mail.outbox    # drains queued external mail

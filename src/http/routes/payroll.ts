@@ -25,6 +25,7 @@ import {
   ptFor,
   computeTds,
 } from './deps.ts'
+import { componentFlags } from '../../payroll/structures.ts'
 
 /**
  * Binds the run's snapshotted slab data to the engine's TDS hook. Returns
@@ -102,6 +103,7 @@ export function register(router: Router): void {
       const statutory = await loadStatutory(ctx.tx)
       const totals = await calculate(ctx.tx, asUuid(ctx.req.params.id, 'id'), {
         statutory: statutory.config,
+        components: (await componentFlags(ctx.tx)) ?? undefined,
         ptAmountPaise: (state, gross) => ptFor(statutory.ptSlabs, state, gross),
         pfOnFullWage: ctx.config.get<boolean>('payroll.pf_on_full_wage'),
         lopBasis: ctx.config.get<'calendar_days' | 'fixed_30' | 'working_days'>('payroll.lop_basis'),
@@ -120,6 +122,7 @@ export function register(router: Router): void {
       const statutory = await loadStatutory(ctx.tx)
       const result = await validate(ctx.tx, asUuid(ctx.req.params.id, 'id'), {
         statutory: statutory.config,
+        components: (await componentFlags(ctx.tx)) ?? undefined,
         ptAmountPaise: (state, gross) => ptFor(statutory.ptSlabs, state, gross),
         pfOnFullWage: ctx.config.get<boolean>('payroll.pf_on_full_wage'),
         lopBasis: ctx.config.get<'calendar_days' | 'fixed_30' | 'working_days'>('payroll.lop_basis'),

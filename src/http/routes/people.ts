@@ -18,6 +18,7 @@ import {
   profileAt,
   emit,
 } from './deps.ts'
+import { normaliseComponents, resolveStructure, structureByCode } from '../../payroll/structures.ts'
 
 export function register(router: Router): void {
   router.get('/api/v1/employees',
@@ -147,10 +148,24 @@ export function register(router: Router): void {
       requestExample: { annualCtcPaise: 120000000, components: { basic: 5000000, hra: 2000000 }, effectiveFrom: '2026-10-01', reason: 'annual revision' } },
     authed('compensation.write', async (ctx) => {
       const id = asUuid(ctx.req.params.id, 'id')
-      const b = requireBody<{ annualCtcPaise: number; components?: Record<string, number>; effectiveFrom: string; reason: string }>(
+      const b = requireBody<{ annualCtcPaise: number; components?: Record<string, number>; structureCode?: string; effectiveFrom: string; reason: string }>(
         ctx.req, ['annualCtcPaise', 'effectiveFrom', 'reason'])
+      if (!Number.isSafeInteger(b.annualCtcPaise) || b.annualCtcPaise <= 0) {
+        throw new HttpError(422, 'VALIDATION_FAILED', 'annualCtcPaise must be a positive integer')
+      }
+      // A structure turns the annual figure into the breakdown; hand-entered
+      // components are checked against the master once one exists.
+      let components: Record<string, number> | undefined
+      let structureCode: string | undefined
+      if (b.structureCode) {
+        const structure = await structureByCode(ctx.tx, String(b.structureCode))
+        components = resolveStructure(structure.lines, b.annualCtcPaise)
+        structureCode = structure.code
+      } else if (b.components) {
+        components = await normaliseComponents(ctx.tx, b.components)
+      }
       const recordId = await changeCompensation(ctx.tx, {
-        employeeId: id, annualCtcPaise: b.annualCtcPaise, components: b.components,
+        employeeId: id, annualCtcPaise: b.annualCtcPaise, components, structureCode,
         effectiveFrom: asDate(b.effectiveFrom, 'effectiveFrom'),
         reason: b.reason, actorUserId: ctx.auth.userId,
       })

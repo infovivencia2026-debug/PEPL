@@ -42,12 +42,13 @@ import { register as privacy } from './routes/privacy.ts'
 import { register as org } from './routes/org.ts'
 import { register as geofences } from './routes/geofences.ts'
 import { register as shifts } from './routes/shifts.ts'
+import { register as structures } from './routes/structures.ts'
 
 export const router = new Router()
 
 for (const register of [
   system, config, people, attendance, leave, inbox,
-  payroll, helpdesk, incentives, comms, activity, roles, documents, chat, mail, imports, payments, holidays, leavePolicy, taxDeclarations, push, filings, exits, account, privacy, org, geofences, shifts,
+  payroll, helpdesk, incentives, comms, activity, roles, documents, chat, mail, imports, payments, holidays, leavePolicy, taxDeclarations, push, filings, exits, account, privacy, org, geofences, shifts, structures,
 ]) {
   register(router)
 }
