@@ -102,17 +102,19 @@ export async function notify(
   args: {
     userId: string; eventType: string; title: string; body?: string
     entityType?: string; entityId?: string; channels?: string[]; dedupeKey?: string
+    /** Documents to attach when this notification goes out by email. */
+    attachmentDocumentIds?: readonly string[]
   },
 ): Promise<boolean> {
   const tid = await tenantId(tx)
   const { rowCount } = await tx.query(
     `INSERT INTO notifications
-       (tenant_id, user_id, event_type, title, body, entity_type, entity_id, channels, dedupe_key)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
+       (tenant_id, user_id, event_type, title, body, entity_type, entity_id, channels, dedupe_key, attachment_document_ids)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10::uuid[])
      ON CONFLICT (tenant_id, user_id, dedupe_key) WHERE dedupe_key IS NOT NULL DO NOTHING`,
     [tid, args.userId, args.eventType, args.title, args.body ?? null,
      args.entityType ?? null, args.entityId ?? null, args.channels ?? ['in_app'],
-     args.dedupeKey ?? null],
+     args.dedupeKey ?? null, args.attachmentDocumentIds ?? []],
   )
   return rowCount === 1
 }

@@ -40,6 +40,8 @@ export const SCHEDULE: Schedule[] = [
   { job: 'mail.outbox', everyMs: 2 * MINUTE },
   { job: 'mail.sync', everyMs: 5 * MINUTE },
   { job: 'notifications.email', everyMs: 5 * MINUTE },
+  // Payslips go out within a quarter hour of a run being locked.
+  { job: 'payroll.payslips', everyMs: 15 * MINUTE },
   // Push is what people expect to buzz within a minute of the event.
   { job: 'notifications.push', everyMs: MINUTE },
 

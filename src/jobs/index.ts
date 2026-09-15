@@ -22,6 +22,7 @@ import { runOutbox } from '../mail/outbox.ts'
 import { deliverEmails } from '../comms/delivery.ts'
 import { deliverPush } from '../comms/push.ts'
 import { escalateStale } from '../approvals/policy.ts'
+import { distributeRun, pendingRuns } from '../payroll/distribute.ts'
 import { generateVapidKeys, vapidFromEnv } from '../comms/web-push.ts'
 import { purgeOldMessages } from '../comms/chat.ts'
 import { syncTenant } from '../mail/sync.ts'
@@ -370,6 +371,26 @@ export async function runApprovalEscalation(): Promise<JobResult> {
     }))
 }
 
+/**
+ * Emails the payslips of every locked run that still has undelivered ones.
+ * Idempotent per payslip, so a crashed pass resumes rather than resends.
+ */
+export async function runPayslipDistribution(): Promise<JobResult> {
+  return perTenant('payroll.payslips', async (tenantId) =>
+    withTenant(tenantId, async (tx) => {
+      const cfg = await resolveConfig(tx, tenantId)
+      if (!cfg.isEnabled('payroll.enabled')) return 0
+      if (!cfg.get<boolean>('payroll.email_payslips')) return 0
+      let sent = 0
+      for (const run of await pendingRuns(tx)) {
+        const r = await distributeRun(tx, { runId: run.run_id, periodLabel: run.label })
+        sent += r.sent
+        for (const f of r.failed) console.error(`[payroll.payslips] ${tenantId} ${f.employeeNumber}: ${f.error}`)
+      }
+      return sent
+    }))
+}
+
 export const JOBS = {
   'leave.accrual': () => runLeaveAccrual(),
   'helpdesk.sla': runSlaBreaches,
@@ -380,6 +401,7 @@ export const JOBS = {
   'control.reproject_entitlements': runReprojectEntitlements,
   'notifications.email': runNotificationEmail,
   'notifications.push': runNotificationPush,
+  'payroll.payslips': runPayslipDistribution,
   'push.keygen': runPushKeygen,
   'approvals.escalate': runApprovalEscalation,
 } as const

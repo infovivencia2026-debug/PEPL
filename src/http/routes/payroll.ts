@@ -26,6 +26,7 @@ import {
   computeTds,
 } from './deps.ts'
 import { componentFlags } from '../../payroll/structures.ts'
+import { distributeRun } from '../../payroll/distribute.ts'
 
 /**
  * Binds the run's snapshotted slab data to the engine's TDS hook. Returns
@@ -180,6 +181,20 @@ export function register(router: Router): void {
       permission: 'payroll.read' },
     authed('payroll.read', async (ctx) =>
       ok({ delta: await delta(ctx.tx, asUuid(ctx.req.params.id, 'id')) })))
+
+  router.post('/api/v1/payroll/runs/:id/distribute',
+    { summary: 'Email the payslips of a locked run now (the job does this within 15 minutes anyway)',
+      tag: 'payroll', permission: 'payroll.process' },
+    authed('payroll.process', async (ctx) => {
+      requireModule(ctx, 'payroll.enabled')
+      const id = asUuid(ctx.req.params.id, 'id')
+      const result = await distributeRun(ctx.tx, { runId: id, actorUserId: ctx.auth.userId })
+      await emit(ctx.tx, {
+        action: 'payroll.payslips.distributed', entityType: 'payroll_run', entityId: id,
+        actorUserId: ctx.auth.userId, metadata: { sent: result.sent, skipped: result.skipped.length, failed: result.failed.length },
+      })
+      return ok(result)
+    }))
 
   router.get('/api/v1/payslips',
     { summary: 'Payslips, own by default', tag: 'payroll', permission: 'payroll.read' },

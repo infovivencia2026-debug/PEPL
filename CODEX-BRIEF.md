@@ -1175,6 +1175,30 @@ tomorrow because the server thought in UTC.
 
 ---
 
+## 2.38 Payslips are sent when a run is locked — 1 endpoint
+
+Within fifteen minutes of a run being locked, every employee with an active
+login receives `payroll.payslip.available` on all three channels (in-app,
+email with the PDF attached, push). The PDF is also stored as a confidential
+document owned by the employee (`category: 'payslip'`), so it appears under
+their documents forever after, and the email is a copy, not the record.
+
+```
+POST /api/v1/payroll/runs/:id/distribute      payroll.process  -> { runId, sent, skipped[], failed[] }
+```
+
+The button belongs on the locked run's page as "Send payslips now"; the job
+does the same thing on its own, so the button is for the HR lead who does not
+want to wait. Show `skipped` (people with no login, by employee number — the
+fix is to invite them) and `failed` (with the error text) as two lists.
+Calling it twice is safe: a payslip already delivered is never sent again.
+
+The setting `payroll.email_payslips` (default on) turns the automatic run off.
+`payslips` rows now carry `distributed_at` and `distribution_error`; show a
+"Sent" tick on the payslip list where the first is set.
+
+---
+
 # Part 3 — What to build, in order
 
 1. **Chat UI.** The largest visible hole. Conversation list, thread, composer,
@@ -1230,6 +1254,8 @@ tomorrow because the server thought in UTC.
     attendance, leave openings, compensation and sales (§2.36). The
    employee form is a one-page form with a live preview; the queue is a table
    with two actions.
+26. **"Send payslips now"** on the locked run, with the sent / skipped / failed
+    result, and a Sent tick on the payslip list (§2.38).
 
 ## Running it
 

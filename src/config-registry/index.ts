@@ -201,6 +201,11 @@ const payroll = defineConfig('payroll', {
   // The employer's own registration numbers. Not behaviour — identity on a
   // return — but they belong with the company's other payroll settings rather
   // than in a table of four strings.
+  email_payslips: bool({
+    default: true,
+    label: 'Email payslips when a run is locked',
+    help: 'Sends each person their payslip as a PDF from the company notification mailbox, and keeps a copy on their documents. Needs a sender mailbox under Notifications; without one the payslip is still on their pay history.',
+  }),
   compensation_approval: enumOf(['none', 'manager', 'manager_then_hr', 'hr_only', 'manager_hr_finance'] as const, {
     default: 'none',
     label: 'Salary revisions need approval',

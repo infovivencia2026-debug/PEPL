@@ -28,6 +28,7 @@ export interface PendingNotification {
   created_at: string
   recipient_email: string | null
   recipient_name: string | null
+  attachment_document_ids?: string[]
 }
 
 /**
@@ -43,7 +44,7 @@ export async function pendingEmails(
 ): Promise<PendingNotification[]> {
   const { rows } = await tx.query<PendingNotification>(
     `SELECT n.id::text, n.user_id, n.event_type, n.title, n.body,
-            n.entity_type, n.entity_id::text, n.created_at::text,
+            n.entity_type, n.entity_id::text, n.created_at::text, n.attachment_document_ids,
             u.email AS recipient_email, u.full_name AS recipient_name
        FROM notifications n
        JOIN app_users u ON (u.tenant_id, u.id) = (n.tenant_id, n.user_id)
@@ -170,7 +171,10 @@ export async function deliverEmails(
         // One email per notification, ever, however often the job runs.
         idempotencyKey: `notification:${notification.id}`,
         allowExternal: true,
-        draft: { to: [notification.recipient_email], subject, bodyHtml },
+        draft: {
+          to: [notification.recipient_email], subject, bodyHtml,
+          attachmentDocumentIds: notification.attachment_document_ids ?? [],
+        },
       })
       await markEmailed(tx, notification.id)
       result.sent++
