@@ -279,12 +279,12 @@ async function main(): Promise<void> {
       for (const p of PEOPLE) {
         await recordPunch(tx, {
           employeeId: ids[p.number]!, punchedAt: `${date}T09:${day % 20 < 10 ? '2' : '4'}5:00Z`,
-          localDate: date, direction: 'in', source: 'mobile', withinGeofence: true,
+          localDate: date, direction: 'in', source: 'mobile',
           clientPunchId: `seed-${p.number}-${date}-in`,
         })
         await recordPunch(tx, {
           employeeId: ids[p.number]!, punchedAt: `${date}T18:30:00Z`,
-          localDate: date, direction: 'out', source: 'mobile', withinGeofence: true,
+          localDate: date, direction: 'out', source: 'mobile',
           clientPunchId: `seed-${p.number}-${date}-out`,
         })
         await recomputeDay(tx, ids[p.number]!, date)

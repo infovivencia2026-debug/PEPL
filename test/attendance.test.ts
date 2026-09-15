@@ -64,11 +64,11 @@ describe('punch capture', () => {
     await withTenant(A.id, async (tx) => {
       await recordPunch(tx, {
         employeeId: A.employeeId, punchedAt: `${SEP_DAY}T09:30:00Z`, localDate: SEP_DAY,
-        direction: 'in', source: 'mobile', withinGeofence: true,
+        direction: 'in', source: 'mobile',
       })
       await recordPunch(tx, {
         employeeId: A.employeeId, punchedAt: `${SEP_DAY}T18:30:00Z`, localDate: SEP_DAY,
-        direction: 'out', source: 'mobile', withinGeofence: true,
+        direction: 'out', source: 'mobile',
       })
       await recomputeDay(tx, A.employeeId, SEP_DAY)
     })

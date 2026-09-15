@@ -4,8 +4,8 @@ This supersedes `API-HANDOFF.md` and contains it. Part 1 is the original handoff
 corrected where the backend has moved on. Part 2 is everything built since. Part 3
 is what to build next and what is still genuinely missing.
 
-The backend is complete and tested for every feature described here: **611 tests,
-139 routes, 20 launch checks, all green in one run.**
+The backend is complete and tested for every feature described here: **615 tests,
+146 routes, 20 launch checks, all green in one run.**
 
 ---
 
@@ -856,6 +856,30 @@ assignment form's department/designation inputs become pickers from
 `GET /api/v1/org/department` the moment the list is non-empty, and stay free
 text while it is empty. Values submitted by name resolve to the code.
 
+## 2.23 Geofences — sites and membership, 7 endpoints; the punch verdict moved to the server
+
+**Breaking for the punch client:** `withinGeofence` in the punch body is now
+ignored. The server computes the distance to the nearest allowed site and
+answers with `geofence: { status: 'inside' | 'outside' | 'unfenced', siteCode, distanceM }`
+on every punch. Show it: "Punched in at HQ (85 m)" / "Recorded outside the
+geofence — your manager will see this". A 422 `OUTSIDE_GEOFENCE` (only when the
+company turned `attendance.geofence_enforce` on) carries `details.siteCode`
+and `details.distanceM`; say how far and from where. `LOCATION_REQUIRED` still
+means send a fix.
+
+| Verb | Path | Who | Notes |
+|---|---|---|---|
+| GET | `/api/v1/geofences` | anyone | `{ sites: [{ id, code, name, lat, lng, radius_m, applies_to_all, location_code, status }] }` |
+| POST | `/api/v1/geofences` | `settings.write` | `{ code, name, lat, lng, radiusM (25–5000), appliesToAll?, locationCode? }`. A map with a draggable pin and a radius slider is the right control; radius in metres, default 150. |
+| PATCH | `/api/v1/geofences/:id` | `settings.write` | any of the above except code |
+| POST | `/api/v1/geofences/:id/retire`, `…/reinstate` | `settings.write` | retiring drops its members — say so |
+| GET | `/api/v1/employees/:id/geofences` | `attendance.read` (scoped) | `{ membership: { siteIds[], exempt } }` |
+| PATCH | `/api/v1/employees/:id/geofences` | `attendance.correct` | `{ siteIds, exempt }` — the list REPLACES. `exempt: true` is field staff: recorded anywhere, never refused. |
+
+A site with `appliesToAll` fences everyone not exempt — a one-office company
+sets that and never assigns anyone. New setting `attendance.geofence_enforce`
+(default off: record and flag) appears in the generated settings screen.
+
 ---
 
 # Part 3 — What to build, in order
@@ -883,7 +907,9 @@ text while it is empty. Values submitted by name resolve to the code.
 12. **Privacy** — "Download my data" on the profile; erasure on the exited
     employee's record for HR, with the eligibility sentence (§2.21).
 13. **Organisation masters** — one settings screen with four tabs, departments
-    as a tree; switch the assignment form to pickers (§2.22). The
+    as a tree; switch the assignment form to pickers (§2.22).
+14. **Geofences** — the map editor, membership on the profile, and the verdict
+    shown on every punch; drop `withinGeofence` from the punch body (§2.23). The
    employee form is a one-page form with a live preview; the queue is a table
    with two actions.
 
@@ -958,7 +984,7 @@ default tiles is the lever.
 ## Sanity check
 
 ```bash
-npm test          # 611 tests, including 33 against the running HTTP API
+npm test          # 615 tests, including 33 against the running HTTP API
 npm run verify    # every gate, end to end
 npm run check:responsive   # eight devices, currently clean
 npm run job mail.outbox    # drains queued external mail

@@ -121,6 +121,12 @@ const attendance = defineConfig('attendance', {
     help: 'Reject a mobile punch without a location fix.',
     scopable: ['location', 'department'],
   }),
+  geofence_enforce: bool({
+    default: false,
+    label: 'Reject punches outside the geofence',
+    help: 'Off: a punch from outside an allowed site is recorded and flagged for the manager. On: it is refused. Applies only to people who have a site; exempt people are never refused.',
+    scopable: ['location', 'department'],
+  }),
 })
 
 const payroll = defineConfig('payroll', {

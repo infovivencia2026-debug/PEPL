@@ -44,20 +44,23 @@ export async function recordPunch(
   p: {
     employeeId: string; punchedAt: string; localDate: string
     direction: 'in' | 'out'; source: 'mobile' | 'web' | 'biometric_import' | 'manual'
-    clientPunchId?: string; withinGeofence?: boolean
+    clientPunchId?: string
     geo?: { lat: number; lng: number }
+    /** The SERVER's verdict from geofence.ts — never a flag the device sent. */
+    geofence?: { withinGeofence: boolean | null; siteId: string | null; distanceM: number | null }
   },
 ): Promise<boolean> {
   const tid = await tenantId(tx)
   const { rowCount } = await tx.query(
     `INSERT INTO attendance_punches
        (tenant_id, employee_id, punched_at, local_date, direction, source,
-        geo_lat, geo_lng, within_geofence, client_punch_id)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
+        geo_lat, geo_lng, within_geofence, client_punch_id, site_id, distance_m)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
      ON CONFLICT (tenant_id, employee_id, client_punch_id)
        WHERE client_punch_id IS NOT NULL DO NOTHING`,
     [tid, p.employeeId, p.punchedAt, p.localDate, p.direction, p.source,
-     p.geo?.lat ?? null, p.geo?.lng ?? null, p.withinGeofence ?? null, p.clientPunchId ?? null],
+     p.geo?.lat ?? null, p.geo?.lng ?? null, p.geofence?.withinGeofence ?? null, p.clientPunchId ?? null,
+     p.geofence?.siteId ?? null, p.geofence?.distanceM ?? null],
   )
   return rowCount === 1
 }

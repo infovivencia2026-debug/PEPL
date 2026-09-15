@@ -19,6 +19,7 @@ import {
   setPeriodStatus,
   emit,
 } from './deps.ts'
+import { evaluatePunch } from '../../attendance/geofence.ts'
 
 /**
  * The company's attendance rules, read once per request.
@@ -45,24 +46,40 @@ export function register(router: Router): void {
       requestExample: { direction: 'in', localDate: '2026-09-14', clientPunchId: 'offline-1', geo: { lat: 17.4, lng: 78.4 } } },
     authed('attendance.read', async (ctx) => {
       requireModule(ctx, 'attendance.enabled')
-      const b = requireBody<{ direction: 'in' | 'out'; localDate: string; clientPunchId?: string; geo?: { lat: number; lng: number }; withinGeofence?: boolean; employeeId?: string }>(
+      // `withinGeofence` from the client is ignored on purpose: the server decides.
+      const b = requireBody<{ direction: 'in' | 'out'; localDate: string; clientPunchId?: string; geo?: { lat: number; lng: number }; employeeId?: string }>(
         ctx.req, ['direction', 'localDate'])
+      if (b.geo && (typeof b.geo.lat !== 'number' || typeof b.geo.lng !== 'number')) {
+        throw new HttpError(422, 'VALIDATION_FAILED', 'geo needs numeric lat and lng')
+      }
       const employeeId = b.employeeId ?? ctx.auth.employeeId
       if (!employeeId) throw new HttpError(422, 'NO_EMPLOYEE_RECORD', 'this user has no employee record')
       assertScope(ctx.auth, employeeId)
 
-      if (ctx.config.get<boolean>('attendance.geofence_required') && !b.geo) {
+      const verdict = await evaluatePunch(ctx.tx, employeeId, b.geo)
+      // A fenced person without a fix is outside by definition; an unfenced
+      // one is only asked for a fix when the company insists on one.
+      if (!b.geo && (verdict.status === 'outside' || ctx.config.get<boolean>('attendance.geofence_required'))) {
         throw new HttpError(422, 'LOCATION_REQUIRED',
           'this company requires a location fix on every mobile punch')
+      }
+      if (verdict.status === 'outside' && ctx.config.get<boolean>('attendance.geofence_enforce')) {
+        throw new HttpError(422, 'OUTSIDE_GEOFENCE',
+          `you are ${verdict.distanceM} m from ${verdict.siteCode}; punch from an allowed site`,
+          { siteCode: verdict.siteCode, distanceM: verdict.distanceM })
       }
 
       const createdPunch = await recordPunch(ctx.tx, {
         employeeId, punchedAt: new Date().toISOString(),
         localDate: asDate(b.localDate, 'localDate'), direction: b.direction, source: 'mobile',
-        clientPunchId: b.clientPunchId, geo: b.geo, withinGeofence: b.withinGeofence,
+        clientPunchId: b.clientPunchId, geo: b.geo,
+        geofence: {
+          withinGeofence: verdict.status === 'unfenced' ? null : verdict.status === 'inside',
+          siteId: verdict.siteId, distanceM: verdict.distanceM,
+        },
       })
       await recomputeDay(ctx.tx, employeeId, b.localDate, dayPolicy(ctx))
-      return ok({ recorded: createdPunch, duplicate: !createdPunch })
+      return ok({ recorded: createdPunch, duplicate: !createdPunch, geofence: verdict })
     }))
 
   router.get('/api/v1/attendance',
