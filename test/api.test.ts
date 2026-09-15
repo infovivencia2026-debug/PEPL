@@ -613,3 +613,36 @@ describe('changes held for approval', () => {
     })
   })
 })
+
+describe('an employee regularises their own day', () => {
+  it('is always held, only for own record and allowed actions, inside the window; the manager approves and the day changes', async () => {
+    const emp = await loginAs(ids.employee!)
+    const today = new Date().toISOString().slice(0, 10)
+    const bad = await api('POST', '/api/v1/attendance/regularisations', { token: emp, body: { workDate: today, action: 'mark_absent', reason: 'x' } })
+    expect(bad.status).toBe(422)
+    const old = await api('POST', '/api/v1/attendance/regularisations', { token: emp, body: { workDate: '2020-01-01', action: 'mark_present', reason: 'x' } })
+    expect(old.body.error?.code).toBe('CORRECTION_WINDOW_CLOSED')
+    const noAt = await api('POST', '/api/v1/attendance/regularisations', { token: emp, body: { workDate: today, action: 'set_punch_out', reason: 'x' } })
+    expect(noAt.status).toBe(422)
+
+    const held = await api<{ held: boolean; approvalRequestId: string; chain: string }>('POST', '/api/v1/attendance/regularisations', {
+      token: emp, body: { workDate: today, action: 'mark_present', reason: 'device offline at the gate' },
+    })
+    expect(held.status).toBe(202)
+    expect(held.body.chain).toBe('manager')
+    const mine = await api<{ requests: { status: string }[] }>('GET', '/api/v1/attendance/regularisations?status=pending', { token: emp })
+    expect(mine.body.requests).toHaveLength(1)
+
+    // the employee cannot approve their own; the manager can, and the day is then present
+    const self = await api('POST', `/api/v1/approvals/${held.body.approvalRequestId}/act`, { token: emp, body: { action: 'approve' } })
+    expect([403, 400, 409]).toContain(self.status)
+    const mgr = await loginAs(ids.manager!)
+    const ok = await api<{ status: string }>('POST', `/api/v1/approvals/${held.body.approvalRequestId}/act`, { token: mgr, body: { action: 'approve' } })
+    expect(ok.body.status).toBe('approved')
+    const day = await withTenant(tenantId, async (tx) => (await tx.query<{ status: string }>(
+      `SELECT status FROM daily_attendance WHERE employee_id = $1 AND work_date = $2`, [ids.employeeEmp, today])).rows[0]?.status)
+    expect(day).toBe('present')
+    const done = await api<{ requests: { status: string }[] }>('GET', '/api/v1/attendance/regularisations?status=applied', { token: emp })
+    expect(done.body.requests).toHaveLength(1)
+  })
+})

@@ -4,8 +4,8 @@ This supersedes `API-HANDOFF.md` and contains it. Part 1 is the original handoff
 corrected where the backend has moved on. Part 2 is everything built since. Part 3
 is what to build next and what is still genuinely missing.
 
-The backend is complete and tested for every feature described here: **656 tests,
-193 routes, 20 launch checks, all green in one run.**
+The backend is complete and tested for every feature described here: **660 tests,
+196 routes, 22 launch checks, all green in one run.**
 
 ---
 
@@ -1102,6 +1102,37 @@ Dates are period starts; a run in a period that has not been locked is not in
 any report — say "locked runs only" on the screen so an empty month is
 understood.
 
+## 2.34 An employee asks for their own attendance correction — 2 endpoints
+
+Corrections have always needed `attendance.correct`; somebody who forgot to
+punch out could not ask. Now they can, and it is ALWAYS an approval — nobody
+edits their own attendance.
+
+| Verb | Path | Notes |
+|---|---|---|
+| POST | `/api/v1/attendance/regularisations` | any signed-in employee. `{ workDate, action, after?, reason }` → **202** `{ held: true, pendingId, approvalRequestId, chain }`. Actions: `set_punch_in`, `set_punch_out` (both need `after.at`, an ISO timestamp), `mark_present`, `mark_remote`, `mark_field_duty` — marking yourself absent or on leave is not on the list (leave goes through leave). 422 `CORRECTION_WINDOW_CLOSED` outside `attendance.correction_window_days`. |
+| GET | `/api/v1/attendance/regularisations?status=` | my requests: `pending`, `applied`, `rejected`, `withdrawn`, each with its payload and result |
+
+The muster row is the place to put it: a day with no punch-out gets a "Request
+correction" link opening a small form, and the row then reads "awaiting your
+manager" until it applies. The approver sees it in the ordinary inbox and is
+notified. One setting, `attendance.regularisation_chain` (default `manager`).
+
+## 2.35 Form 16 Part B — 1 endpoint
+
+`GET /api/v1/employees/:id/form16?fy=2026-27` → `{ form16 }`; add `&format=pdf`
+for the certificate as a PDF download (the usual `{ fileName, contentType, contentBase64 }`).
+`payroll.read`, scoped — an employee pulls their own, payroll pulls anyone's;
+either is logged as a tier-3 reveal.
+
+Put it on the employee's tax screen beside the declaration, with a year picker.
+The JSON carries every line the PDF prints (gross, s.10 exemptions, standard
+deduction, PT, Chapter VI-A with its lines, taxable income, tax, cess, TDS
+deducted, balance or refund) plus `notes[]` — **render the notes**: they say
+when a declaration was not verified, when there is no PAN, and always that
+Part A comes from TRACES, not from us. 404 `NO_PAY_IN_YEAR` for a year with no
+locked run: show "no payroll in that year", not an error.
+
 ---
 
 # Part 3 — What to build, in order
@@ -1152,7 +1183,9 @@ understood.
 22. **PT state picker** from the coverage endpoint, in settings and on the
     location editor (§2.32). Small.
 23. **Reports** — a Reports screen with the four tables, date range, CSV
-    button; headcount as a chart (§2.33). The
+    button; headcount as a chart (§2.33).
+24. **Regularisation** on the muster row, and **Form 16** on the tax screen
+    (§2.34, §2.35). The
    employee form is a one-page form with a live preview; the queue is a table
    with two actions.
 
@@ -1227,7 +1260,7 @@ default tiles is the lever.
 ## Sanity check
 
 ```bash
-npm test          # 656 tests, including 33 against the running HTTP API
+npm test          # 660 tests, including 33 against the running HTTP API
 npm run verify    # every gate, end to end
 npm run check:responsive   # eight devices, currently clean
 npm run job mail.outbox    # drains queued external mail

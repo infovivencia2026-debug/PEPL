@@ -52,6 +52,12 @@ export async function restoreDrill(): Promise<{ tables: number; rows: number; du
   await src.connect(); await admin.connect()
   // A hang here is a lock somebody else holds; say so instead of waiting forever.
   await admin.query(`SET statement_timeout = '60s'`); await src.query(`SET statement_timeout = '60s'`)
+  // An interrupted run (a crash, a Ctrl-C) leaves its scratch database behind.
+  // Sweep anything older than an hour before making a new one.
+  const { rows: stale } = await admin.query<{ datname: string }>(
+    "SELECT datname FROM pg_database WHERE datname LIKE $1 AND (pg_stat_file('base/' || oid || '/PG_VERSION')).modification < now() - interval '1 hour'", [config.db + '_drill_%']).catch(() => ({ rows: [] }))
+  for (const d of stale) await admin.query(`DROP DATABASE IF EXISTS ${d.datname} WITH (FORCE)`).catch(() => undefined)
+
   let scratchClient: pg.Client | null = null
   let appClient: pg.Client | null = null
   try {

@@ -2008,6 +2008,182 @@
         }
       }
     },
+    "/api/v1/attendance/regularisations": {
+      "post": {
+        "summary": "Ask for a correction to MY own day (always held for approval)",
+        "tags": [
+          "attendance"
+        ],
+        "operationId": "post_api_v1_attendance_regularisations",
+        "parameters": [],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success"
+          },
+          "400": {
+            "description": "Malformed request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or invalid session",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Permission denied, or the module is not enabled for this company",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found — also returned for a record outside the caller's data scope",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflicts with the current state (a frozen period, a locked run)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation failed, or a domain rule refused the request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              },
+              "example": {
+                "workDate": "2026-09-14",
+                "action": "set_punch_out",
+                "after": {
+                  "at": "2026-09-14T18:35:00+05:30"
+                },
+                "reason": "forgot to punch out"
+              }
+            }
+          }
+        }
+      },
+      "get": {
+        "summary": "My regularisation requests and what became of them (?status=)",
+        "tags": [
+          "attendance"
+        ],
+        "operationId": "get_api_v1_attendance_regularisations",
+        "parameters": [],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success"
+          },
+          "400": {
+            "description": "Malformed request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or invalid session",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Permission denied, or the module is not enabled for this company",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found — also returned for a record outside the caller's data scope",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflicts with the current state (a frozen period, a locked run)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation failed, or a domain rule refused the request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/attendance/periods/{id}/status": {
       "post": {
         "summary": "Close, reopen or freeze an attendance period",
@@ -18138,6 +18314,16 @@
         "help": "none: a person with the permission corrects a day directly. Otherwise the correction is held and applied when the chain approves it (an approval policy for attendance_correction overrides the chain here).",
         "type": "enum",
         "default": "none",
+        "risk": "low",
+        "affectsPayroll": false,
+        "scopableBy": []
+      },
+      {
+        "key": "attendance.regularisation_chain",
+        "label": "Who approves an employee's own attendance request",
+        "help": "A person who forgot to punch, or worked from home without marking it, asks; this chain decides. Always an approval — an employee never edits their own attendance directly. An approval policy for attendance_correction overrides it.",
+        "type": "enum",
+        "default": "manager",
         "risk": "low",
         "affectsPayroll": false,
         "scopableBy": []

@@ -20,7 +20,7 @@ import {
   emit,
 } from './deps.ts'
 import { evaluatePunch } from '../../attendance/geofence.ts'
-import { hold } from '../../approvals/pending.ts'
+import { hold, listPending } from '../../approvals/pending.ts'
 
 /**
  * The company's attendance rules, read once per request.
@@ -153,6 +153,55 @@ export function register(router: Router): void {
         metadata: { workDate: b.workDate, action: b.action, employees: targets.length }, reason: b.reason,
       })
       return ok({ results })
+    }))
+
+  // What an employee may ask for about their own day. Marking oneself absent
+  // or on leave is not in the list: leave goes through leave; absence needs nobody's request.
+  const SELF_ACTIONS = new Set(['set_punch_in', 'set_punch_out', 'mark_present', 'mark_remote', 'mark_field_duty'])
+
+  router.post('/api/v1/attendance/regularisations',
+    { summary: 'Ask for a correction to MY own day (always held for approval)', tag: 'attendance',
+      requestExample: { workDate: '2026-09-14', action: 'set_punch_out', after: { at: '2026-09-14T18:35:00+05:30' }, reason: 'forgot to punch out' } },
+    authed(null, async (ctx) => {
+      requireModule(ctx, 'attendance.enabled')
+      const employeeId = ctx.auth.employeeId
+      if (!employeeId) throw new HttpError(422, 'NO_EMPLOYEE_RECORD', 'this user has no employee record')
+      const b = requireBody<{ workDate: string; action: string; after?: Record<string, unknown>; reason: string }>(ctx.req, ['workDate', 'action', 'reason'])
+      if (!SELF_ACTIONS.has(b.action)) {
+        throw new HttpError(422, 'VALIDATION_FAILED', `action must be one of ${[...SELF_ACTIONS].join(', ')}`)
+      }
+      if (!String(b.reason).trim()) throw new HttpError(422, 'REASON_REQUIRED', 'say what happened')
+      const workDate = asDate(b.workDate, 'workDate')
+      const today = new Date().toISOString().slice(0, 10)
+      if (workDate > today) throw new HttpError(422, 'VALIDATION_FAILED', 'a regularisation is for a day that has happened')
+      const windowDays = ctx.config.get<number>('attendance.correction_window_days')
+      const oldest = new Date(Date.now() - windowDays * 86_400_000).toISOString().slice(0, 10)
+      if (workDate < oldest) {
+        throw new HttpError(422, 'CORRECTION_WINDOW_CLOSED', `corrections are accepted for the last ${windowDays} days`)
+      }
+      if ((b.action === 'set_punch_in' || b.action === 'set_punch_out') && typeof b.after?.at !== 'string') {
+        throw new HttpError(422, 'VALIDATION_FAILED', 'after.at (an ISO timestamp) is required for a punch correction')
+      }
+      const held = await hold(ctx.tx, {
+        kind: 'attendance_correction', subjectEmployeeId: employeeId, requestedByUserId: ctx.auth.userId,
+        payload: { workDate, action: b.action as never, after: b.after, reason: String(b.reason).trim(), policy: dayPolicy(ctx), allowClosedPeriod: false },
+        fallback: ctx.config.get<string>('attendance.regularisation_chain') as never,
+        title: `Attendance · ${b.action.replace(/_/g, ' ')} on ${workDate}`,
+      })
+      await emit(ctx.tx, {
+        action: 'attendance.correction.requested', entityType: 'attendance', actorUserId: ctx.auth.userId, subjectEmployeeId: employeeId,
+        metadata: { workDate, action: b.action, self: true, approvalRequestId: held.requestId }, reason: String(b.reason),
+      })
+      return { status: 202, body: { held: true, pendingId: held.pendingId, approvalRequestId: held.requestId, chain: held.chainCode } }
+    }))
+
+  router.get('/api/v1/attendance/regularisations',
+    { summary: 'My regularisation requests and what became of them (?status=)', tag: 'attendance' },
+    authed(null, async (ctx) => {
+      if (!ctx.auth.employeeId) return ok({ requests: [] })
+      const status = ctx.req.query.get('status') as 'pending' | 'applied' | 'rejected' | 'withdrawn' | null
+      const rows = await listPending(ctx.tx, { employeeId: ctx.auth.employeeId, status: status ?? undefined })
+      return ok({ requests: rows.filter((r) => r.entity_type === 'attendance_correction') })
     }))
 
   router.post('/api/v1/attendance/periods/:id/status',

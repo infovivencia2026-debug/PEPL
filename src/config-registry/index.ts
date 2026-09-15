@@ -112,6 +112,11 @@ const attendance = defineConfig('attendance', {
     label: 'Attendance corrections need approval',
     help: 'none: a person with the permission corrects a day directly. Otherwise the correction is held and applied when the chain approves it (an approval policy for attendance_correction overrides the chain here).',
   }),
+  regularisation_chain: enumOf(['manager', 'manager_then_hr', 'hr_only'] as const, {
+    default: 'manager',
+    label: 'Who approves an employee\'s own attendance request',
+    help: 'A person who forgot to punch, or worked from home without marking it, asks; this chain decides. Always an approval — an employee never edits their own attendance directly. An approval policy for attendance_correction overrides it.',
+  }),
   correction_window_days: int({
     default: 30,
     min: 0,
