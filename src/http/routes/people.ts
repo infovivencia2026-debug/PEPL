@@ -19,6 +19,7 @@ import {
   emit,
 } from './deps.ts'
 import { normaliseComponents, resolveStructure, structureByCode } from '../../payroll/structures.ts'
+import { hold } from '../../approvals/pending.ts'
 
 export function register(router: Router): void {
   router.get('/api/v1/employees',
@@ -163,6 +164,27 @@ export function register(router: Router): void {
         structureCode = structure.code
       } else if (b.components) {
         components = await normaliseComponents(ctx.tx, b.components)
+      }
+      // Held for approval when the company says so; the magnitude is the hike
+      // against the current CTC, so a policy can route big ones further.
+      const chain = ctx.config.get<string>('payroll.compensation_approval')
+      if (chain !== 'none') {
+        const { rows: cur } = await ctx.tx.query<{ annual_ctc_paise: string }>(
+          `SELECT annual_ctc_paise::text FROM compensation_records WHERE employee_id = $1 AND superseded_at IS NULL
+            AND (effective_to IS NULL OR effective_to > CURRENT_DATE) ORDER BY effective_from DESC LIMIT 1`, [id])
+        const delta = b.annualCtcPaise - Number(cur[0]?.annual_ctc_paise ?? 0)
+        const held = await hold(ctx.tx, {
+          kind: 'compensation', subjectEmployeeId: id, requestedByUserId: ctx.auth.userId,
+          payload: { annualCtcPaise: b.annualCtcPaise, components, structureCode, effectiveFrom: asDate(b.effectiveFrom, 'effectiveFrom'), reason: b.reason },
+          magnitude: Math.max(0, delta), fallback: chain as never,
+          title: `Salary revision · ₹${Math.round(b.annualCtcPaise / 100).toLocaleString('en-IN')} from ${b.effectiveFrom}`,
+        })
+        await emit(ctx.tx, {
+          action: 'people.compensation.requested', entityType: 'employee', entityId: id,
+          subjectEmployeeId: id, actorUserId: ctx.auth.userId, reason: b.reason,
+          metadata: { annualCtcPaise: b.annualCtcPaise, effectiveFrom: b.effectiveFrom, approvalRequestId: held.requestId, chain: held.chainCode },
+        })
+        return { status: 202, body: { held: true, pendingId: held.pendingId, approvalRequestId: held.requestId, chain: held.chainCode } }
       }
       const recordId = await changeCompensation(ctx.tx, {
         employeeId: id, annualCtcPaise: b.annualCtcPaise, components, structureCode,

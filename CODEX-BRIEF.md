@@ -4,7 +4,7 @@ This supersedes `API-HANDOFF.md` and contains it. Part 1 is the original handoff
 corrected where the backend has moved on. Part 2 is everything built since. Part 3
 is what to build next and what is still genuinely missing.
 
-The backend is complete and tested for every feature described here: **635 tests,
+The backend is complete and tested for every feature described here: **637 tests,
 183 routes, 20 launch checks, all green in one run.**
 
 ---
@@ -1017,6 +1017,27 @@ A department-scoped role behaves like a manager over everyone currently in
 those departments — so "Chennai HR" sees Chennai's people and nobody else.
 Role changes are security events in the activity log.
 
+## 2.29 Salary revisions and attendance corrections can be held for approval
+
+Two settings, both default `none` (direct, as before):
+`payroll.compensation_approval` and `attendance.correction_approval`. When set
+to a chain, the SAME endpoints answer **202** instead of 201/200:
+
+- `POST /api/v1/employees/:id/compensation` → `{ held: true, pendingId, approvalRequestId, chain }`
+- `POST /api/v1/attendance/corrections` → `{ held: [{ pendingId, approvalRequestId, chain }] }` (one per employee)
+
+Handle 202 on both forms: "Sent for approval → manager then HR", not a success
+toast. The change lands when the last step approves — through the ordinary
+approvals inbox (`POST /api/v1/approvals/:id/act`), nothing new to build there
+— and the record/muster updates then. Rejected or withdrawn: never applied.
+An approval policy for entity type `compensation` or `attendance_correction`
+(§2.27) overrides the chain in the setting; for compensation the policy
+magnitude is the hike in paise, so "over ₹2,00,000 → manager, HR, finance" works.
+
+The profile can show pending revisions: they live in `pending_changes`
+(`status`, `payload`, `approval_request_id`) — surfaced through the inbox
+request's `entity_type` for now; a list endpoint follows if you need one.
+
 ---
 
 # Part 3 — What to build, in order
@@ -1059,7 +1080,9 @@ Role changes are security events in the activity log.
     picker on the department editor (§2.27).
 19. **Roles** — edit/retire on the roles screen, department scope with a
     department picker, the users list with a roles multi-select, the
-    who-has-what matrix (§2.28). The
+    who-has-what matrix (§2.28).
+20. **202 on the compensation and correction forms** — "sent for approval"
+    state instead of a success toast (§2.29). Small. The
    employee form is a one-page form with a live preview; the queue is a table
    with two actions.
 
@@ -1134,7 +1157,7 @@ default tiles is the lever.
 ## Sanity check
 
 ```bash
-npm test          # 635 tests, including 33 against the running HTTP API
+npm test          # 637 tests, including 33 against the running HTTP API
 npm run verify    # every gate, end to end
 npm run check:responsive   # eight devices, currently clean
 npm run job mail.outbox    # drains queued external mail

@@ -9,6 +9,7 @@ import { REGISTRY_KEYS } from '../src/config-registry/index.ts'
 import { withTenant } from '../src/db/tenant-tx.ts'
 import { createUser } from '../src/auth/index.ts'
 import { changeCompensation } from '../src/people/history.ts'
+import { setSetting } from '../src/config/write.ts'
 
 let server: Server
 let base: string
@@ -555,5 +556,60 @@ describe('the account: forgotten and changed passwords, devices', () => {
     expect((await api('GET', '/api/v1/notifications', { token: b })).status).toBe(401)
     expect((await api('GET', '/api/v1/notifications', { token: a })).status).toBe(200)
     void hrSessions
+  })
+})
+
+describe('changes held for approval', () => {
+  it('a salary revision is held, invisible on the record, and lands when the manager approves', async () => {
+    await withTenant(tenantId, (tx) => setSetting(tx, { key: 'payroll.compensation_approval', value: 'manager', reason: 'test' }))
+    const hr = await loginAs(ids.payroll!)   // compensation.write is payroll's
+    const before = await api<{ profile: { annual_ctc_paise: string } }>('GET', `/api/v1/employees/${ids.employeeEmp}`, { token: await loginAs(ids.payroll!) })
+    const held = await api<{ held: boolean; approvalRequestId: string; chain: string }>('POST', `/api/v1/employees/${ids.employeeEmp}/compensation`, {
+      token: hr, body: { annualCtcPaise: L(1_500_000), effectiveFrom: '2027-04-01', reason: 'annual revision' },
+    })
+    expect(held.status).toBe(202)
+    expect(held.body.held).toBe(true)
+    expect(held.body.chain).toBe('manager')
+    // nothing on the record yet
+    const rows = await withTenant(tenantId, async (tx) => (await tx.query<{ n: string }>(
+      `SELECT count(*)::text AS n FROM compensation_records WHERE employee_id = $1 AND annual_ctc_paise = $2`, [ids.employeeEmp, String(L(1_500_000))])).rows[0]!.n)
+    expect(Number(rows)).toBe(0)
+    // the manager approves; the revision is applied through changeCompensation
+    const mgr = await loginAs(ids.manager!)
+    const decided = await api<{ status: string }>('POST', `/api/v1/approvals/${held.body.approvalRequestId}/act`, { token: mgr, body: { action: 'approve' } })
+    expect(decided.status).toBe(200)
+    expect(decided.body.status).toBe('approved')
+    const after = await withTenant(tenantId, async (tx) => (await tx.query<{ n: string }>(
+      `SELECT count(*)::text AS n FROM compensation_records WHERE employee_id = $1 AND annual_ctc_paise = $2`, [ids.employeeEmp, String(L(1_500_000))])).rows[0]!.n)
+    expect(Number(after)).toBe(1)
+    const pending = await withTenant(tenantId, async (tx) => (await tx.query<{ status: string; result: { recordId: string } }>(
+      `SELECT status, result FROM pending_changes WHERE approval_request_id = $1`, [held.body.approvalRequestId])).rows[0]!)
+    expect(pending.status).toBe('applied')
+    expect(pending.result.recordId).toBeTruthy()
+    void before
+  })
+
+  it('a rejected attendance correction is never applied', async () => {
+    await withTenant(tenantId, (tx) => setSetting(tx, { key: 'attendance.correction_approval', value: 'manager', reason: 'test' }))
+    const hr = await loginAs(ids.hr!)
+    const held = await api<{ held: { approvalRequestId: string }[] }>('POST', '/api/v1/attendance/corrections', {
+      token: hr, body: { employeeId: ids.employeeEmp, workDate: '2026-09-22', action: 'mark_present', reason: 'device offline' },
+    })
+    expect(held.status).toBe(202)
+    expect(held.body.held).toHaveLength(1)
+    const mgr = await loginAs(ids.manager!)
+    const decided = await api<{ status: string }>('POST', `/api/v1/approvals/${held.body.held[0]!.approvalRequestId}/act`, { token: mgr, body: { action: 'reject', comment: 'no' } })
+    expect(decided.body, JSON.stringify(decided.body)).toMatchObject({ status: 'rejected' })
+    const day = await withTenant(tenantId, async (tx) => (await tx.query(
+      `SELECT 1 FROM daily_attendance WHERE employee_id = $1 AND work_date = '2026-09-22' AND status = 'present'`, [ids.employeeEmp])).rowCount)
+    expect(day).toBe(0)
+    const pending = await withTenant(tenantId, async (tx) => (await tx.query<{ status: string }>(
+      `SELECT status FROM pending_changes WHERE approval_request_id = $1`, [held.body.held[0]!.approvalRequestId])).rows[0]!.status)
+    expect(pending).toBe('rejected')
+    // back to direct for the rest of the suite
+    await withTenant(tenantId, async (tx) => {
+      await setSetting(tx, { key: 'attendance.correction_approval', value: 'none', reason: 'test' })
+      await setSetting(tx, { key: 'payroll.compensation_approval', value: 'none', reason: 'test' })
+    })
   })
 })

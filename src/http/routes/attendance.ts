@@ -20,6 +20,7 @@ import {
   emit,
 } from './deps.ts'
 import { evaluatePunch } from '../../attendance/geofence.ts'
+import { hold } from '../../approvals/pending.ts'
 
 /**
  * The company's attendance rules, read once per request.
@@ -123,6 +124,24 @@ export function register(router: Router): void {
       for (const id of targets) assertScope(ctx.auth, id)
 
       const allowClosed = can(ctx.auth, 'attendance.reopen_period')
+      const chain = ctx.config.get<string>('attendance.correction_approval')
+      if (chain !== 'none') {
+        // One held change per person: the approval names a subject.
+        const held = []
+        for (const employeeId of targets) {
+          held.push(await hold(ctx.tx, {
+            kind: 'attendance_correction', subjectEmployeeId: employeeId, requestedByUserId: ctx.auth.userId,
+            payload: { workDate: asDate(b.workDate, 'workDate'), action: b.action as never, after: b.after, reason: b.reason,
+              policy: dayPolicy(ctx), allowClosedPeriod: allowClosed },
+            fallback: chain as never, title: `Attendance · ${b.action.replace(/_/g, ' ')} on ${b.workDate}`,
+          }))
+        }
+        await emit(ctx.tx, {
+          action: 'attendance.correction.requested', entityType: 'attendance', actorUserId: ctx.auth.userId,
+          metadata: { workDate: b.workDate, action: b.action, employees: targets.length }, reason: b.reason,
+        })
+        return { status: 202, body: { held: held.map((h) => ({ pendingId: h.pendingId, approvalRequestId: h.requestId, chain: h.chainCode })) } }
+      }
       const results = await applyBulkCorrection(ctx.tx, targets, {
         workDate: asDate(b.workDate, 'workDate'),
         action: b.action as never, after: b.after, reason: b.reason,

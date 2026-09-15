@@ -107,6 +107,11 @@ const attendance = defineConfig('attendance', {
     risk: 'high',
     affects: ['payroll'],
   }),
+  correction_approval: enumOf(['none', 'manager', 'manager_then_hr', 'hr_only'] as const, {
+    default: 'none',
+    label: 'Attendance corrections need approval',
+    help: 'none: a person with the permission corrects a day directly. Otherwise the correction is held and applied when the chain approves it (an approval policy for attendance_correction overrides the chain here).',
+  }),
   correction_window_days: int({
     default: 30,
     min: 0,
@@ -184,6 +189,12 @@ const payroll = defineConfig('payroll', {
   // The employer's own registration numbers. Not behaviour — identity on a
   // return — but they belong with the company's other payroll settings rather
   // than in a table of four strings.
+  compensation_approval: enumOf(['none', 'manager', 'manager_then_hr', 'hr_only', 'manager_hr_finance'] as const, {
+    default: 'none',
+    label: 'Salary revisions need approval',
+    help: 'none: compensation.write applies a revision directly. Otherwise the revision is held and lands on the record when the chain approves it (an approval policy for compensation — e.g. above a size — overrides the chain here).',
+    risk: 'high',
+  }),
   exit_day_divisor: int({
     default: 30,
     min: 26,

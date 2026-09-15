@@ -1,5 +1,6 @@
 /** Approvals and tasks — the unified inbox. */
 import type { Router } from '../router.ts'
+import { settle } from '../../approvals/pending.ts'
 import {
   authed,
   ok,
@@ -77,6 +78,22 @@ export function register(router: Router): void {
               subjectEmployeeId: r.subject_employee_id, actorUserId: ctx.auth.userId,
             })
           }
+        }
+      }
+
+      // A held compensation change or attendance correction is applied (or
+      // closed out) here, through the same functions a direct write uses.
+      if (result.changed) {
+        const settled = await settle(ctx.tx, ctx.req.params.id!, ctx.auth.userId)
+        if (settled?.status === 'applied') {
+          await emit(ctx.tx, {
+            action: settled.entity_type === 'compensation' ? 'people.compensation.changed' : 'attendance.day.corrected',
+            entityType: settled.entity_type === 'compensation' ? 'employee' : 'attendance',
+            entityId: settled.entity_type === 'compensation' ? settled.subject_employee_id : undefined,
+            subjectEmployeeId: settled.subject_employee_id, actorUserId: ctx.auth.userId,
+            reason: (settled.payload as { reason: string }).reason,
+            metadata: { viaApproval: ctx.req.params.id, ...settled.result },
+          })
         }
       }
 

@@ -63,6 +63,8 @@ export const ACTIONS: Readonly<Record<string, ActionDef>> = Object.freeze({
   'approval.policy.changed': { category: 'config', severity: 'notice' },
   'approval.delegation.changed': { category: 'config', severity: 'info' },
   'roles.custom.changed': { category: 'security', severity: 'warning' },
+  'people.compensation.requested': { category: 'people', severity: 'notice', requiresReason: true },
+  'attendance.correction.requested': { category: 'attendance', severity: 'info', requiresReason: true },
   'roles.user.changed': { category: 'security', severity: 'warning' },
   'employee.separation.cancelled': { category: 'people', severity: 'notice', requiresReason: true },
 
