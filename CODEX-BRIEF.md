@@ -4,8 +4,8 @@ This supersedes `API-HANDOFF.md` and contains it. Part 1 is the original handoff
 corrected where the backend has moved on. Part 2 is everything built since. Part 3
 is what to build next and what is still genuinely missing.
 
-The backend is complete and tested for every feature described here: **660 tests,
-196 routes, 22 launch checks, all green in one run.**
+The backend is complete and tested for every feature described here: **666 tests,
+199 routes, 22 launch checks, all green in one run.**
 
 ---
 
@@ -1133,6 +1133,32 @@ when a declaration was not verified, when there is no PAN, and always that
 Part A comes from TRACES, not from us. 404 `NO_PAY_IN_YEAR` for a year with no
 locked run: show "no payroll in that year", not an error.
 
+## 2.36 Imports beyond employees — 3 endpoints × 4 datasets
+
+Same two-phase flow as the employee import, one set of routes for all four:
+
+| Verb | Path | Notes |
+|---|---|---|
+| GET | `/api/v1/imports/:dataset/template` | `{ fileName, contentType, content }` — the CSV to start from, header plus one example row |
+| POST | `/api/v1/imports/:dataset/validate` | `{ csv }` or `{ csvBase64 }` → `{ totalRows, valid, willWrite, errors[], warnings[], rows[] (first 50) }`. Nothing is written. |
+| POST | `/api/v1/imports/:dataset` | commits; 422 `IMPORT_HAS_ERRORS` with the first 50 errors if the file still has any |
+
+`:dataset` is `attendance`, `leave_openings`, `compensation` or `sales`.
+**Every dataset also needs the permission the data needs** — `attendance.correct`,
+`leave.balance.adjust`, `compensation.write`, `incentive.write` respectively, on
+top of `import.run`, at company scope. Show the tab only when the person holds it.
+
+People are matched by **employee_number**, never id. Columns:
+
+- **attendance** — `work_date`, `punch_in`, `punch_out` (ISO timestamps, at least one). Days in a closed attendance period are warned about and skipped. Re-importing the same file is idempotent.
+- **leave_openings** — `leave_type_code`, `days`, `cycle_year`, `as_of`. A second import of the same opening warns and writes nothing.
+- **compensation** — `annual_ctc_paise`, `effective_from`, and EITHER `structure_code` OR `components` in the form `BASIC=2500000;HRA=1000000`; `reason` is required.
+- **sales** — `occurred_on`, `value_paise`, `quantity`, `external_ref`; commit needs `?periodId=`, and `external_ref` makes a re-upload safe (the response says `recorded` and `duplicates`).
+
+`errors[]` blocks the commit; `warnings[]` does not — it lists rows that will be
+skipped or that will fail on write. Render them as two lists with row numbers;
+the whole point is that the customer fixes one spreadsheet, not twenty uploads.
+
 ---
 
 # Part 3 — What to build, in order
@@ -1185,7 +1211,9 @@ locked run: show "no payroll in that year", not an error.
 23. **Reports** — a Reports screen with the four tables, date range, CSV
     button; headcount as a chart (§2.33).
 24. **Regularisation** on the muster row, and **Form 16** on the tax screen
-    (§2.34, §2.35). The
+    (§2.34, §2.35).
+25. **Import wizard, four more tabs** — the employee import's flow, repeated for
+    attendance, leave openings, compensation and sales (§2.36). The
    employee form is a one-page form with a live preview; the queue is a table
    with two actions.
 
@@ -1260,7 +1288,7 @@ default tiles is the lever.
 ## Sanity check
 
 ```bash
-npm test          # 660 tests, including 33 against the running HTTP API
+npm test          # 666 tests, including 33 against the running HTTP API
 npm run verify    # every gate, end to end
 npm run check:responsive   # eight devices, currently clean
 npm run job mail.outbox    # drains queued external mail

@@ -202,6 +202,7 @@ const STATUS_BY_CODE: Record<string, number> = {
   NO_RECIPIENTS: 422,
   // import
   IMPORT_INVALID: 422,
+  IMPORT_HAS_ERRORS: 422,
 }
 
 export class Router {

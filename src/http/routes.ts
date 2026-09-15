@@ -47,12 +47,13 @@ import { register as incentiveAdmin } from './routes/incentive-admin.ts'
 import { register as approvalPolicy } from './routes/approval-policy.ts'
 import { register as loans } from './routes/loans.ts'
 import { register as reports } from './routes/reports.ts'
+import { register as datasetImports } from './routes/dataset-imports.ts'
 
 export const router = new Router()
 
 for (const register of [
   system, config, people, attendance, leave, inbox,
-  payroll, helpdesk, incentives, comms, activity, roles, documents, chat, mail, imports, payments, holidays, leavePolicy, taxDeclarations, push, filings, exits, account, privacy, org, geofences, shifts, structures, incentiveAdmin, approvalPolicy, loans, reports,
+  payroll, helpdesk, incentives, comms, activity, roles, documents, chat, mail, imports, payments, holidays, leavePolicy, taxDeclarations, push, filings, exits, account, privacy, org, geofences, shifts, structures, incentiveAdmin, approvalPolicy, loans, reports, datasetImports,
 ]) {
   register(router)
 }
