@@ -97,6 +97,13 @@ psql -d pepl_restore_test -c 'SELECT count(*) FROM _migrations'
 dropdb pepl_restore_test
 ```
 
+`npm run drill:restore` does steps 1, 3 and 4 automatically against the configured
+database — dump, restore into a scratch database, compare every table's row count,
+check RLS and FORCE survived, re-walk every tenant's audit chain as the runtime
+role, drop the scratch — and runs in CI against the test database. It has been
+run here: 90 tables, RLS intact, chain verified. Step 2 (a staging API on the
+copy) still needs a person.
+
 Restore drill, in full, at least once before launch and once a quarter after:
 
 1. Restore last night's dump into a scratch database.
