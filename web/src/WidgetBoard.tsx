@@ -1,9 +1,10 @@
-import { Children, isValidElement, useEffect, useState, type CSSProperties, type ReactElement, type ReactNode } from 'react'
+import { Children, isValidElement, useEffect, useRef, useState, type CSSProperties, type ReactElement, type ReactNode } from 'react'
 import { DndContext, PointerSensor, KeyboardSensor, closestCenter, useSensor, useSensors, type DragEndEvent } from '@dnd-kit/core'
 import { SortableContext, useSortable, sortableKeyboardCoordinates, rectSortingStrategy, arrayMove } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
 import { GripHorizontal, SlidersHorizontal, RotateCcw, Check, X, ArrowUp, ArrowDown } from 'lucide-react'
 import { Button } from './ui'
+import { paginateWidgets } from './dashboard/pagination'
 
 type WidgetProps = { id: string; title: string; width: number; hero?: boolean; children: ReactNode }
 type Layout = { order: string[]; hidden: string[]; widths: Record<string, number> }
@@ -44,12 +45,24 @@ function SortableWidget({ widget, width, editing, resize, move, first, last }: {
 }
 
 export function WidgetBoard({ children, account }: { children: ReactNode; account: string }) {
-  const storageKey = `pepl:dashboard:v1:${account}`
+  const storageKey = `pepl:dashboard:v2:${account}`
   const widgets = Children.toArray(children).filter((child): child is ReactElement<WidgetProps> => isValidElement<WidgetProps>(child) && child.type === Widget).map(child => child.props)
   const [layout, setLayout] = useState<Layout>(() => readLayout(storageKey))
   const [saved, setSaved] = useState(layout)
   const [editing, setEditing] = useState(false)
   const [message, setMessage] = useState('')
+  const frame = useRef<HTMLDivElement>(null)
+  const touchStart = useRef<number | null>(null)
+  const [viewport, setViewport] = useState({ width: window.innerWidth, height: 440 })
+  const [pageIndex, setPageIndex] = useState(0)
+  useEffect(() => {
+    const measure = () => setViewport({ width: window.innerWidth, height: frame.current?.clientHeight ?? 440 })
+    const observer = new ResizeObserver(measure)
+    if (frame.current) observer.observe(frame.current)
+    window.addEventListener('resize', measure)
+    measure()
+    return () => { observer.disconnect(); window.removeEventListener('resize', measure) }
+  }, [])
   // Transient confirmation, not persistent state: left on screen it reads as
   // leaked UI. Announced to assistive tech first, then cleared.
   useEffect(() => {
@@ -61,6 +74,21 @@ export function WidgetBoard({ children, account }: { children: ReactNode; accoun
   const available = new Map(widgets.map(widget => [widget.id, widget]))
   const order = [...layout.order.filter(id => available.has(id)), ...widgets.map(widget => widget.id).filter(id => !layout.order.includes(id))]
   const visible = order.filter(id => !layout.hidden.includes(id))
+  const spans = visible.map(id => {
+    const widget = available.get(id)!
+    const configured = Math.max(widget.width, layout.widths[id] ?? widget.width)
+    const stat = ['people', 'leave', 'new-faces', 'payroll'].includes(id)
+    const span = viewport.width <= 540 ? (stat ? 6 : 12)
+      : viewport.width <= 1050 ? (widget.hero ? 12 : 6) : configured
+    return { id, span }
+  })
+  const pages = paginateWidgets(spans, viewport.width > 1050 ? Number.MAX_SAFE_INTEGER : Math.max(1, Math.floor((viewport.height + 16) / 240)))
+  const currentPage = Math.min(pageIndex, Math.max(0, pages.length - 1))
+  const displayed = editing ? visible : pages[currentPage]?.ids ?? []
+  const movePage = (next: number) => {
+    const page = Math.max(0, Math.min(pages.length - 1, next))
+    if (page !== currentPage) setPageIndex(page)
+  }
   const reorder = (from: string, to: string) => {
     if (from === to) return
     setLayout(current => ({ ...current, order: arrayMove(order, order.indexOf(from), order.indexOf(to)) }))
@@ -83,9 +111,18 @@ export function WidgetBoard({ children, account }: { children: ReactNode; accoun
       <div><strong>Choose your widgets</strong><p>Drag the handles, or use Space, arrow keys and Space to drop. Escape cancels a drag. Widths adapt on smaller screens.</p></div>
       <div className="widget-choices">{widgets.map(widget => <label key={widget.id}><input type="checkbox" checked={!layout.hidden.includes(widget.id)} onChange={() => setLayout(current => ({ ...current, hidden: current.hidden.includes(widget.id) ? current.hidden.filter(id => id !== widget.id) : [...current.hidden, widget.id] }))} />{widget.title}</label>)}</div>
     </div>}
+    <div ref={frame} className="widget-frame" role="region" tabIndex={0} aria-label={editing ? 'Arrange dashboard widgets' : `Dashboard widgets, page ${currentPage + 1} of ${pages.length}`}
+      onTouchStart={event => { touchStart.current = event.touches[0]?.clientX ?? null }}
+      onTouchEnd={event => {
+        if (editing || touchStart.current === null) return
+        const distance = (event.changedTouches[0]?.clientX ?? touchStart.current) - touchStart.current
+        touchStart.current = null
+        if (Math.abs(distance) > 55) movePage(currentPage + (distance < 0 ? 1 : -1))
+      }}>
     <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={onDragEnd}>
-      <SortableContext items={visible} strategy={rectSortingStrategy}>
-        <div className="widget-grid">{visible.map((id, index) => {
+      <SortableContext items={displayed} strategy={rectSortingStrategy}>
+        <div className="widget-grid" style={{ '--page-rows': pages[currentPage]?.rows ?? 1 } as CSSProperties}>{displayed.map((id) => {
+          const index = visible.indexOf(id)
           const widget = available.get(id)!
           // The width a widget declares is its readable MINIMUM. A hardcoded
           // floor here silently overrode narrower declarations (a 2-span stat
@@ -98,6 +135,12 @@ export function WidgetBoard({ children, account }: { children: ReactNode; accoun
         })}</div>
       </SortableContext>
     </DndContext>
+    </div>
+    {!editing && pages.length > 1 && <nav className="widget-pagination" aria-label="Dashboard pages">
+      <span className="pagination-copy" aria-live="polite" aria-atomic="true">Page {currentPage + 1} of {pages.length}<small>{displayed.length} of {visible.length} widgets</small></span>
+      <span className="pagination-dots" aria-hidden="true">{pages.map((_, index) => <i key={index} className={index === currentPage ? 'active' : ''} />)}</span>
+      <div><Button variant="secondary" aria-disabled={currentPage === 0} onClick={() => movePage(currentPage - 1)}>Previous</Button><Button variant="secondary" aria-disabled={currentPage === pages.length - 1} onClick={() => movePage(currentPage + 1)}>Next</Button></div>
+    </nav>}
     {!visible.length && <div className="widget-empty"><h2>A little space to start fresh.</h2><p>Choose widgets in Customize dashboard to bring your overview back.</p></div>}
   </div>
 }

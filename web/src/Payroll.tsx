@@ -25,6 +25,9 @@ import {
   Tabs,
 } from './ui'
 import { PayrollInputs } from './PayrollInputs'
+import { decodeBase64, domainApi, downloadFile } from './domainApi'
+import { Filings } from './Filings'
+import { PayslipDetails } from './PayslipDetails'
 interface FrozenInput {
   employee_id: string
   first_name: string
@@ -44,11 +47,13 @@ export function PayrollPage({
   open: (s: FormSpec) => void
   refresh: () => Promise<void>
 }) {
-  const [selected, setSelected] = useState(''),
+  const [selected, setSelected] = useState(() => location.hash.replace(/^#\/?/, '').split('/')[1] ?? ''),
     [tab, setTab] = useState('Register'),
     [editing, setEditing] = useState(false),
     [inputs, setInputs] = useState<FrozenInput[]>([]),
-    [error, setError] = useState('')
+    [error, setError] = useState(''),
+    [downloading, setDownloading] = useState(''),
+    [breakdown, setBreakdown] = useState('')
   const run = data.payroll.find((p) => p.id === selected) ?? data.payroll[0],
     steps = [
       'draft',
@@ -78,6 +83,14 @@ export function PayrollPage({
       cancel = true
     }
   }, [run?.id, run?.status, tab])
+  async function downloadPayslip(id: string) {
+    setDownloading(id); setError('')
+    try {
+      const pdf = await domainApi<{ fileName: string; contentType: string; contentBase64: string }>(`/payslips/${id}/pdf`)
+      downloadFile(pdf.fileName, pdf.contentType, decodeBase64(pdf.contentBase64))
+    } catch (caught) { setError(caught instanceof Error ? caught.message : 'Unable to download payslip') }
+    finally { setDownloading('') }
+  }
   const action =
     run?.status === 'inputs_frozen' && has('payroll.process')
       ? 'calculate'
@@ -359,7 +372,8 @@ export function PayrollPage({
                   <th>Period</th>
                   <th>Gross pay</th>
                   <th>Deductions</th>
-                  <th>Net pay</th>
+                    <th>Net pay</th>
+                    <th><span className="sr-only">Download</span></th>
                 </tr>
               </thead>
               <tbody>
@@ -375,6 +389,7 @@ export function PayrollPage({
                     <td>{money(s.gross_paise)}</td>
                     <td>{money(s.deductions_paise)}</td>
                     <td className="net-pay">{money(s.net_paise)}</td>
+                    <td><Button variant="ghost" onClick={() => setBreakdown(s.id)}>Details</Button><Button variant="ghost" disabled={downloading === s.id} onClick={() => void downloadPayslip(s.id)}><ArrowDownToLine size={16} />{downloading === s.id ? 'Preparing…' : 'PDF'}</Button></td>
                   </tr>
                 ))}
               </tbody>
@@ -387,6 +402,8 @@ export function PayrollPage({
           />
         )}
       </Card>
+      {run && has('payroll.process') && <Filings key={run.id} run={run} data={data} />}
+      {breakdown && <PayslipDetails id={breakdown} onClose={() => setBreakdown('')} />}
       {editing && run && (
         <PayrollInputs
           id={run.id}

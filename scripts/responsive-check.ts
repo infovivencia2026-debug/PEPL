@@ -77,7 +77,7 @@ try {
         const inChart = el.closest('.donut') !== null
         if (!inChart && size > 0 && size < (touch ? 12 : 11) &&
             (el.textContent ?? '').trim().length > 2 && el.children.length === 0) {
-          const id = `${el.tagName.toLowerCase()}.${(el.className || '').toString().split(' ')[0]}:${size}px`
+          const id = `${el.tagName.toLowerCase()}.${(el.className || '').toString().split(' ')[0]}:${size}px ${(el.textContent ?? '').trim().slice(0, 35)}`
           if (!tiny.includes(id) && tiny.length < 6) tiny.push(id)
         }
       }

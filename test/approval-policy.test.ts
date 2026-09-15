@@ -93,6 +93,41 @@ describe('approvers and delegation', () => {
   })
 })
 
+describe('everyone is told', () => {
+  it('each approver when their step is current, the requester on every decision, once each', async () => {
+    await withTenant(A.id, async (tx) => {
+      const count = async (userId: string, type?: string) => Number((await tx.query<{ n: string }>(
+        `SELECT count(*)::text AS n FROM notifications WHERE user_id = $1 AND ($2::text IS NULL OR event_type = $2)`, [userId, type ?? null])).rows[0]!.n)
+      const mgrBefore = await count(ids.mgr!, 'approval.requested')
+      const hrBefore = await count(ids.hr!, 'approval.requested')
+      const selfApproved = await count(ids.self!, 'approval.approved')
+      const r = await raiseWithPolicy(tx, { entityType: 'leave', entityId: crypto.randomUUID(), requestedByUserId: ids.self!,
+        subjectEmployeeId: A.employeeId, magnitude: 8, fallback: 'manager', title: 'Leave · 8 days' })
+      expect(r.chainCode).toBe('manager_then_hr')
+      expect(await count(ids.mgr!, 'approval.requested')).toBe(mgrBefore + 1)     // manager's turn
+      expect(await count(ids.hr!, 'approval.requested')).toBe(hrBefore)            // HR not yet
+      const { rows } = await tx.query<{ title: string; entity_id: string }>(
+        `SELECT title, entity_id FROM notifications WHERE user_id = $1 AND event_type = 'approval.requested' ORDER BY created_at DESC LIMIT 1`, [ids.mgr])
+      expect(rows[0]).toEqual({ title: 'Approval needed: Leave · 8 days', entity_id: r.requestId })
+
+      // send back: requester told; manager approves after resubmit -> HR told exactly once for the step
+      await act(tx, { requestId: r.requestId, actorUserId: ids.mgr!, action: 'send_back', comment: 'dates?' })
+      expect(await count(ids.self!, 'approval.sent_back')).toBe(1)
+      await act(tx, { requestId: r.requestId, actorUserId: ids.mgr!, action: 'approve' })
+      expect(await count(ids.hr!, 'approval.requested')).toBe(hrBefore + 1)
+      expect(await count(ids.self!, 'approval.approved')).toBe(selfApproved)        // not final yet
+      await act(tx, { requestId: r.requestId, actorUserId: ids.hr!, action: 'approve' })
+      expect(await count(ids.self!, 'approval.approved')).toBe(selfApproved + 1)
+
+      // a rejection tells the requester
+      const r2 = await raiseWithPolicy(tx, { entityType: 'leave', entityId: crypto.randomUUID(), requestedByUserId: ids.self!,
+        subjectEmployeeId: A.employeeId, magnitude: 1, fallback: 'manager', title: 'Leave · 1 day' })
+      await act(tx, { requestId: r2.requestId, actorUserId: ids.mgr!, action: 'reject', comment: 'no' })
+      expect(await count(ids.self!, 'approval.rejected')).toBe(1)
+    })
+  })
+})
+
 describe('escalation', () => {
   it('skips a stale non-final step and moves on; never the last one', async () => {
     await withTenant(A.id, async (tx) => {

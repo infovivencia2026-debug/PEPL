@@ -26,6 +26,7 @@ export const LIVE_EVENTS = [
   'chat.message',
   'chat.conversation',
   'mail.delivered',
+  'mail.received',
   'approval.decided',
   'announcement.published',
 ] as const

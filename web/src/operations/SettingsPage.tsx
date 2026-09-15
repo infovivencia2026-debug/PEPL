@@ -1,173 +1,60 @@
+import { useEffect, useMemo, useState } from 'react'
+import { Check, ChevronRight, Settings2, ShieldCheck, SlidersHorizontal, Users, X } from 'lucide-react'
+import { domainApi } from '../domainApi'
+import { PtStatePicker } from '../PtStatePicker'
 import type { Workspace } from '../types'
-import type { FormSpec } from '../forms'
-import { useState } from 'react'
-import {
-  ArrowUpRight,
-  ChevronRight,
-  Settings2,
-  ShieldCheck,
-  Users,
-} from 'lucide-react'
-import type { Setting } from '../types'
-import { pretty } from '../api'
-import {
-  Button,
-  Card,
-  Empty,
-  PageHeader,
-  SearchBox,
-} from '../ui'
-type Props = {
-  data: Workspace
-  open: (s: FormSpec) => void
-  act: (path: string, body: unknown, message: string) => Promise<void>
+import { Button, Card, Empty, PageHeader, SearchBox, Skeleton } from '../ui'
+
+type ConfigSetting = {
+  key: string; module: string; label: string; help: string; type: string; risk: string
+  default: unknown; value: unknown; changedFromDefault: boolean; affectsPayroll: boolean
+  requiresEffectiveDate: boolean; entitlement: string | null
 }
 
-export function SettingsPage({ data, open }: Props) {
-  const [search, setSearch] = useState(''),
-    [category, setCategory] = useState('All settings')
-  const settings = data.settings.filter(
-    (s) =>
-      (category === 'All settings' ||
-        s.key.startsWith(category.toLowerCase() + '.')) &&
-      `${s.label} ${s.help}`.toLowerCase().includes(search.toLowerCase()),
-  )
-  function edit(s: Setting) {
-    open({
-      title: s.label,
-      description: s.help,
-      path: '/settings',
-      fields: [
-        {
-          name: 'value',
-          label: 'Value',
-          value: String(s.value),
-          type: s.kind === 'int' ? 'number' : 'text',
-          options: ['flag', 'bool'].includes(s.kind)
-            ? [
-                { value: 'true', label: 'Enabled' },
-                { value: 'false', label: 'Disabled' },
-              ]
-            : undefined,
-          help:
-            s.kind === 'enum'
-              ? `Current value: ${s.value}. Enter a supported policy value.`
-              : undefined,
-        },
-        ...(s.affects.includes('payroll')
-          ? [
-              {
-                name: 'effectiveFrom',
-                label: 'Effective from',
-                type: 'date',
-                value: data.today,
-                help: 'Must be after any frozen payroll period.',
-              },
-            ]
-          : []),
-        { name: 'reason', label: 'Reason for change', type: 'textarea' },
-      ],
-      transform: (v) => ({
-        ...v,
-        key: s.key,
-        value: ['flag', 'bool'].includes(s.kind)
-          ? v.value === 'true'
-          : s.kind === 'int'
-            ? Number(v.value)
-            : v.value,
-      }),
-    })
+const nextMonth = (today: string) => {
+  const date = new Date(`${today.slice(0, 7)}-01T12:00:00Z`)
+  date.setUTCMonth(date.getUTCMonth() + 1)
+  return date.toISOString().slice(0, 10)
+}
+
+export function SettingsPage({ data }: { data: Workspace }) {
+  const [settings, setSettings] = useState<ConfigSetting[]>([])
+  const [search, setSearch] = useState('')
+  const [category, setCategory] = useState('all')
+  const [changedOnly, setChangedOnly] = useState(false)
+  const [editing, setEditing] = useState<string | null>(null)
+  const [value, setValue] = useState('')
+  const [reason, setReason] = useState('')
+  const [effectiveFrom, setEffectiveFrom] = useState(nextMonth(data.today))
+  const [loading, setLoading] = useState(true)
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState('')
+  const [ptReady, setPtReady] = useState(false)
+  const load = async () => {
+    setLoading(true); setError('')
+    try { setSettings((await domainApi<{ settings: ConfigSetting[] }>('/config')).settings) }
+    catch (caught) { setError(caught instanceof Error ? caught.message : 'Unable to load settings') }
+    finally { setLoading(false) }
   }
-  return (
-    <>
-      <PageHeader
-        title="A workspace that works for you"
-        description="Company policies, with thoughtful defaults and a clear history."
-        eyebrow="Settings"
-      />
-      <div className="settings-layout">
-        <aside className="settings-sidebar">
-          <div className="company-tile">
-            <span className="icon-box">
-              <Users size={23} />
-            </span>
-            <h3>{data.company}</h3>
-            <small>Your company workspace</small>
-          </div>
-          {['All settings', 'Leave', 'Attendance', 'Payroll', 'Helpdesk'].map(
-            (s) => (
-              <button
-                className={s === category ? 'active' : ''}
-                key={s}
-                onClick={() => setCategory(s)}
-              >
-                <Settings2 size={17} />
-                {s}
-                <ChevronRight size={16} />
-              </button>
-            ),
-          )}
-        </aside>
-        <Card>
-          <SearchBox
-            value={search}
-            onChange={setSearch}
-            placeholder="Find a policy or setting..."
-          />
-          <div className="settings-list">
-            {settings.length ? (
-              settings.map((s) => (
-                <article key={s.key}>
-                  <div>
-                    <span className="setting-category">
-                      {s.key.split('.')[0]}
-                    </span>
-                    <h3>{s.label}</h3>
-                    <p>{s.help}</p>
-                    {s.affects.includes('payroll') && (
-                      <small className="policy-note">
-                        <ShieldCheck size={13} />
-                        Effective-dated · affects payroll
-                      </small>
-                    )}
-                  </div>
-                  <div className="setting-control">
-                    <span
-                      className={
-                        typeof s.value === 'boolean'
-                          ? `toggle-preview ${s.value ? 'on' : ''}`
-                          : 'setting-value'
-                      }
-                      aria-label={
-                        typeof s.value === 'boolean'
-                          ? s.value
-                            ? 'Enabled'
-                            : 'Disabled'
-                          : undefined
-                      }
-                    >
-                      {typeof s.value === 'boolean' ? (
-                        <i />
-                      ) : (
-                        pretty(String(s.value))
-                      )}
-                    </span>
-                    <Button variant="ghost" onClick={() => edit(s)}>
-                      Edit
-                      <ArrowUpRight size={15} />
-                    </Button>
-                  </div>
-                </article>
-              ))
-            ) : (
-              <Empty
-                title="No matching settings"
-                text="Try another search or category."
-              />
-            )}
-          </div>
-        </Card>
-      </div>
-    </>
-  )
+  useEffect(() => { void load() }, [])
+  const categories = useMemo(() => ['all', ...new Set(settings.map(setting => setting.module))], [settings])
+  const filtered = settings.filter(setting =>
+    (category === 'all' || setting.module === category) && (!changedOnly || setting.changedFromDefault) &&
+    `${setting.label} ${setting.help} ${setting.key}`.toLowerCase().includes(search.toLowerCase()))
+  const begin = (setting: ConfigSetting) => {
+    setEditing(setting.key); setValue(String(setting.value)); setReason(''); setEffectiveFrom(nextMonth(data.today)); setError(''); setPtReady(false)
+  }
+  const save = async (setting: ConfigSetting) => {
+    setBusy(true); setError('')
+    const parsed = ['bool', 'flag'].includes(setting.type) ? value === 'true' : setting.type === 'int' ? Number(value) : value
+    try {
+      await domainApi(`/config/${encodeURIComponent(setting.key)}`, { value: parsed, reason, effectiveFrom: setting.requiresEffectiveDate ? effectiveFrom : undefined }, 'PATCH')
+      setEditing(null); await load()
+    } catch (caught) { setError(caught instanceof Error ? caught.message : 'Unable to save setting') }
+    finally { setBusy(false) }
+  }
+  return <><PageHeader title="A workspace that works for you" description="All company policies are generated from the live configuration registry." eyebrow="Settings"><label className="changed-filter"><input type="checkbox" checked={changedOnly} onChange={event => setChangedOnly(event.target.checked)} />Show only changed</label></PageHeader>
+    <div className="settings-layout"><aside className="settings-sidebar"><div className="company-tile"><span className="icon-box"><Users size={23} /></span><h3>{data.company}</h3><small>{settings.length} live settings</small></div>{categories.map(item => <button className={item === category ? 'active' : ''} key={item} onClick={() => setCategory(item)}><Settings2 size={17} />{item === 'all' ? 'All settings' : item}<ChevronRight size={16} /></button>)}</aside>
+      <Card><SearchBox value={search} onChange={setSearch} placeholder="Find a policy or setting..." />{error && <p className="form-error" role="alert">{error}</p>}{loading ? <Skeleton /> : <div className="settings-list">{filtered.length ? filtered.map(setting => <article key={setting.key} className={setting.changedFromDefault ? 'setting-changed' : ''}><div><span className="setting-category">{setting.module}{setting.changedFromDefault ? ' · changed' : ''}</span><h3>{setting.label}</h3><p>{setting.help}</p>{setting.affectsPayroll && <small className="policy-note"><ShieldCheck size={13} />Effective-dated · affects payroll</small>}</div>{editing === setting.key ? <form className="setting-editor" onSubmit={event => { event.preventDefault(); void save(setting) }}><label>Value{setting.key === 'payroll.pt_state_code' ? <PtStatePicker value={value} onChange={setValue} onReady={setPtReady} /> : ['bool', 'flag'].includes(setting.type) ? <select value={value} onChange={event => setValue(event.target.value)}><option value="true">Enabled</option><option value="false">Disabled</option></select> : <input type={setting.type === 'int' ? 'number' : 'text'} value={value} onChange={event => setValue(event.target.value)} />}</label>{setting.requiresEffectiveDate && <label>Effective from<input type="date" required value={effectiveFrom} onChange={event => setEffectiveFrom(event.target.value)} /></label>}<label>Reason<input required value={reason} onChange={event => setReason(event.target.value)} placeholder="Why is this changing?" /></label><div><Button type="button" variant="ghost" onClick={() => setEditing(null)}><X size={15} />Cancel</Button><Button disabled={busy || (setting.key === 'payroll.pt_state_code' && !ptReady)}><Check size={15} />Save</Button></div></form> : <div className="setting-control"><span className={typeof setting.value === 'boolean' ? `toggle-preview ${setting.value ? 'on' : ''}` : 'setting-value'}>{typeof setting.value === 'boolean' ? <i /> : String(setting.value)}</span><Button variant="ghost" onClick={() => begin(setting)}><SlidersHorizontal size={15} />Edit</Button></div>}</article>) : <Empty title="No matching settings" text="Try another search or category." />}</div>}</Card>
+    </div></>
 }

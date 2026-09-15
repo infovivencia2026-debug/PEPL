@@ -16,6 +16,10 @@ import {
   Skeleton,
   Tabs,
 } from '../ui'
+import { DocumentsPanel } from '../DataTools'
+import { CompensationForm } from '../CompensationForm'
+import { LoansPanel } from '../LoansPanel'
+import { ExitPanel, PrivacyPanel, StatutoryIds } from '../EmployeeLifecycle'
 
 export function EmployeeProfile({
   id,
@@ -30,10 +34,12 @@ export function EmployeeProfile({
 }) {
   const [profile, setProfile] = useState<Profile | null>(null),
     [error, setError] = useState(''),
-    [tab, setTab] = useState('Overview')
+    [tab, setTab] = useState('Overview'),
+    [localRevision, setLocalRevision] = useState(0)
+  const [compensationForm, setCompensationForm] = useState(false)
   useEffect(() => {
     let cancelled = false
-    setProfile(null)
+    setProfile(previous => previous?.employee.id === id ? previous : null)
     setError('')
     api<Profile>(`/employees/${id}`)
       .then((d) => {
@@ -45,7 +51,7 @@ export function EmployeeProfile({
     return () => {
       cancelled = true
     }
-  }, [id, revision])
+  }, [id, revision, localRevision])
   if (error) return <ErrorBox message={error} />
   if (!profile) return <Skeleton />
   const e = profile.employee,
@@ -58,8 +64,13 @@ export function EmployeeProfile({
   const tabs = [
     'Overview',
     'Employment',
+    'Exit',
+    'Privacy',
+    ...(data.permissions.includes('payroll.read') ? ['Private payroll'] : []),
     ...(data.permissions.includes('compensation.read') ? ['Compensation'] : []),
+    ...(data.permissions.includes('payroll.read') && data.modules.payroll ? ['Loans'] : []),
     'Timeline',
+    ...(data.permissions.includes('document.read') && data.modules.documents ? ['Documents'] : []),
   ]
   return (
     <>
@@ -168,8 +179,15 @@ export function EmployeeProfile({
             </dl>
           </Card>
         </div>
+      ) : tab === 'Exit' ? (
+        <ExitPanel key={id} employee={e} data={data} onChanged={() => setLocalRevision(value => value + 1)} />
+      ) : tab === 'Privacy' ? (
+        <PrivacyPanel key={id} employee={e} data={data} onChanged={() => setLocalRevision(value => value + 1)} />
+      ) : tab === 'Private payroll' ? (
+        <StatutoryIds key={id} id={id} canWrite={data.permissions.includes('compensation.write')} />
       ) : tab === 'Compensation' ? (
         <Card title="Compensation history">
+          {data.permissions.includes('compensation.write') && <div className="header-actions"><Button onClick={() => setCompensationForm(true)}>Record salary revision</Button></div>}
           {profile.compensation.length ? (
             <div className="table-scroll">
               <table>
@@ -198,6 +216,10 @@ export function EmployeeProfile({
             />
           )}
         </Card>
+      ) : tab === 'Loans' ? (
+        <LoansPanel key={id} id={id} data={data} />
+      ) : tab === 'Documents' ? (
+        <DocumentsPanel ownerType="employee" ownerId={id} canWrite={data.permissions.includes('document.write')} maxUploadMb={Number(data.settings.find(setting => setting.key === 'documents.max_upload_mb')?.value ?? 10)} />
       ) : (
         <Card
           title={
@@ -220,6 +242,7 @@ export function EmployeeProfile({
           </div>
         </Card>
       )}
+      {compensationForm && <CompensationForm key={id} id={id} data={data} onClose={() => setCompensationForm(false)} onChanged={() => setLocalRevision(value => value + 1)} />}
     </>
   )
 }

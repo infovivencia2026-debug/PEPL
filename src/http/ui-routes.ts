@@ -187,7 +187,7 @@ export function buildUiRouter() {
       const id = asUuid(c.req.params.id, 'Employee')
       assertScope(c.auth, id)
       const { rows } = await c.tx.query(
-        'SELECT id,employee_number,first_name,last_name,status,date_of_joining::text FROM employees WHERE id=$1',
+        'SELECT id,employee_number,first_name,last_name,status,date_of_joining::text,date_of_exit::text,erased_at::text FROM employees WHERE id=$1',
         [id],
       )
       if (!rows[0]) throw new HttpError(404, 'NOT_FOUND', 'Employee not found')

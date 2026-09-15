@@ -1,0 +1,10 @@
+.approval-submission { padding: 22px; border: 1px solid #c4ded2; border-radius: 16px; background: #eff8f3; }
+.approval-submission h3 { color: #164f40; }.approval-submission small { display: block; overflow-wrap: anywhere; margin-top: 5px; }
+.salary-preview { grid-column: 1 / -1; padding: 18px; border: 1px solid #d3e4db; border-radius: 14px; background: #f4faf6; }
+.salary-preview dl div, .loan-balance dl div { display: flex; justify-content: space-between; gap: 16px; padding: 6px 0; }
+.salary-preview dd, .loan-balance dd { margin: 0; }.salary-preview label { margin-top: 10px; }
+.pt-coverage-note { display: block; white-space: normal; margin-top: 8px; max-width: 360px; line-height: 1.6; }
+.loan-grid { display: grid; grid-template-columns: repeat(auto-fit,minmax(min(100%,300px),1fr)); gap: 16px; margin-top: 20px; }
+.loan-balance { padding: 22px; border: 1px solid #d3e2da; border-radius: 18px; background: linear-gradient(135deg,#f3faf5,#fff); box-shadow: 0 10px 26px #1a52400a; }
+.loan-balance header, .loan-balance footer { display: flex; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.loan-balance h3 { font-size: 30px; margin: 20px 0 4px; }.loan-balance footer { margin-top: 18px; }

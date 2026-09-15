@@ -37,9 +37,8 @@ export function statTiles({
           href="#/people"
         />
       </Widget>,
-    )
-  }
-
+  )
+}
   if (data.modules.leave && can('leave.read')) {
     tiles.push(
       <Widget key="leave" id="leave" title="On leave today" width={2}>
@@ -52,14 +51,13 @@ export function statTiles({
           href="#/leave"
         />
       </Widget>,
-    )
-  }
-
+  )
+}
   if (can('employee.read')) {
     tiles.push(
-      <Widget key="new-faces" id="new-faces" title="New joiners" width={2}>
+      <Widget key="new-faces" id="new-faces" title="New joiners this month" width={2}>
         <Stat
-          label="New joiners"
+          label="New joiners this month"
           value={metrics.joiners.length}
           note={dateLabel(`${metrics.month}-01`, { month: 'short', year: 'numeric' })}
           icon={<UserPlus size={21} />}
@@ -75,16 +73,8 @@ export function statTiles({
       <Widget key="payroll" id="payroll" title="Payroll this month" width={2}>
         <Stat
           label={metrics.month === data.today.slice(0, 7) ? 'Payroll this month' : `Payroll · ${dateLabel(`${metrics.month}-01`, { month: 'short' })}`}
-          value={
-            metrics.payrollThisMonth
-              ? money(metrics.payrollThisMonth.net_paise)
-              : '—'
-          }
-          note={
-            metrics.payrollThisMonth
-              ? `Status: ${metrics.payrollThisMonth.status.replace(/_/g, ' ')}`
-              : 'No run yet'
-          }
+          value={metrics.payrollThisMonth ? money(metrics.payrollThisMonth.net_paise) : '—'}
+          note={metrics.payrollThisMonth ? `Status: ${metrics.payrollThisMonth.status.replace(/_/g, ' ')}` : 'No run yet'}
           icon={<Wallet size={21} />}
           variant="coral-card"
           href="#/payroll"
@@ -95,4 +85,3 @@ export function statTiles({
 
   return tiles
 }
-

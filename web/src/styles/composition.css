@@ -1,0 +1,86 @@
+/* Exact reference composition: deep green stage and a floating pale workspace. */
+body { background:repeating-linear-gradient(132deg,transparent 0 310px,#9ac3b20d 311px 313px,transparent 314px 650px),radial-gradient(ellipse at 18% 0,#4e907d,transparent 58%),#246257; }
+.app-shell { border:1px solid #ffffffc7; background:linear-gradient(120deg,#eef5f4,#f7faf9 67%,#edf5f2); box-shadow:0 24px 58px #123d3340; border-radius:25px; }
+.topbar { border-radius:25px 25px 14px 14px; box-shadow:0 7px 22px -16px #315e4933; }
+.culture-card { background:linear-gradient(135deg,#c84d32,#ad3d28 82%); }
+.widget-workspace:not(.is-customizing) .dashboard-widget { box-shadow:0 2px 5px #234b3d08,0 10px 25px -14px #234b3d26; }
+.widget-workspace:not(.is-customizing) .dashboard-widget:hover { box-shadow:0 5px 10px #234b3d0c,0 15px 28px -15px #234b3d38; }
+@media(min-width:1051px) {
+ body { padding:clamp(18px,3vh,44px) clamp(22px,3vw,44px); }
+ .app-shell { height:calc(100dvh - clamp(18px,3vh,44px) * 2); max-height:calc(100dvh - clamp(18px,3vh,44px) * 2); }
+ .workspace-main { padding-top:8px; }
+ .dashboard-heading { flex-basis:29px; height:29px; margin-bottom:9px; }
+ .widget-workspace:not(.is-customizing) .widget-grid { gap:13px; }
+ .widget-workspace:not(.is-customizing) .widget-grid[style*="--page-rows: 4"] { grid-template-rows:minmax(0,.95fr) minmax(0,1.3fr) minmax(0,.82fr) minmax(0,.93fr); }
+ .widget-workspace:not(.is-customizing) .widget-content > .card { padding:14px 18px; background-color:#fff; }
+ .widget-workspace:not(.is-customizing) .widget-content > .welcome-card { padding:17px 28px; }
+ .widget-workspace:not(.is-customizing) .widget-content > .welcome-card h2 { font-size:clamp(25px,3.5vh,36px); line-height:1.08; margin-bottom:8px; }
+ .widget-workspace:not(.is-customizing) .welcome-card p { font-size:13px; max-width:260px; }
+ .widget-workspace:not(.is-customizing) .welcome-botanical { width:185px; height:200px; }
+ .widget-workspace:not(.is-customizing) .card-head h2 { font-size:16px; letter-spacing:-.3px; }
+ .widget-workspace:not(.is-customizing) .stat > strong { font-size:clamp(33px,4.3vh,43px); line-height:1.15; }
+ .app-shell .workspace-main .widget-workspace .widget-content > .stat > p { font-size:14px; }
+ .widget-workspace:not(.is-customizing) .stat .icon-box { width:40px; height:40px; }
+ .widget-workspace:not(.is-customizing) .stat .icon-box svg { width:25px; height:25px; }
+ .widget-workspace:not(.is-customizing) .donut { width:clamp(115px,17vh,190px); }
+ .widget-workspace:not(.is-customizing) .donut strong { font-size:28px; }
+ .widget-workspace:not(.is-customizing) .donut-layout { gap:23px; }
+ .widget-workspace:not(.is-customizing) .legend { gap:9px; }
+ .widget-workspace:not(.is-customizing) .legend > div,.widget-workspace:not(.is-customizing) .legend b { font-size:12px; }
+ .widget-workspace:not(.is-customizing) .empty { text-align:left; align-items:flex-start; justify-content:center; padding:8px 0; }
+ .widget-workspace:not(.is-customizing) .empty-icon { display:none; }
+ .widget-workspace:not(.is-customizing) .empty h3 { font-size:13px; }
+ .widget-workspace:not(.is-customizing) .empty p { max-width:280px; margin-top:6px; }
+ .widget-workspace:not(.is-customizing) .culture-card p { font-size:17px; }
+ .widget-workspace:not(.is-customizing) .payroll-summary-total { font-size:28px; }
+}
+@media(max-width:540px) {
+ .app-shell { background:linear-gradient(160deg,#f4f8f6,#edf5f2); }
+ .date-chip select { min-height:45px; }
+ .dashboard-heading { margin-bottom:7px; }
+ .widget-frame { touch-action:pan-y; }
+ .widget-workspace:not(.is-customizing) .widget-grid { gap:11px; }
+ .widget-workspace:not(.is-customizing) .dashboard-widget { box-shadow:0 3px 7px #294c3c0b,0 13px 28px -18px #294c3c45; }
+ .widget-workspace:not(.is-customizing) .widget-content > .welcome-card { border-radius:20px; }
+ .widget-workspace:not(.is-customizing) .widget-content > .stat,
+ .widget-workspace:not(.is-customizing) .widget-content > .card { border-radius:18px; }
+ .widget-pagination { position:relative; padding:6px 2px 4px; }
+ .pagination-copy { min-width:34px; }
+ .pagination-copy small { display:none; }
+ .pagination-dots { position:absolute; left:50%; top:50%; display:flex; gap:5px; transform:translate(-50%,-50%); }
+ .pagination-dots i { width:5px; height:5px; border-radius:999px; background:#b9cbc3; transition:width .2s ease,background .2s ease; }
+ .pagination-dots i.active { width:17px; background:#2e715f; }
+ .widget-pagination .btn { width:44px; min-width:44px; padding:0; overflow:hidden; font-size:0; border-radius:14px; }
+ .widget-pagination .btn::before { font-size:19px; line-height:1; }
+ .widget-pagination .btn:first-child::before { content:'←'; }
+ .widget-pagination .btn:last-child::before { content:'→'; }
+}
+@media(pointer:coarse) {
+ .date-chip select { min-height:45px; }
+}
+@media(min-width:1051px) and (max-height:800px) {
+ .widget-workspace:not(.is-customizing) .widget-content > .card { padding:10px 16px; }
+ .widget-workspace:not(.is-customizing) .widget-content > .welcome-card { padding:12px 22px; }
+ .widget-workspace:not(.is-customizing) .welcome-card p { font-size:12px; line-height:1.25; }
+ .widget-workspace:not(.is-customizing) .stat .icon-box { width:31px; height:31px; }
+ .widget-workspace:not(.is-customizing) .culture-card { padding:10px 16px; }
+ .widget-workspace:not(.is-customizing) .culture-card p { font-size:15px; margin-top:4px; }
+ .widget-workspace:not(.is-customizing) .payroll-history { height:28px; }
+ .widget-workspace:not(.is-customizing) .card-head h2 { font-size:15px; }
+}
+@media(min-width:1051px) and (max-height:800px) {
+ .widget-workspace:not(.is-customizing) .widget-grid[style*="--page-rows: 4"] { grid-template-rows:minmax(0,.95fr) minmax(0,1.3fr) minmax(0,.9fr) minmax(0,.85fr); }
+ .widget-workspace:not(.is-customizing) .widget-content > .stat { padding:8px 16px; }
+ .widget-workspace:not(.is-customizing) .stat > strong { font-size:30px; }
+ .widget-workspace:not(.is-customizing) [data-widget-id=attendance] .donut-layout { height:calc(100% - 47px); }
+ .widget-workspace:not(.is-customizing) .payroll-summary-caption { margin-top:2px; }
+ .widget-workspace:not(.is-customizing) .payroll-summary-total { font-size:24px; }
+ .widget-workspace:not(.is-customizing) .welcome-botanical { height:150px; width:145px; }
+}
+@media(min-width:1051px) {
+ .widget-workspace:not(.is-customizing) .payroll-summary-tile { display:flex; flex-direction:column; }
+ .widget-workspace:not(.is-customizing) .payroll-summary-tile .card-head { flex-shrink:0; }
+ .widget-workspace:not(.is-customizing) .payroll-history { flex:1; min-height:23px; margin:0; height:auto; }
+ .widget-workspace:not(.is-customizing) .payroll-history .history-bar { max-height:24px; }
+ .widget-workspace:not(.is-customizing) .payroll-summary-caption { margin-bottom:3px; }
+}

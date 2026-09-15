@@ -56,6 +56,8 @@ import { PayrollPage } from './Payroll'
 import { PageTransition } from './PageTransition'
 import { NAV, MORE, getRoute } from './app/nav'
 import { screenFor } from './app/screen'
+import { removeCurrentPushSubscription } from './push'
+import { PasswordRecovery } from './Account'
 export function App() {
   const [data, setData] = useState<Workspace | null>(null),
     [loggedOut, setLoggedOut] = useState(false),
@@ -125,6 +127,7 @@ export function App() {
     // Focus the new page without letting the browser scroll the main region into view.
     // Run after the route commits, so the previous page's height cannot affect the reset.
     main.current?.focus({ preventScroll: true })
+    main.current?.querySelector('.route-content')?.scrollTo({ top: 0, left: 0, behavior: 'instant' })
     window.scrollTo({ top: 0, left: 0, behavior: 'instant' })
   }, [route])
   useEffect(() => {
@@ -173,10 +176,11 @@ export function App() {
     await load()
     setToast(message)
   }
-  const allowed = (n: { permission?: string; module?: string }) =>
+  const allowed = (n: { permission?: string; module?: string; employeeRequired?: boolean }) =>
     !data ||
     ((!n.permission || data.permissions.includes(n.permission)) &&
-      (!n.module || data.modules[n.module]))
+      (!n.module || data.modules[n.module]) &&
+      (!n.employeeRequired || Boolean(data.user.employeeId)))
   const nav = NAV.filter(allowed),
     extras = MORE.filter(allowed).filter(
       (n) => n.id !== 'settings' || data?.user.scope === 'all',
@@ -314,6 +318,7 @@ export function App() {
                       <button
                         onClick={async () => {
                           try {
+                            await removeCurrentPushSubscription().catch(() => undefined)
                             await api('/auth/logout', {})
                             setData(null)
                             setLoggedOut(true)
@@ -327,6 +332,7 @@ export function App() {
                         <LogOut size={17} />
                         Sign out
                       </button>
+                      <a href="#/account"><Settings2 size={17} />Account settings</a>
                     </div>
                   )}
                 </div>
@@ -348,7 +354,11 @@ export function App() {
           tabIndex={-1}
           className={loggedOut ? 'login-main' : 'workspace-main'}
         >
-          {loading ? (
+          {location.pathname === '/reset-password' ? (
+            <PasswordRecovery token={new URLSearchParams(location.search).get('token')} />
+          ) : route === 'forgot-password' ? (
+            <PasswordRecovery />
+          ) : loading ? (
             <Skeleton />
           ) : loggedOut ? (
             <Login

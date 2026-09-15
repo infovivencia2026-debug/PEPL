@@ -12,3 +12,11 @@
 @import './styles/responsive.css';
 @import './styles/refinements.css';
 @import './styles/reference.css';
+@import './styles/viewport.css';
+@import './styles/communications.css';
+@import './styles/composition.css';
+@import './styles/data-tools.css';
+@import './styles/tax-push.css';
+@import './styles/lifecycle.css';
+@import './styles/masters.css';
+@import './styles/payroll-tools.css';

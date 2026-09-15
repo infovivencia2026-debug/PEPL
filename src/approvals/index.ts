@@ -7,6 +7,7 @@
  * shipping one before observing twenty real tenants produces the wrong language.
  */
 import type { PoolClient } from 'pg'
+import { notify } from '../comms/index.ts'
 
 export class ApprovalError extends Error {
   readonly code: string
@@ -111,6 +112,36 @@ async function advance(tx: PoolClient, requestId: string): Promise<void> {
     `UPDATE approval_requests SET current_step = $3 WHERE tenant_id = $1 AND id = $2`,
     [tid, requestId, next],
   )
+  // The person whose turn it is finds out. Deduped per (request, step) so a
+  // send-back and resubmit does not ping them twice for the same step.
+  const { rows: who } = await tx.query<{ approver_user_id: string | null; title: string; entity_type: string; delegated_from_user_id: string | null }>(
+    `SELECT s.approver_user_id, r.title, r.entity_type, s.delegated_from_user_id
+       FROM approval_steps s JOIN approval_requests r ON (r.tenant_id, r.id) = (s.tenant_id, s.approval_request_id)
+      WHERE s.approval_request_id = $1 AND s.step_no = $2`, [requestId, next])
+  const step = who[0]
+  if (step?.approver_user_id) {
+    await notify(tx, {
+      userId: step.approver_user_id, eventType: 'approval.requested',
+      title: `Approval needed: ${step.title}`,
+      body: step.delegated_from_user_id ? 'Routed to you as a delegate.' : undefined,
+      entityType: 'approval_request', entityId: requestId,
+      channels: ['in_app', 'email'], dedupeKey: `approval:${requestId}:step:${next}`,
+    })
+  }
+}
+
+/** The requester learns of every decision, once per decision. */
+async function notifyRequester(tx: PoolClient, requestId: string, outcome: string, actorUserId: string): Promise<void> {
+  const { rows } = await tx.query<{ requested_by_user_id: string; title: string }>(
+    `SELECT requested_by_user_id, title FROM approval_requests WHERE id = $1`, [requestId])
+  const r = rows[0]
+  if (!r || r.requested_by_user_id === actorUserId) return
+  const verb = outcome === 'approved' ? 'approved' : outcome === 'rejected' ? 'rejected' : outcome === 'sent_back' ? 'sent back for changes' : outcome
+  await notify(tx, {
+    userId: r.requested_by_user_id, eventType: `approval.${outcome}`,
+    title: `${r.title} — ${verb}`, entityType: 'approval_request', entityId: requestId,
+    channels: ['in_app', 'email'], dedupeKey: `approval:${requestId}:${outcome}:${Date.now()}`,
+  })
 }
 
 export interface ActResult {
@@ -178,6 +209,7 @@ export async function act(
         WHERE tenant_id = $1 AND id = $2`,
       [tid, args.requestId],
     )
+    await notifyRequester(tx, args.requestId, 'rejected', args.actorUserId)
     return { status: 'rejected', currentStep: req.current_step, changed: true }
   }
 
@@ -188,16 +220,23 @@ export async function act(
       `UPDATE approval_requests SET status = 'sent_back' WHERE tenant_id = $1 AND id = $2`,
       [tid, args.requestId],
     )
+    await notifyRequester(tx, args.requestId, 'sent_back', args.actorUserId)
     return { status: 'sent_back', currentStep: req.current_step, changed: true }
   }
 
   if (args.action === 'delegate') {
     if (!args.comment) throw new ApprovalError('DELEGATE_TARGET_REQUIRED', 'delegate needs a target user id in comment')
     await tx.query(
-      `UPDATE approval_steps SET approver_user_id = $4
+      `UPDATE approval_steps SET approver_user_id = $4, delegated_from_user_id = $5
         WHERE tenant_id = $1 AND approval_request_id = $2 AND step_no = $3`,
-      [tid, args.requestId, req.current_step, args.comment],
+      [tid, args.requestId, req.current_step, args.comment, args.actorUserId],
     )
+    const { rows: t } = await tx.query<{ title: string }>(`SELECT title FROM approval_requests WHERE id = $1`, [args.requestId])
+    await notify(tx, {
+      userId: args.comment, eventType: 'approval.requested', title: `Approval needed: ${t[0]?.title ?? ''}`,
+      body: 'Delegated to you.', entityType: 'approval_request', entityId: args.requestId,
+      channels: ['in_app', 'email'], dedupeKey: `approval:${args.requestId}:delegated:${args.comment}`,
+    })
     return { status: req.status, currentStep: req.current_step, changed: true }
   }
 
@@ -216,6 +255,7 @@ export async function act(
     `SELECT status, current_step FROM approval_requests WHERE id = $1`,
     [args.requestId],
   )
+  if (after[0]!.status === 'approved') await notifyRequester(tx, args.requestId, 'approved', args.actorUserId)
   return { status: after[0]!.status, currentStep: after[0]!.current_step, changed: true }
 }
 

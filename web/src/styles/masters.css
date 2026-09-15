@@ -1,0 +1,9 @@
+.attendance-freeze { max-height: min(56vh, 600px); overflow: auto; }
+.attendance-freeze table { min-width: 1050px; }
+.attendance-freeze thead th { position: sticky; top: 0; z-index: 1; background: #f2f8f5; }
+.attendance-freeze td { vertical-align: top; }
+.attendance-freeze td small { display: block; max-width: 240px; margin-top: 5px; white-space: normal; }
+.attendance-freeze input[type=number] { width: 76px; min-height: 38px; border: 1px solid #cdded7; border-radius: 8px; padding: 7px; color: #153f3b; background: white; }
+.attendance-freeze input:disabled { background: #f1f4f2; color: #566d66; }
+.attendance-freeze td:first-child { min-width: 190px; }
+.attendance-freeze td:last-child { min-width: 240px; white-space: normal; }

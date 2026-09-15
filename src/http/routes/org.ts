@@ -4,15 +4,23 @@
  * hands that set policy.
  */
 import type { Router } from '../router.ts'
-import { authed, ok, created, requireBody, asUuid, emit } from './deps.ts'
+import { authed, ok, created, requireBody, asUuid, emit, HttpError } from './deps.ts'
 import { UNIT_KINDS, createUnit, listUnits, reinstateUnit, retireUnit, updateUnit } from '../../people/org.ts'
 
 export function register(router: Router): void {
   router.get('/api/v1/org/:kind',
     { summary: `Units of one kind (${UNIT_KINDS.join(' | ')}); ?includeRetired=true for history`, tag: 'people' },
-    authed(null, async (ctx) => ok({
-      units: await listUnits(ctx.tx, ctx.req.params.kind!, { includeRetired: ctx.req.query.get('includeRetired') === 'true' }),
-    })))
+    authed(null, async (ctx) => {
+      const units = await listUnits(ctx.tx, ctx.req.params.kind!, { includeRetired: ctx.req.query.get('includeRetired') === 'true' })
+      if (ctx.req.query.get('includeUsage') !== 'true') return ok({ units })
+      if (!ctx.auth.permissions.has('settings.write')) throw new HttpError(403, 'FORBIDDEN', 'settings.write required for assignment counts')
+      // Tenant-scoped aggregate for the retirement review; regular pickers expose no head counts.
+      const { rows } = await ctx.tx.query<{ code: string; n: string }>(
+        `SELECT CASE WHEN $1 = 'department' THEN department ELSE designation END AS code, count(*)::text AS n
+           FROM employee_assignments WHERE $1 IN ('department', 'designation') AND superseded_at IS NULL
+            AND (effective_to IS NULL OR effective_to > CURRENT_DATE) GROUP BY 1`, [ctx.req.params.kind])
+      return ok({ units: units.map(unit => ({ ...unit, inUseBy: Number(rows.find(row => row.code === unit.code)?.n ?? 0) })) })
+    }))
 
   router.post('/api/v1/org/:kind',
     { summary: 'Add a department, location, designation or grade', tag: 'people', permission: 'settings.write',

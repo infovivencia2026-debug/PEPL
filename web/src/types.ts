@@ -1,9 +1,12 @@
 export interface Employee {
   id: string
+  user_id?: string | null
   employee_number: string
   first_name: string
   last_name: string | null
   status: string
+  erased_at?: string | null
+  date_of_exit?: string | null
   date_of_joining: string
   department: string | null
   designation: string | null

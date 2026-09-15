@@ -17,6 +17,13 @@ import {
   Settings2,
   Users,
   Wallet,
+  MessageCircle,
+  Mail,
+  FileText,
+  FileSpreadsheet,
+  Landmark,
+  ReceiptIndianRupee,
+  BellRing,
 } from 'lucide-react'
 
 export interface NavItem {
@@ -25,6 +32,7 @@ export interface NavItem {
   icon: typeof Users
   permission?: string
   module?: string
+  employeeRequired?: boolean
 }
 
 export const NAV: NavItem[] = [
@@ -59,6 +67,16 @@ export const NAV: NavItem[] = [
   },
 ]
 export const MORE: NavItem[] = [
+  { id: 'organisation', label: 'Organisation', icon: Users, permission: 'settings.write' },
+  { id: 'chat', label: 'Team chat', icon: MessageCircle },
+  { id: 'mail', label: 'Mailbox', icon: Mail },
+  { id: 'documents', label: 'Documents', icon: FileText, permission: 'document.read', module: 'documents' },
+  { id: 'import', label: 'Import employees', icon: FileSpreadsheet, permission: 'import.run' },
+  { id: 'bank-files', label: 'Bank files', icon: Landmark, permission: 'bank.read', module: 'payroll' },
+  { id: 'my-tax', label: 'My tax declaration', icon: ReceiptIndianRupee, permission: 'payroll.read', module: 'payroll', employeeRequired: true },
+  { id: 'tax-declarations', label: 'Declarations queue', icon: ReceiptIndianRupee, permission: 'payroll.process', module: 'payroll' },
+  { id: 'notification-settings', label: 'Notification settings', icon: BellRing },
+  { id: 'account', label: 'Account settings', icon: Settings2 },
   {
     id: 'approvals',
     label: 'Approvals',

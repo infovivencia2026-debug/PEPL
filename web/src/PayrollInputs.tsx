@@ -1,259 +1,82 @@
 import { useEffect, useState, type FormEvent } from 'react'
-import { Check, ShieldCheck } from 'lucide-react'
-import { api, dateLabel, fullName, money } from './api'
+import { dateLabel } from './api'
+import { domainApi } from './domainApi'
 import { Button, Empty, ErrorBox, Modal } from './ui'
-interface Candidate {
-  id: string
-  first_name: string
-  last_name: string
-  date_of_joining: string
-  annual_ctc_paise: string | null
-  components: Record<string, number> | null
+
+interface Summary {
+  employeeId: string; employeeNumber: string; name: string; calendarDays: number
+  payableDays: number; lopDays: number; paidLeaveDays: number; unmarkedDays: number
+  lateMarks: number; lateHalfDays: number; otMinutes: number
+  joinedMidPeriod: boolean; exitedMidPeriod: boolean; warnings: string[]
+  row: { annualCtcPaise: string } | null
 }
-interface InputRow {
-  employee: Candidate
-  include: boolean
-  payable: string
-  lop: string
-  state: string
-  pf: boolean
-  esi: boolean
-}
-export function PayrollInputs({
-  id,
-  onClose,
-  onSaved,
-}: {
-  id: string
-  onClose: () => void
-  onSaved: () => Promise<void>
+interface Review { summary: Summary; include: boolean; payable: string; lop: string; ot: string }
+
+export function PayrollInputs({ id, onClose, onSaved }: {
+  id: string; onClose: () => void; onSaved: () => Promise<void>
 }) {
-  const [rows, setRows] = useState<InputRow[]>([]),
-    [period, setPeriod] = useState<{
-      period_start: string
-      period_end: string
-    } | null>(null),
-    [error, setError] = useState(''),
-    [busy, setBusy] = useState(false),
-    [loading, setLoading] = useState(true)
+  const [rows, setRows] = useState<Review[]>([])
+  const [period, setPeriod] = useState<{ period_start: string; period_end: string } | null>(null)
+  const [error, setError] = useState(''), [busy, setBusy] = useState(false), [loading, setLoading] = useState(true)
   useEffect(() => {
     let cancelled = false
-    api<{
-      period: { period_start: string; period_end: string }
-      employees: Candidate[]
-    }>(`/payroll/${id}/candidates`)
-      .then((d) => {
-        if (!cancelled) {
-          setPeriod(d.period)
-          setRows(
-            d.employees.map((e) => ({
-              employee: e,
-              include: !!e.components,
-              payable: '',
-              lop: '',
-              state: '',
-              pf: true,
-              esi: false,
-            })),
-          )
-        }
-      })
-      .catch((e) => {
-        if (!cancelled) setError(e.message)
-      })
-      .finally(() => {
-        if (!cancelled) setLoading(false)
-      })
-    return () => {
-      cancelled = true
+    setLoading(true); setError(''); setRows([])
+    async function load() {
+      const { run } = await domainApi<{ run: { period_id: string } }>(`/payroll/runs/${id}`)
+      const result = await domainApi<{ period: { period_start: string; period_end: string }; employees: Summary[] }>(`/attendance/summary?periodId=${encodeURIComponent(run.period_id)}`)
+      if (!cancelled) {
+        setPeriod(result.period)
+        setRows(result.employees.map(summary => ({ summary, include: !!summary.row, payable: String(summary.payableDays), lop: String(summary.lopDays), ot: String(summary.otMinutes) })))
+      }
     }
+    load().catch(e => { if (!cancelled) setError((e as Error).message) }).finally(() => { if (!cancelled) setLoading(false) })
+    return () => { cancelled = true }
   }, [id])
-  const calendar = period
-    ? (Date.parse(period.period_end) - Date.parse(period.period_start)) /
-        86400000 +
-      1
-    : 0
-  function patch(i: number, v: Partial<InputRow>) {
-    setRows(rows.map((r, j) => (i === j ? { ...r, ...v } : r)))
+  function patch(employeeId: string, values: Partial<Review>) {
+    setRows(previous => previous.map(row => row.summary.employeeId === employeeId ? { ...row, ...values } : row))
   }
-  async function submit(e: FormEvent<HTMLFormElement>) {
-    e.preventDefault()
-    setError('')
-    if (!rows.some((r) => r.include)) {
-      setError('Select at least one employee with compensation configured.')
-      return
+  async function submit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault(); setError('')
+    const selected = rows.filter(row => row.include)
+    if (!selected.length) { setError('Include at least one employee with compensation configured.'); return }
+    if (selected.some(row => !row.payable || !row.lop || !row.ot || Number(row.payable) + Number(row.lop) > row.summary.calendarDays)) {
+      setError('Payable days and loss of pay cannot exceed calendar days. Complete every included row.'); return
     }
     setBusy(true)
     try {
-      await api(`/payroll/${id}/actions`, {
-        action: 'freeze',
-        rows: rows
-          .filter((r) => r.include)
-          .map((r) => ({
-            employeeId: r.employee.id,
-            calendarDays: calendar,
-            payableDays: Number(r.payable),
-            lopDays: Number(r.lop),
-            monthlyComponents: r.employee.components,
-            annualCtcPaise: Number(r.employee.annual_ctc_paise),
-            stateCode: r.state,
-            pfApplicable: r.pf,
-            esiApplicable: r.esi,
-            joinedMidPeriod:
-              !!period && r.employee.date_of_joining > period.period_start,
-          })),
+      await domainApi(`/payroll/runs/${id}/freeze-from-attendance`, {
+        skipEmployeeIds: rows.filter(row => !row.include).map(row => row.summary.employeeId),
+        overrides: selected.flatMap(row => {
+          const override: { employeeId: string; payableDays?: number; lopDays?: number; otMinutes?: number } = { employeeId: row.summary.employeeId }
+          if (Number(row.payable) !== row.summary.payableDays) override.payableDays = Number(row.payable)
+          if (Number(row.lop) !== row.summary.lopDays) override.lopDays = Number(row.lop)
+          if (Number(row.ot) !== row.summary.otMinutes) override.otMinutes = Number(row.ot)
+          return Object.keys(override).length > 1 ? [override] : []
+        }),
       })
-      await onSaved()
-      onClose()
-    } catch (e) {
-      setError((e as Error).message)
-    } finally {
-      setBusy(false)
-    }
+      await onSaved(); onClose()
+    } catch (e) { setError((e as Error).message) } finally { setBusy(false) }
   }
-  return (
-    <Modal
-      title="Review & freeze payroll inputs"
-      wide
-      onClose={() => {
-        if (!busy) onClose()
-      }}
-    >
-      <form onSubmit={submit}>
-        <p className="form-intro">
-          {period
-            ? `${dateLabel(period.period_start)} – ${dateLabel(period.period_end)} · ${calendar} calendar days. `
-            : ''}
-          Confirm payable days, loss of pay, and statutory applicability for
-          each selected employee. Compensation comes from their recorded salary
-          structure.
-        </p>
-        {loading ? (
-          <p>Loading employee inputs…</p>
-        ) : rows.length ? (
-          <div className="input-review-list">
-            {rows.map((r, i) => (
-              <article key={r.employee.id}>
-                <div className="input-review-person">
-                  <label>
-                    <input
-                      type="checkbox"
-                      checked={r.include}
-                      disabled={!r.employee.components}
-                      onChange={(e) => patch(i, { include: e.target.checked })}
-                    />
-                    <strong>{fullName(r.employee)}</strong>
-                  </label>
-                  <small>
-                    {r.employee.components
-                      ? `Annual CTC ${money(r.employee.annual_ctc_paise)}`
-                      : 'Compensation must be configured before inclusion'}
-                  </small>
-                </div>
-                {r.include && (
-                  <>
-                    <div className="input-review-fields">
-                      <label className="field">
-                        <span>Payable days</span>
-                        <input
-                          aria-label={`Payable days for ${fullName(r.employee)}`}
-                          required
-                          type="number"
-                          min="0"
-                          max={calendar}
-                          step="0.5"
-                          value={r.payable}
-                          onChange={(e) =>
-                            patch(i, { payable: e.target.value })
-                          }
-                        />
-                      </label>
-                      <label className="field">
-                        <span>Loss of pay days</span>
-                        <input
-                          aria-label={`Loss of pay days for ${fullName(r.employee)}`}
-                          required
-                          type="number"
-                          min="0"
-                          max={calendar}
-                          step="0.5"
-                          value={r.lop}
-                          onChange={(e) => patch(i, { lop: e.target.value })}
-                        />
-                      </label>
-                      <label className="field">
-                        <span>State code</span>
-                        <input
-                          aria-label={`State code for ${fullName(r.employee)}`}
-                          required
-                          maxLength={3}
-                          placeholder="e.g. TS"
-                          value={r.state}
-                          onChange={(e) =>
-                            patch(i, { state: e.target.value.toUpperCase() })
-                          }
-                        />
-                      </label>
-                      <label className="checkbox-field">
-                        <input
-                          type="checkbox"
-                          checked={r.pf}
-                          onChange={(e) => patch(i, { pf: e.target.checked })}
-                        />
-                        PF applicable
-                      </label>
-                      <label className="checkbox-field">
-                        <input
-                          type="checkbox"
-                          checked={r.esi}
-                          onChange={(e) => patch(i, { esi: e.target.checked })}
-                        />
-                        ESI applicable
-                      </label>
-                    </div>
-                    <div className="component-summary">
-                      {Object.entries(r.employee.components ?? {}).map(
-                        ([key, v]) => (
-                          <span key={key}>
-                            {key}: <b>{money(String(v))}</b>
-                          </span>
-                        ),
-                      )}
-                    </div>
-                  </>
-                )}
-              </article>
-            ))}
-          </div>
-        ) : (
-          <Empty
-            title="No employees to include"
-            text="Add employees and configure their compensation before starting payroll."
-          />
-        )}
-        {error && <ErrorBox message={error} />}
-        <div className="notice">
-          <ShieldCheck size={20} />
-          <p>
-            Freezing stores these inputs for this run. You can unfreeze them
-            only before calculation.
-          </p>
-        </div>
-        <footer className="modal-actions">
-          <Button
-            variant="secondary"
-            type="button"
-            disabled={busy}
-            onClick={onClose}
-          >
-            Cancel
-          </Button>
-          <Button type="submit" disabled={busy || loading || !rows.length}>
-            {busy ? 'Freezing…' : 'Freeze reviewed inputs'}
-            <Check size={17} />
-          </Button>
-        </footer>
-      </form>
-    </Modal>
-  )
+  return <Modal title="Review attendance & freeze payroll" wide onClose={() => { if (!busy) onClose() }}>
+    <form onSubmit={submit}>
+      <p className="form-intro">{period && `${dateLabel(period.period_start)} – ${dateLabel(period.period_end)}. `}Payable days come from attendance, leave, holidays and rosters. Review warnings and edit only exceptions.</p>
+      {loading ? <p role="status">Preparing attendance summary…</p> : rows.length ? <>
+        <p aria-live="polite">{rows.filter(row => row.include).length} included · {rows.filter(row => !row.include).length} skipped · {rows.filter(row => row.summary.warnings.length).length} with warnings</p>
+        <div className="table-scroll attendance-freeze"><table><thead><tr><th>Include / employee</th><th>Calendar</th><th>Payable</th><th>LOP</th><th>Paid leave</th><th>Unmarked</th><th>Late marks / half days</th><th>OT minutes</th><th>Review notes</th></tr></thead><tbody>
+          {rows.map(({ summary: s, ...r }) => <tr key={s.employeeId}>
+            <td><label><input type="checkbox" checked={r.include} disabled={!s.row || busy} onChange={e => patch(s.employeeId, { include: e.target.checked })} /> <strong>{s.name}</strong></label><small>{s.employeeNumber}</small>{!s.row && <a href={`#/people/${s.employeeId}`}>Configure compensation</a>}</td>
+            <td>{s.calendarDays}</td>
+            <td><input aria-label={`Payable days for ${s.name}`} type="number" min="0" max={s.calendarDays} step="0.5" required={r.include} disabled={!r.include || busy} value={r.payable} onChange={e => patch(s.employeeId, { payable: e.target.value })} /></td>
+            <td><input aria-label={`Loss of pay days for ${s.name}`} type="number" min="0" max={s.calendarDays} step="0.5" required={r.include} disabled={!r.include || busy} value={r.lop} onChange={e => patch(s.employeeId, { lop: e.target.value })} /></td>
+            <td>{s.paidLeaveDays}</td><td>{s.unmarkedDays}</td><td>{s.lateMarks} / {s.lateHalfDays}</td>
+            <td><input aria-label={`Overtime minutes for ${s.name}`} type="number" min="0" step="1" required={r.include} disabled={!r.include || busy} value={r.ot} onChange={e => patch(s.employeeId, { ot: e.target.value })} /></td>
+            <td>{s.joinedMidPeriod && <small>Joined during period</small>}{s.exitedMidPeriod && <small>Exited during period</small>}{s.warnings.map(warning => <small key={warning}>{warning}</small>)}{!s.warnings.length && 'Ready to freeze'}</td>
+          </tr>)}
+        </tbody></table></div>
+      </> : !error && <Empty title="No employees in this period" text="Check the payroll period and employee effective dates." />}
+      {error && <ErrorBox message={error} />}
+      <p className="notice">Freezing stores the reviewed attendance inputs. Skipped employees are excluded from this run.</p>
+      <footer className="modal-actions"><Button type="button" variant="secondary" disabled={busy} onClick={onClose}>Cancel</Button><Button type="submit" disabled={busy || loading || !rows.some(row => row.include)}>{busy ? 'Freezing…' : 'Freeze reviewed inputs'}</Button></footer>
+    </form>
+  </Modal>
 }

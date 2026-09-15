@@ -71,5 +71,5 @@ export function PageTransition({ route, children }: { route: string; children: R
     }).catch(() => { /* Page transition remains available without the decorative accent. */ })
     return () => { cancelled = true; destroy(); preference.removeEventListener('change', stop) }
   }, [route])
-  return <div className="route-transition"><div ref={sweep} className="route-sweep" aria-hidden="true" /><div ref={accent} className="route-accent" aria-hidden="true" /><div key={route} className="route-content">{children}</div></div>
+  return <div className="route-transition"><div ref={sweep} className="route-sweep" aria-hidden="true" /><div ref={accent} className="route-accent" aria-hidden="true" /><div key={route} className="route-content" role="region" tabIndex={0} aria-label="Page content">{children}</div></div>
 }

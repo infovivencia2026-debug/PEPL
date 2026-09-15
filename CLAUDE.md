@@ -75,6 +75,11 @@ context yields **zero rows, never all rows**. Do not invert that default.
 
 ## Testing discipline
 
+- `verify` loads the PT reference seed **after** tests and before the launch gate.
+  Payroll suites deliberately truncate `pt_slabs`; seeding before them leaves the
+  new PT coverage launch check with fixture data instead of the reference set.
+  Keep `PEPL_DB=pepl_test` for this verification chain.
+
 - `fileParallelism: false` in `vitest.config.ts` — the suites share one database and TRUNCATE in
   setup, so parallel files would race each other's fixtures.
 - **Never run two `npm test` processes at once.** `fileParallelism: false` serialises files WITHIN a

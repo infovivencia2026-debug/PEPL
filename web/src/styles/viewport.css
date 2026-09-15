@@ -1,0 +1,144 @@
+/* One viewport: a stationary app frame, scrollable work areas, and paged widgets. */
+:root { --app-inset:16px; }
+html,body,#root { width:100%; height:100%; min-height:0; }
+body { padding:var(--app-inset); overflow:hidden; min-width:320px; }
+.app-shell { height:calc(100dvh - var(--app-inset) * 2); min-height:0; max-height:calc(100dvh - var(--app-inset) * 2); display:flex; flex-direction:column; overflow:hidden; }
+.topbar { flex:0 0 auto; min-height:74px; }
+.workspace-main,.login-main { flex:1 1 auto; min-height:0; overflow:hidden; }
+.login-main { overflow:auto; }
+.workspace-main { padding:12px 18px; }
+.workspace-footer { flex:0 0 auto; padding:6px 20px 10px; }
+.route-transition { height:100%; min-height:0; }
+.route-content { height:100%; min-height:0; overflow:auto; overscroll-behavior:contain; scrollbar-width:thin; scrollbar-color:#afc6bd transparent; padding:0 3px 14px; scroll-padding-top:110px; }
+.route-content:focus-visible { outline:2px solid #6c9b87; outline-offset:-2px; }
+.route-content > .page-header { position:sticky; top:0; z-index:8; margin:0 0 15px; padding:12px 4px 16px; background:var(--background); box-shadow:0 8px 12px -12px #244c3b55; }
+.page-header h1 { font-size:clamp(23px,2.3vw,32px); }
+.page-header > div > p:last-child { max-width:650px; }
+.table-scroll { max-height:calc(100dvh - 345px); min-height:130px; overflow:auto; overscroll-behavior:contain; }
+.table-scroll thead th { position:sticky; top:0; z-index:2; background:#f5f8f5; }
+.filter-bar { position:sticky; top:0; z-index:3; background:#fff; }
+.modal { max-height:calc(100dvh - 28px); overflow:auto; }
+.modal-actions { position:sticky; bottom:0; z-index:3; }
+/* Dashboard chrome stays visible while only the selected tile page is laid out. */
+.route-content:has(> .widget-workspace) { display:flex; flex-direction:column; overflow:hidden; padding-bottom:0; }
+.dashboard-heading { flex:0 0 36px; height:36px; margin-bottom:12px; }
+.widget-workspace { flex:1 1 auto; min-height:0; display:flex; flex-direction:column; }
+.widget-frame { flex:1 1 auto; min-height:0; overflow:hidden; outline:none; }
+.widget-frame:focus-visible { outline:2px solid #6c9b87; outline-offset:-2px; border-radius:16px; }
+.widget-workspace:not(.is-customizing) .widget-grid { height:100%; grid-template-rows:repeat(var(--page-rows),minmax(0,1fr)); grid-auto-rows:minmax(0,1fr); align-items:stretch; }
+.widget-workspace:not(.is-customizing) .dashboard-widget { min-height:0; margin-top:0; }
+.widget-workspace:not(.is-customizing) .widget-content { height:100%; min-height:0; overflow:auto; border-radius:17px; scrollbar-width:thin; overscroll-behavior:contain; }
+.widget-workspace:not(.is-customizing) .widget-content > .card,.widget-workspace:not(.is-customizing) .widget-content > .welcome-card,.widget-workspace:not(.is-customizing) .widget-content > .culture-card { height:100%; min-height:0; }
+.widget-workspace:not(.is-customizing) .widget-content > .welcome-card { padding:21px; }
+.widget-workspace:not(.is-customizing) .widget-content > .welcome-card h2 { font-size:27px; }
+.widget-pagination { flex:0 0 49px; display:flex; align-items:center; justify-content:space-between; gap:12px; padding-top:9px; }
+.widget-pagination > span { display:flex; align-items:center; gap:14px; font-size:12px; font-weight:600; }
+.widget-pagination small { color:var(--muted); font-size:11px; font-weight:400; }
+.widget-pagination > div { display:flex; gap:8px; }
+.widget-pagination .btn { min-height:36px; padding:7px 14px; font-size:12px; }
+.is-customizing .dashboard-toolbar { flex:0 0 auto; margin-bottom:10px; }
+.is-customizing .widget-library { flex:0 0 auto; max-height:170px; overflow:auto; padding:12px 16px; margin-bottom:12px; }
+.is-customizing .widget-library p { margin-bottom:8px; }
+.is-customizing .widget-frame { overflow:auto; padding:3px; }
+.is-customizing .widget-grid { padding-bottom:14px; }
+.widget-feedback { flex:0 0 auto; margin:0 0 5px; font-size:12px; }
+.widget-empty { flex:1; padding:35px 20px; }
+@media(max-width:1050px) {
+  :root { --app-inset:8px; }
+  .topbar { min-height:68px; }
+  .brand { min-width:0; }
+  .workspace-main { padding:10px 12px; }
+  .widget-workspace:not(.is-customizing) .widget-content .donut-layout { flex-direction:row; }
+}
+@media(max-width:540px) {
+  :root { --app-inset:0px; }
+  .workspace-main { padding:8px 10px; }
+  .topbar { min-height:66px; padding:10px 14px; }
+  .page-header { gap:9px; }
+  .page-header h1 { font-size:23px; }
+  .page-header > div > p:last-child { font-size:12px; line-height:1.45; }
+  .page-header .header-actions { gap:7px; flex-wrap:wrap; }
+  .page-header .btn { padding:8px 10px; }
+  .widget-pagination small { display:none; }
+  .widget-pagination .btn { min-height:44px; }
+  .widget-pagination { flex-basis:54px; }
+  .widget-workspace:not(.is-customizing) .widget-content > .welcome-card h2 { font-size:28px; }
+  .table-scroll { max-height:calc(100dvh - 340px); }
+  .workspace-footer { display:none; }
+  .is-customizing .widget-library { max-height:170px; }
+  .route-content > .page-header { padding-top:5px; }
+}
+/* Touch sizes take precedence over visual reference proportions. */
+@media(pointer:coarse) {
+  .date-chip select,.widget-workspace:not(.is-customizing) .dashboard-toolbar .btn { min-height:44px; }
+  .widget-workspace:not(.is-customizing) .dashboard-toolbar .btn { width:44px; }
+  .dashboard-heading .date-chip { margin-right:50px; }
+  .widget-content > .stat > p,.widget-content > .stat > small,.widget-content .donut small,.widget-content .card-head p,.widget-content .card-linked .card-head::after,.payroll-history small,.payroll-summary-caption,.widget-content .legend > div,.widget-content .legend b,.widget-content .empty p,.widget-content .joiner-grid strong,.widget-content .joiner-grid small,.widget-content .joiner-grid span,.brand small,.profile-button small,.date-chip { font-size:12px; }
+  .widget-grip,.widget-tools button,.widget-tools select,.widget-choices label { min-height:44px; }
+  .widget-tools button { min-width:44px; }
+}
+:root { --viewport-text-floor:11px; }
+.app-shell .brand small,.topbar .global-search span,.topbar .profile-button small,.dashboard-heading .date-chip,.widget-pagination small { font-size:var(--viewport-text-floor); }
+.app-shell .workspace-main .widget-workspace :is(small,time),.app-shell .workspace-main .widget-workspace .widget-content > .stat > p,.app-shell .workspace-main .widget-workspace .empty p,.app-shell .workspace-main .widget-workspace .card-foot,.app-shell .workspace-main .widget-workspace .payroll-summary-caption { font-size:var(--viewport-text-floor); }
+@media(pointer:coarse) {
+ :root { --viewport-text-floor:12px; }
+ .widget-pagination .btn,.topbar .main-nav > a { min-height:44px; }
+ .topbar .profile-button strong { font-size:12px; }
+ .widget-pagination { flex-basis:54px; }
+}
+@media(max-width:540px) {
+ .topbar { gap:8px; padding:10px 12px; }
+ .topbar .brand { gap:7px; }
+ .topbar .brand small { display:none; }
+ .topbar .brand > span:last-child { font-size:21px; }
+ .topbar .brand-mark,.topbar .brand-mark svg { width:32px; height:36px; }
+ .topbar .topbar-actions { gap:4px; }
+ .topbar .global-search,.topbar .profile-button,.topbar .notification-button,.topbar .mobile-toggle { width:44px; min-width:44px; min-height:44px; padding:8px; }
+ .topbar .profile-button > svg { display:none; }
+}
+.topbar .main-nav > a > span,.topbar .main-nav > .more-wrap > button { font-size:var(--viewport-text-floor); } .app-shell .workspace-main .widget-workspace .card-head p { font-size:var(--viewport-text-floor); }
+/* Compact reference layout: four complete desktop rows, without duplicate KPIs. */
+@media(min-width:1051px) {
+ .widget-workspace:not(.is-customizing) .widget-grid { gap:10px; }
+ .widget-workspace:not(.is-customizing) .widget-content > .card { padding:12px 15px; }
+ .widget-workspace:not(.is-customizing) .widget-content > .welcome-card { padding:16px 22px; }
+ .widget-workspace:not(.is-customizing) .widget-content > .welcome-card h2 { font-size:25px; margin:0 0 8px; }
+ .widget-workspace:not(.is-customizing) .welcome-card p { font-size:12px; }
+ .widget-workspace:not(.is-customizing) .welcome-card a { margin-top:5px; padding-top:2px; }
+ .widget-workspace:not(.is-customizing) .welcome-botanical { height:150px; width:125px; }
+ .widget-workspace:not(.is-customizing) .stat .stat-top { margin-bottom:5px; }
+ .widget-workspace:not(.is-customizing) .stat .icon-box { width:32px; height:32px; border-radius:9px; }
+ .widget-workspace:not(.is-customizing) .stat .icon-box svg { width:21px; height:21px; }
+ .widget-workspace:not(.is-customizing) .stat > strong { font-size:30px; margin-top:2px; }
+ .widget-workspace:not(.is-customizing) .card-head { margin-bottom:7px; }
+ .widget-workspace:not(.is-customizing) .card-head h2 { font-size:14px; }
+ .widget-workspace:not(.is-customizing) .donut { width:clamp(92px,12vh,140px); }
+ .widget-workspace:not(.is-customizing) .donut strong { font-size:22px; }
+ .widget-workspace:not(.is-customizing) .legend { gap:6px; }
+ .widget-workspace:not(.is-customizing) .empty { min-height:65px; padding:2px; }
+ .widget-workspace:not(.is-customizing) .empty-icon { width:26px; height:26px; margin-bottom:4px; }
+ .widget-workspace:not(.is-customizing) .empty p { line-height:1.35; }
+ .widget-workspace:not(.is-customizing) .culture-card { padding:14px 18px; }
+ .widget-workspace:not(.is-customizing) .culture-card > svg:first-child { width:24px; height:24px; }
+ .widget-workspace:not(.is-customizing) .culture-card p { font-size:15px; margin-top:7px; }
+ .widget-workspace:not(.is-customizing) .culture-dash { margin-top:8px; }
+ .widget-workspace:not(.is-customizing) .payroll-summary-total { font-size:23px; }
+ .widget-workspace:not(.is-customizing) .payroll-history { height:48px; }
+ .widget-workspace:not(.is-customizing) .history-bar { max-height:36px; }
+ .widget-workspace:not(.is-customizing) .activity-list > div { padding:4px 0; }
+ .widget-workspace:not(.is-customizing) .announcement-photo { top:38px; height:calc(100% - 48px); }
+}
+@media(min-width:541px) and (max-width:1050px) {
+ .dashboard-widget:has(.stat) { grid-column:span 6!important; }
+}
+@media(min-width:1051px) {
+ .widget-workspace:not(.is-customizing) .donut-layout { min-height:0; height:calc(100% - 34px); }
+ .widget-workspace:not(.is-customizing) .widget-grid { grid-template-rows:repeat(var(--page-rows),minmax(0,1fr)); }
+}
+@media(min-width:1051px) and (max-height:800px) {
+ .dashboard-heading { flex-basis:28px; height:28px; margin-bottom:8px; }
+ .widget-workspace:not(.is-customizing) .widget-content > .welcome-card { padding:12px 20px; }
+ .widget-workspace:not(.is-customizing) .widget-content > .welcome-card h2 { font-size:22px; margin-bottom:4px; }
+ .widget-workspace:not(.is-customizing) .welcome-card p { margin:0; line-height:1.3; }
+ .widget-workspace:not(.is-customizing) .welcome-card a { margin-top:3px; }
+}

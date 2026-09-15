@@ -87,6 +87,7 @@ export function AttendancePage({
                 description:
                   'A correction records what changed and why. Closed periods are protected; frozen-period corrections carry into the next open period.',
                 path: '/attendance/corrections',
+                domain: true,
                 fields: [
                   {
                     name: 'employeeId',

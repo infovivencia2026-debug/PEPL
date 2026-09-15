@@ -4,7 +4,7 @@ This supersedes `API-HANDOFF.md` and contains it. Part 1 is the original handoff
 corrected where the backend has moved on. Part 2 is everything built since. Part 3
 is what to build next and what is still genuinely missing.
 
-The backend is complete and tested for every feature described here: **651 tests,
+The backend is complete and tested for every feature described here: **652 tests,
 189 routes, 20 launch checks, all green in one run.**
 
 ---
@@ -408,6 +408,7 @@ Event types published today:
 | `mail.delivered` | `subject`, `from` | the recipients with a mailbox here |
 | `mail.received` | `accountId`, `folderId`, `folder` (role), `added` | the mailbox owner — external mail synced from IMAP (IDLE push or poll). Refetch the folder list and, if that folder is open, its envelopes |
 | `approval.decided` | `requestId`, `status`, `action` | whoever raised it |
+| *(notification)* `approval.requested` / `approval.approved` / `approval.rejected` / `approval.sent_back` | bell + email + push, `entity_id` = the request | the approver whose step is current; the requester on each decision. New since the inbox was built — the bell now fills on its own, the inbox screen needs no polling. |
 | `announcement.published` | `announcementId` | the audience |
 
 Two guarantees worth relying on:
@@ -1206,7 +1207,7 @@ default tiles is the lever.
 ## Sanity check
 
 ```bash
-npm test          # 651 tests, including 33 against the running HTTP API
+npm test          # 652 tests, including 33 against the running HTTP API
 npm run verify    # every gate, end to end
 npm run check:responsive   # eight devices, currently clean
 npm run job mail.outbox    # drains queued external mail

@@ -18,6 +18,13 @@ import {
   ActivityPage,
 } from '../Operations'
 import { PayrollPage } from '../Payroll'
+import { Communications } from '../Communications'
+import { DocumentsPage, ImportPage } from '../DataTools'
+import { PaymentsPage } from '../PaymentsPage'
+import { MyTaxDeclaration, TaxDeclarationsQueue } from '../TaxDeclarations'
+import { PushSettings } from '../PushSettings'
+import { AccountSettings } from '../Account'
+import { Organisation } from '../Organisation'
 import type { Workspace } from '../types'
 import type { FormSpec } from '../forms'
 
@@ -56,6 +63,15 @@ export function screenFor({
       </Card>
     )
   else if (section === 'dashboard') page = <Dashboard data={data} act={props.act} />
+  else if (section === 'chat' || section === 'mail') page = <Communications key={section} mode={section} data={data} />
+  else if (section === 'documents') page = <DocumentsPage data={data} />
+  else if (section === 'import') page = <ImportPage />
+  else if (section === 'bank-files') page = <PaymentsPage data={data} />
+  else if (section === 'my-tax') page = <MyTaxDeclaration data={data} />
+  else if (section === 'tax-declarations') page = <TaxDeclarationsQueue data={data} />
+  else if (section === 'notification-settings') page = <PushSettings />
+  else if (section === 'account') page = <AccountSettings data={data} />
+  else if (section === 'organisation') page = <Organisation data={data} />
   else if (section === 'people')
     page = route.split('/')[1] ? (
       <EmployeeProfile

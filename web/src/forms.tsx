@@ -1,4 +1,6 @@
-import { useState, type FormEvent } from 'react'
+import { useEffect, useState, type FormEvent } from 'react'
+import { domainApi } from './domainApi'
+import { ApprovalSubmission, type HeldChange } from './ApprovalSubmission'
 import { ArrowRight, Check } from 'lucide-react'
 import { api } from './api'
 import { Button, ErrorBox, Modal } from './ui'
@@ -22,6 +24,7 @@ export interface FormSpec {
   submit?: string
   transform?: (values: Record<string, string>) => unknown
   success?: string
+  domain?: boolean
 }
 export function ActionForm({
   spec,
@@ -34,6 +37,30 @@ export function ActionForm({
 }) {
   const [busy, setBusy] = useState(false),
     [error, setError] = useState<ErrorView | null>(null)
+  const hasMasters = spec.fields.some(field => field.name === 'department' || field.name === 'designation')
+  const [fields, setFields] = useState(spec.fields)
+  const [mastersLoading, setMastersLoading] = useState(hasMasters)
+  const [mastersFailed, setMastersFailed] = useState(false)
+  const [held, setHeld] = useState<HeldChange[]>([])
+  useEffect(() => {
+    let cancelled = false
+    setFields(spec.fields); setMastersFailed(false); setMastersLoading(hasMasters)
+    if (!hasMasters) return
+    const kinds = ['department', 'designation'].filter(kind => spec.fields.some(field => field.name === kind))
+    Promise.all(kinds.map(async kind => {
+      const result = await domainApi<{ units: { code: string; name: string }[] }>(`/org/${kind}`)
+      return { kind, units: result.units }
+    })).then(results => {
+      if (cancelled) return
+      setFields(spec.fields.map(field => {
+        const master = results.find(result => result.kind === field.name)
+        if (!master?.units.length) return field
+        const selected = master.units.find(unit => unit.code === field.value || unit.name === field.value)
+        return { ...field, value: selected?.code ?? '', options: master.units.map(unit => ({ value: unit.code, label: `${unit.name} · ${unit.code}` })), help: 'Choose an active organisation unit.' }
+      }))
+    }).catch(e => { if (!cancelled) { setMastersFailed(true); setError(toErrorView(e)) } }).finally(() => { if (!cancelled) setMastersLoading(false) })
+    return () => { cancelled = true }
+  }, [spec, hasMasters])
   async function submit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault()
     setBusy(true)
@@ -42,12 +69,21 @@ export function ActionForm({
       const values = Object.fromEntries(
         new FormData(e.currentTarget),
       ) as Record<string, string>
-      const result = await api<{
+      const result = await (spec.domain ? domainApi : api)<{
         applied?: boolean
         deferredToPeriodId?: string
+        results?: { deferredToPeriodId?: string }[]
+        held?: true | HeldChange[]
+        pendingId?: string
+        approvalRequestId?: string
+        chain?: string
       }>(spec.path, spec.transform ? spec.transform(values) : values)
+      if (result.held) {
+        setHeld(Array.isArray(result.held) ? result.held : [{ pendingId: result.pendingId!, approvalRequestId: result.approvalRequestId!, chain: result.chain! }])
+        return
+      }
       await onSuccess(
-        result.deferredToPeriodId
+        result.deferredToPeriodId || result.results?.some(item => item.deferredToPeriodId)
           ? 'Correction recorded for the next open period.'
           : (spec.success ?? 'Changes saved.'),
       )
@@ -65,10 +101,10 @@ export function ActionForm({
         if (!busy) onClose()
       }}
     >
-      <form onSubmit={submit}>
+      {held.length ? <><ApprovalSubmission changes={held} /><footer className="modal-actions"><Button onClick={onClose}>Close</Button></footer></> : <form onSubmit={submit}>
         {spec.description && <p className="form-intro">{spec.description}</p>}
         <div className="form-grid">
-          {spec.fields.map((f) => (
+          {mastersLoading ? <p role="status">Loading organisation pickers…</p> : fields.map((f) => (
             <label
               key={f.name}
               className={`field ${f.type === 'textarea' ? 'full' : ''}`}
@@ -127,12 +163,12 @@ export function ActionForm({
           >
             Cancel
           </Button>
-          <Button disabled={busy} type="submit">
+          <Button disabled={busy || mastersLoading || mastersFailed} type="submit">
             {busy ? 'Saving…' : (spec.submit ?? 'Save changes')}
             <Check size={17} />
           </Button>
         </footer>
-      </form>
+      </form>}
     </Modal>
   )
 }
@@ -212,6 +248,7 @@ export function Login({ onSuccess }: { onSuccess: () => Promise<void> }) {
             <ArrowRight size={19} />
           </Button>
           <p className="login-help">
+            <a href="#/forgot-password">Forgot password?</a><br />
             Need access? Your company administrator can set up your account.
           </p>
         </form>
