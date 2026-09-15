@@ -12,7 +12,7 @@ import { randomBytes, scrypt as scryptCb, timingSafeEqual, createHash } from 'no
 import { promisify } from 'node:util'
 import type { PoolClient } from 'pg'
 import { appPool } from '../db/pool.ts'
-import { buildContext, type AuthzContext, type DataScope } from '../authz/permissions.ts'
+import { buildContext, type AuthzContext, type RoleScope } from '../authz/permissions.ts'
 
 const scrypt = promisify(scryptCb) as (p: string, s: Buffer, k: number) => Promise<Buffer>
 
@@ -199,11 +199,11 @@ export async function loadAuthzContext(
     `SELECT employee_id FROM app_users WHERE id = $1`, [session.userId])
   const { rows: roleRows } = await tx.query<{ role: string }>(
     `SELECT role FROM user_roles WHERE user_id = $1`, [session.userId])
-  const { rows: customRows } = await tx.query<{ permissions: string[]; data_scope: DataScope }>(
-    `SELECT c.permissions, c.data_scope
+  const { rows: customRows } = await tx.query<{ permissions: string[]; data_scope: RoleScope; department_codes: string[] }>(
+    `SELECT c.permissions, c.data_scope, c.department_codes
        FROM custom_roles c
        JOIN user_roles ur ON ur.role = c.name AND ur.tenant_id = c.tenant_id
-      WHERE ur.user_id = $1`, [session.userId])
+      WHERE ur.user_id = $1 AND c.status = 'active'`, [session.userId])
 
   const employeeId = userRows[0]?.employee_id ?? undefined
 
@@ -216,6 +216,15 @@ export async function loadAuthzContext(
       [employeeId],
     )
     reportIds = rows.map((r) => r.employee_id)
+  }
+  // A department-scoped role sees everyone currently in those departments.
+  const departments = [...new Set(customRows.filter((c) => c.data_scope === 'department').flatMap((c) => c.department_codes))]
+  if (departments.length) {
+    const { rows } = await tx.query<{ employee_id: string }>(
+      `SELECT employee_id FROM employee_assignments
+        WHERE department = ANY($1) AND superseded_at IS NULL
+          AND (effective_to IS NULL OR effective_to > CURRENT_DATE)`, [departments])
+    reportIds = [...new Set([...reportIds, ...rows.map((r) => r.employee_id)])]
   }
 
   return buildContext({

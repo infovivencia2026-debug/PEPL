@@ -4,8 +4,8 @@ This supersedes `API-HANDOFF.md` and contains it. Part 1 is the original handoff
 corrected where the backend has moved on. Part 2 is everything built since. Part 3
 is what to build next and what is still genuinely missing.
 
-The backend is complete and tested for every feature described here: **632 tests,
-177 routes, 20 launch checks, all green in one run.**
+The backend is complete and tested for every feature described here: **635 tests,
+183 routes, 20 launch checks, all green in one run.**
 
 ---
 
@@ -1000,6 +1000,23 @@ Leave requests now return `chain` alongside `approvalRequestId`. One new
 setting, `approvals.escalate_after_days` (0 = off): a stale step is skipped
 and the request moves on; the last approver is never skipped.
 
+## 2.28 Role administration — 6 new endpoints (all `roles.write`)
+
+| Verb | Path | Notes |
+|---|---|---|
+| GET | `/api/v1/roles` | now also `customRoles[].holders` (count), `status`, `department_codes`; `?includeRetired=true` |
+| POST | `/api/v1/roles` | `dataScope` gains `'department'` with `departmentCodes[]` (codes from the department master). Returns `{ id, role }`. |
+| PATCH | `/api/v1/roles/:id` | `{ description?, permissions?, dataScope?, departmentCodes? }` — holders see the change on their next request. 409 `ROLE_RETIRED`. |
+| POST | `/api/v1/roles/:id/retire` | `{ role, removedFrom }` — the role is taken from everyone who had it; say the number in the confirm |
+| POST | `/api/v1/roles/:id/reinstate` | nobody holds it until reassigned |
+| GET | `/api/v1/roles/matrix` | `[{ role, seeded, permissions[], scope, holders: [{ id, full_name, email }] }]` — the "who can do this" screen |
+| GET | `/api/v1/users?q=` | `{ users: [{ id, email, full_name, status, employee_number, roles[], last_login_at }] }` |
+| PATCH | `/api/v1/users/:id/roles` | `{ roles: [...] }` REPLACES. 403 `SELF_ROLE_CHANGE` (disable the control on your own row), 409 `LAST_ADMIN` (show the message: grant org_admin to someone else first), 422 `UNKNOWN_ROLE`. |
+
+A department-scoped role behaves like a manager over everyone currently in
+those departments — so "Chennai HR" sees Chennai's people and nobody else.
+Role changes are security events in the activity log.
+
 ---
 
 # Part 3 — What to build, in order
@@ -1039,7 +1056,10 @@ and the request moves on; the last approver is never skipped.
     period targets grid, sales upload (§2.26).
 18. **Approval policies** — the sentence-builder for policies, the "will go to"
     preview on request forms, my delegations in profile settings, a head
-    picker on the department editor (§2.27). The
+    picker on the department editor (§2.27).
+19. **Roles** — edit/retire on the roles screen, department scope with a
+    department picker, the users list with a roles multi-select, the
+    who-has-what matrix (§2.28). The
    employee form is a one-page form with a live preview; the queue is a table
    with two actions.
 
@@ -1114,7 +1134,7 @@ default tiles is the lever.
 ## Sanity check
 
 ```bash
-npm test          # 632 tests, including 33 against the running HTTP API
+npm test          # 635 tests, including 33 against the running HTTP API
 npm run verify    # every gate, end to end
 npm run check:responsive   # eight devices, currently clean
 npm run job mail.outbox    # drains queued external mail

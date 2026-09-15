@@ -31,6 +31,8 @@ export const PERMISSIONS = [
 export type Permission = (typeof PERMISSIONS)[number]
 
 export type DataScope = 'all' | 'reports' | 'self'
+/** A custom role may also be scoped to departments; it resolves to `reports` over those people. */
+export type RoleScope = DataScope | 'department'
 
 /**
  * Seeded roles. A tenant may create its own; these are the defaults every
@@ -139,7 +141,7 @@ export function buildContext(input: {
   userId: string
   employeeId?: string
   roles: string[]
-  customRoles?: { permissions: string[]; data_scope: DataScope }[]
+  customRoles?: { permissions: string[]; data_scope: RoleScope }[]
   reportIds?: string[]
 }): AuthzContext {
   const permissions = new Set<string>()
@@ -157,7 +159,8 @@ export function buildContext(input: {
   }
   for (const custom of input.customRoles ?? []) {
     for (const p of custom.permissions) permissions.add(p)
-    widen(custom.data_scope)
+    // Department scope arrives with its people already in reportIds.
+    widen(custom.data_scope === 'department' ? 'reports' : custom.data_scope)
   }
 
   return {
