@@ -4,8 +4,8 @@ This supersedes `API-HANDOFF.md` and contains it. Part 1 is the original handoff
 corrected where the backend has moved on. Part 2 is everything built since. Part 3
 is what to build next and what is still genuinely missing.
 
-The backend is complete and tested for every feature described here: **629 tests,
-169 routes, 20 launch checks, all green in one run.**
+The backend is complete and tested for every feature described here: **632 tests,
+177 routes, 20 launch checks, all green in one run.**
 
 ---
 
@@ -973,6 +973,33 @@ gap); `ratePct` is a **fraction** (0.02 = 2%) — show a percent input and divid
 Plan versions render as a timeline (like leave policies); the version in force
 today is the one to highlight.
 
+## 2.27 Approval policies and delegation — 8 endpoints
+
+Chains stay a fixed vocabulary (now six, incl. `manager_dept_head`,
+`dept_head_hr`); a company chooses WHICH applies by entity, department and
+size, and people can hand their steps to someone while away.
+
+| Verb | Path | Who | Notes |
+|---|---|---|---|
+| GET | `/api/v1/approvals/chains` | anyone | `{ chains: { manager: ['manager'], manager_then_hr: ['manager','hr'], … } }` — render a chain as its step roles |
+| GET | `/api/v1/approvals/policies?entityType=&includeRetired=` | anyone | ordered most-specific first |
+| POST | `/api/v1/approvals/policies` | `settings.write` | `{ entityType, chainCode, minMagnitude?, departmentCode? }`. Read it as a sentence: "for **leave** [in **Sales**] [of **5 days or more**] use **manager then HR**". 409 `POLICY_EXISTS` for the same scope+threshold; 422 `UNKNOWN_UNIT` / `UNKNOWN_CHAIN`. |
+| POST | `/api/v1/approvals/policies/:id/retire` | `settings.write` | |
+| GET | `/api/v1/approvals/preview?entityType=leave&employeeId=&magnitude=` | `employee.read` | `{ chainCode, policyId, steps[], approvers: { manager, dept_head, hr, finance }, delegatedFrom, departmentCode }` — show this on the leave form as "will go to: Priya (for Rahul, on leave) → HR" |
+| GET | `/api/v1/approvals/delegations` | anyone | mine, given and received |
+| POST | `/api/v1/approvals/delegations` | anyone (own) / `employee.write` company-scope (others) | `{ toUserId, fromDate, toDate, reason?, fromUserId? }`, max 90 days |
+| DELETE | `/api/v1/approvals/delegations/:id` | owner or company-scope HR | end early |
+
+Resolution rules worth stating on screen: **manager** is the reporting line;
+**dept_head** is the department master's `attributes.headUserId` (so the
+department editor in §2.22 needs a "head" picker); **hr** / **finance** are
+whoever holds those roles. A step redirected by a delegation carries
+`delegated_from_user_id` — show "approved by B for A".
+
+Leave requests now return `chain` alongside `approvalRequestId`. One new
+setting, `approvals.escalate_after_days` (0 = off): a stale step is skipped
+and the request moves on; the last approver is never skipped.
+
 ---
 
 # Part 3 — What to build, in order
@@ -1009,7 +1036,10 @@ today is the one to highlight.
 16. **Salary structures** — component master with the three flags, structure
     editor with live preview, and the compensation form by structure (§2.25).
 17. **Incentive plans** — the slab editor per calc type, plan version timeline,
-    period targets grid, sales upload (§2.26). The
+    period targets grid, sales upload (§2.26).
+18. **Approval policies** — the sentence-builder for policies, the "will go to"
+    preview on request forms, my delegations in profile settings, a head
+    picker on the department editor (§2.27). The
    employee form is a one-page form with a live preview; the queue is a table
    with two actions.
 
@@ -1084,7 +1114,7 @@ default tiles is the lever.
 ## Sanity check
 
 ```bash
-npm test          # 629 tests, including 33 against the running HTTP API
+npm test          # 632 tests, including 33 against the running HTTP API
 npm run verify    # every gate, end to end
 npm run check:responsive   # eight devices, currently clean
 npm run job mail.outbox    # drains queued external mail

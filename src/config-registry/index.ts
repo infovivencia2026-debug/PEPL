@@ -321,6 +321,16 @@ const documents = defineConfig('documents', {
   }),
 })
 
+const approvals = defineConfig('approvals', {
+  escalate_after_days: int({
+    default: 0,
+    min: 0,
+    max: 30,
+    label: 'Escalate a pending approval after (days)',
+    help: 'A step nobody has acted on for this many days is skipped and the request moves to the next approver. 0 turns it off. The last approver is never skipped — an approval by neglect is worse than a wait.',
+  }),
+})
+
 const privacy = defineConfig('privacy', {
   erasure_after_days: int({
     default: 2922,
@@ -342,6 +352,7 @@ export const REGISTRY: Readonly<Record<string, Definition>> = Object.freeze({
   ...documents,
   ...notifications,
   ...privacy,
+  ...approvals,
 })
 
 /** A typed error so the transport can classify it, rather than returning a 500. */

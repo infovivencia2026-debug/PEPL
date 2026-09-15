@@ -18,7 +18,7 @@ export class ApprovalError extends Error {
 }
 
 export type StepRole = 'manager' | 'dept_head' | 'hr' | 'finance'
-export type ChainCode = 'manager' | 'manager_then_hr' | 'hr_only' | 'manager_hr_finance'
+export type ChainCode = 'manager' | 'manager_then_hr' | 'hr_only' | 'manager_hr_finance' | 'manager_dept_head' | 'dept_head_hr'
 
 /** The fixed vocabulary. Adding a chain is a code review, not a customer drawing. */
 export const CHAINS: Readonly<Record<ChainCode, readonly StepRole[]>> = Object.freeze({
@@ -26,6 +26,8 @@ export const CHAINS: Readonly<Record<ChainCode, readonly StepRole[]>> = Object.f
   manager_then_hr: ['manager', 'hr'],
   hr_only: ['hr'],
   manager_hr_finance: ['manager', 'hr', 'finance'],
+  manager_dept_head: ['manager', 'dept_head'],
+  dept_head_hr: ['dept_head', 'hr'],
 })
 
 export type ActionKind = 'approve' | 'reject' | 'send_back' | 'comment' | 'delegate' | 'withdraw'

@@ -21,6 +21,7 @@ import { emit } from '../audit/index.ts'
 import { runOutbox } from '../mail/outbox.ts'
 import { deliverEmails } from '../comms/delivery.ts'
 import { deliverPush } from '../comms/push.ts'
+import { escalateStale } from '../approvals/policy.ts'
 import { generateVapidKeys, vapidFromEnv } from '../comms/web-push.ts'
 import { purgeOldMessages } from '../comms/chat.ts'
 import { syncTenant } from '../mail/sync.ts'
@@ -360,6 +361,15 @@ export async function runPushKeygen(): Promise<JobResult> {
   return { job: 'push.keygen', tenants: 0, affected: 1, errors: [], durationMs: 0 }
 }
 
+/** Skips steps pending past the company's limit so requests reach the next approver. */
+export async function runApprovalEscalation(): Promise<JobResult> {
+  return perTenant('approvals.escalate', async (tenantId) =>
+    withTenant(tenantId, async (tx) => {
+      const cfg = await resolveConfig(tx, tenantId)
+      return escalateStale(tx, cfg.get<number>('approvals.escalate_after_days'))
+    }))
+}
+
 export const JOBS = {
   'leave.accrual': () => runLeaveAccrual(),
   'helpdesk.sla': runSlaBreaches,
@@ -371,6 +381,7 @@ export const JOBS = {
   'notifications.email': runNotificationEmail,
   'notifications.push': runNotificationPush,
   'push.keygen': runPushKeygen,
+  'approvals.escalate': runApprovalEscalation,
 } as const
 
 export type JobName = keyof typeof JOBS

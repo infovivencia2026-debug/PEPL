@@ -1,5 +1,6 @@
 /** Leave. */
 import type { Router } from '../router.ts'
+import { raiseWithPolicy } from '../../approvals/policy.ts'
 import { countLeaveDays, holidaysBetween } from '../../leave/days.ts'
 import {
   HttpError,
@@ -15,7 +16,6 @@ import {
   balance,
   appendEntry,
   reverse,
-  raise,
   emit,
 } from './deps.ts'
 
@@ -121,26 +121,16 @@ export function register(router: Router): void {
       // The approver is resolved from the employee's CURRENT manager assignment,
       // never accepted from the request: a client that names its own approver can
       // route around the chain entirely.
-      const { rows: mgr } = await ctx.tx.query<{ user_id: string }>(
-        `SELECT u.id AS user_id
-           FROM employee_assignments a
-           JOIN app_users u ON (u.tenant_id, u.employee_id) = (a.tenant_id, a.manager_employee_id)
-          WHERE a.employee_id = $1 AND a.superseded_at IS NULL
-            AND (a.effective_to IS NULL OR a.effective_to > CURRENT_DATE)
-          LIMIT 1`,
-        [employeeId])
-
-      const { rows: hr } = await ctx.tx.query<{ user_id: string }>(
-        `SELECT user_id FROM user_roles WHERE role = 'hr_admin' LIMIT 1`)
-
-      const approvalId = await raise(ctx.tx, {
+      // The policy picks the chain from the department and the number of days;
+      // the module setting is the fallback. Approvers come from the reporting
+      // line and roles, redirected by any active delegation.
+      const approval = await raiseWithPolicy(ctx.tx, {
         entityType: 'leave', entityId: requestId, requestedByUserId: ctx.auth.userId,
-        subjectEmployeeId: employeeId,
-        chainCode: ctx.config.get<string>('leave.approval_chain') as never,
+        subjectEmployeeId: employeeId, magnitude: counted.totalDays,
+        fallback: ctx.config.get<string>('leave.approval_chain') as never,
         title: `Leave · ${counted.totalDays} day(s) from ${startDate}`,
-        approvers: { manager: mgr[0]?.user_id, hr: hr[0]?.user_id },
       })
-      return created({ id: requestId, approvalRequestId: approvalId })
+      return created({ id: requestId, approvalRequestId: approval.requestId, chain: approval.chainCode })
     }))
 
   router.post('/api/v1/leave/requests/:id/cancel',

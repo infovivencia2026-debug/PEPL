@@ -45,6 +45,7 @@ export const SCHEDULE: Schedule[] = [
 
   // Operational hygiene.
   { job: 'helpdesk.sla', everyMs: 15 * MINUTE },
+  { job: 'approvals.escalate', everyMs: HOUR },
 
   // Daily work, checked hourly so a restart cannot miss the window.
   { job: 'audit.seal', everyMs: HOUR, due: (now) => now.getHours() === 1 },
