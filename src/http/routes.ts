@@ -35,12 +35,13 @@ import { register as holidays } from './routes/holidays.ts'
 import { register as leavePolicy } from './routes/leave-policy.ts'
 import { register as taxDeclarations } from './routes/tax-declarations.ts'
 import { register as push } from './routes/push.ts'
+import { register as filings } from './routes/filings.ts'
 
 export const router = new Router()
 
 for (const register of [
   system, config, people, attendance, leave, inbox,
-  payroll, helpdesk, incentives, comms, activity, roles, documents, chat, mail, imports, payments, holidays, leavePolicy, taxDeclarations, push,
+  payroll, helpdesk, incentives, comms, activity, roles, documents, chat, mail, imports, payments, holidays, leavePolicy, taxDeclarations, push, filings,
 ]) {
   register(router)
 }

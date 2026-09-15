@@ -50,6 +50,9 @@ export const ACTIONS: Readonly<Record<string, ActionDef>> = Object.freeze({
   // A verified declaration lowers TDS from the next freeze: money, decided by a person.
   'tax_declaration.verified': { category: 'payroll', severity: 'notice' },
   'tax_declaration.rejected': { category: 'payroll', severity: 'info', requiresReason: true },
+  // A statutory return leaves the building with UANs, PANs and pay in it.
+  'payroll.filing.generated': { category: 'payroll', severity: 'critical' },
+  'employee.statutory_ids.changed': { category: 'people', severity: 'notice' },
 
   'config.setting.changed': { category: 'config', severity: 'notice', requiresReason: false },
   'config.module.disabled': { category: 'config', severity: 'warning', requiresReason: true },

@@ -4,8 +4,8 @@ This supersedes `API-HANDOFF.md` and contains it. Part 1 is the original handoff
 corrected where the backend has moved on. Part 2 is everything built since. Part 3
 is what to build next and what is still genuinely missing.
 
-The backend is complete and tested for every feature described here: **572 tests,
-115 routes, 20 launch checks, all green in one run.**
+The backend is complete and tested for every feature described here: **587 tests,
+120 routes, 20 launch checks, all green in one run.**
 
 ---
 
@@ -735,6 +735,46 @@ Rules that are not optional:
   worker should still show it only when no window of ours is focused
   (`clients.matchAll` + `focused`).
 
+## 2.18 Statutory identifiers and filings — 6 endpoints
+
+Payroll computed PF, ESI, PT and TDS correctly from day one and produced no
+return, so a company still did the month twice. Now a locked run yields the
+files the portals take. Two screens.
+
+**Identifiers, on the employee profile** (sensitive tier — beside bank details,
+NOT on the tab every colleague sees):
+
+| Verb | Path | Notes |
+|---|---|---|
+| GET | `/api/v1/employees/:id/statutory-ids` | `payroll.read`, scoped: an employee sees their own; payroll sees all. `null` until set. Fields: `uan`, `pf_member_id`, `esi_number`, `pan`. |
+| PATCH | `/api/v1/employees/:id/statutory-ids` | `compensation.write`. Send only the fields being set; omitted ones are kept. 422 `VALIDATION_FAILED` with the shapes (UAN 12 digits, PAN `AAAAA9999A`, ESI 10 or 17 digits); 409 `DUPLICATE_IDENTIFIER` when a UAN/PAN is already on another employee — show the message, it names which. |
+
+Show a missing UAN/PAN as a warning chip on the profile: a person without one
+is silently left out of the return (the filing screen lists them, but the fix
+is on the profile).
+
+**Filings, on the payroll run page — locked runs only** (`payroll.process`):
+
+| Verb | Path | What comes back |
+|---|---|---|
+| GET | `/api/v1/payroll/runs/:id/filings/ecr` | EPFO ECR `.txt` |
+| GET | `/api/v1/payroll/runs/:id/filings/esi` | ESIC contribution `.csv` |
+| GET | `/api/v1/payroll/runs/:id/filings/pt` | PT summary by slab `.csv` (a working paper — PT has no national format) |
+| GET | `/api/v1/payroll/filings/24q?fy=2026-27&quarter=Q2` | Form 24Q Annexure I `.csv` across the quarter's locked runs |
+
+Every one returns `{ fileName, contentType, rows, totalPaise, omitted[], contentBase64 }`
+— the same download shape as the payslip PDF and the bank file. **`omitted` is
+the important part of the response**: `[{ employeeNumber, name, reason }]` for
+people left out because an identifier is missing. Render it above the download
+button, not in a tooltip. A 409 `RUN_NOT_LOCKED_FOR_FILING` means the run can
+still change; disable the buttons until the run is locked rather than showing
+the error.
+
+Company registration numbers (PF establishment code, ESI employer code, TAN,
+PT state) are four new settings in the payroll block of `GET /api/v1/config`
+— they appear in the generated settings screen automatically and name the
+files.
+
 ---
 
 # Part 3 — What to build, in order
@@ -751,7 +791,9 @@ Rules that are not optional:
    without hand-coding.
 7. **Tax declaration** — the employee form and the payroll queue (§2.16).
 8. **Push opt-in** — service worker, the subscribe button, the devices list
-   (§2.17). Small, and it is what makes the phone buzz. The
+   (§2.17). Small, and it is what makes the phone buzz.
+9. **Statutory identifiers on the profile and filings on the run page** (§2.18).
+   The `omitted` list is the UX; the download is the easy part. The
    employee form is a one-page form with a live preview; the queue is a table
    with two actions.
 
@@ -826,11 +868,11 @@ default tiles is the lever.
 ## Sanity check
 
 ```bash
-npm test          # 572 tests, including 33 against the running HTTP API
+npm test          # 587 tests, including 33 against the running HTTP API
 npm run verify    # every gate, end to end
 npm run check:responsive   # eight devices, currently clean
 npm run job mail.outbox    # drains queued external mail
-npm run smoke              # 52 checks against the RUNNING server (SMOKE_BASE to point elsewhere)
+npm run smoke              # 59 checks against the RUNNING server (SMOKE_BASE to point elsewhere)
 ```
 
 If `verify` is green the backend is behaving. If a UI call fails, the error `code`

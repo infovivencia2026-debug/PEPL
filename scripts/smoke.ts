@@ -233,6 +233,29 @@ if (declId) {
   record('tax', 'queue lists the submitted declaration', false, JSON.stringify(queue.body).slice(0, 80))
 }
 
+// --- statutory ids and filings ---------------------------------------------
+const myList = await call('GET', '/api/v1/employees', { token: rahul })
+const rahulEmp = ((myList.body.employees as { employee_id: string }[] | undefined) ?? [])[0]?.employee_id
+if (rahulEmp) {
+  expectStatus('filings', 'payroll sets identifiers',
+    await call('PATCH', `/api/v1/employees/${rahulEmp}/statutory-ids`, { token: anil, body: { uan: '100123456789', pan: 'ABCDE1234F' } }), 200)
+  expectStatus('filings', 'a malformed PAN is 422',
+    await call('PATCH', `/api/v1/employees/${rahulEmp}/statutory-ids`, { token: anil, body: { pan: 'nope' } }), 422)
+  const own = await call('GET', `/api/v1/employees/${rahulEmp}/statutory-ids`, { token: rahul })
+  record('filings', 'employee reads their own UAN', own.status === 200 &&
+    (own.body.statutoryIds as { uan?: string } | null)?.uan === '100123456789', String(own.status))
+  expectStatus('filings', 'employee cannot set identifiers',
+    await call('PATCH', `/api/v1/employees/${rahulEmp}/statutory-ids`, { token: rahul, body: { uan: '100123456780' } }), 403)
+} else {
+  record('filings', 'employee list gives an employee_id', false, JSON.stringify(myList.body).slice(0, 80))
+}
+expectStatus('filings', '24Q rejects a bad quarter',
+  await call('GET', '/api/v1/payroll/filings/24q?fy=2026-27&quarter=Q9', { token: anil }), 422)
+expectStatus('filings', '24Q for an empty quarter still renders',
+  await call('GET', '/api/v1/payroll/filings/24q?fy=2026-27&quarter=Q1', { token: anil }), 200)
+expectStatus('filings', 'employee cannot pull a return',
+  await call('GET', '/api/v1/payroll/filings/24q?fy=2026-27&quarter=Q1', { token: rahul }), 403)
+
 // --- push -------------------------------------------------------------------
 const vapid = await call('GET', '/api/v1/push/vapid-public-key', { token: rahul })
 record('push', 'VAPID key endpoint answers 200 (configured) or 503 (not configured), never 500',

@@ -159,6 +159,29 @@ const payroll = defineConfig('payroll', {
     help: 'The person who runs payroll cannot approve or lock the same run.',
     risk: 'high',
   }),
+  // The employer's own registration numbers. Not behaviour — identity on a
+  // return — but they belong with the company's other payroll settings rather
+  // than in a table of four strings.
+  pf_establishment_code: text({
+    default: '',
+    label: 'PF establishment code',
+    help: 'From your EPFO registration, for example TNMAS0012345. It names the file the ECR is uploaded against.',
+  }),
+  esi_employer_code: text({
+    default: '',
+    label: 'ESI employer code',
+    help: '17 digits from your ESIC registration. Needed on the monthly contribution file.',
+  }),
+  tan: text({
+    default: '',
+    label: 'TAN',
+    help: 'Tax deduction account number, for example CHEA12345B. Every 24Q return is filed against it.',
+  }),
+  pt_state_code: text({
+    default: '',
+    label: 'Professional tax state',
+    help: 'The state whose PT registration you file under, for example TS. Leave blank to use each employee\'s work state.',
+  }),
 })
 
 const helpdesk = defineConfig('helpdesk', {
