@@ -4,8 +4,8 @@ This supersedes `API-HANDOFF.md` and contains it. Part 1 is the original handoff
 corrected where the backend has moved on. Part 2 is everything built since. Part 3
 is what to build next and what is still genuinely missing.
 
-The backend is complete and tested for every feature described here: **652 tests,
-189 routes, 20 launch checks, all green in one run.**
+The backend is complete and tested for every feature described here: **656 tests,
+193 routes, 20 launch checks, all green in one run.**
 
 ---
 
@@ -1084,6 +1084,24 @@ the chosen state so the company knows the slabs are reference figures to
 reconcile. A state with `loaded: false` should be selectable but flagged: "no
 slabs loaded — ask your administrator to run the statutory seed".
 
+## 2.33 Reports — 4 endpoints, one shape
+
+`report.read` opens the screen. Every endpoint returns `{ columns[], rows[] }`
+for a table, or with `?format=csv` the usual `{ fileName, contentType, rows, contentBase64 }`
+download. Money figures are **rupees** (numbers), not paise — these are
+finance's files.
+
+| Path | Who | Notes |
+|---|---|---|
+| `GET /api/v1/reports/salary-register?from=&to=` | + `payroll.read` company scope | one row per employee per **locked** run; component columns are dynamic (`columns` tells you the order: earnings, deductions, employer contributions) and end with `gross`, `deductions`, `net`. Logged as a tier-3 reveal. |
+| `GET /api/v1/reports/statutory-summary?from=&to=` | + `payroll.read` company scope | per run: `pf_employee/employer/total`, `esi_*`, `pt`, `tds`, `gross`, `net` — the challan sheet |
+| `GET /api/v1/reports/headcount?from=&to=` | `report.read` | per month: `active_at_end`, `joined`, `left`, `attrition_pct` — a chart, not a table |
+| `GET /api/v1/reports/leave-balances?cycle=2026&asOf=` | company scope | per employee per type: opening, accrued, consumed, adjusted, available |
+
+Dates are period starts; a run in a period that has not been locked is not in
+any report — say "locked runs only" on the screen so an empty month is
+understood.
+
 ---
 
 # Part 3 — What to build, in order
@@ -1132,7 +1150,9 @@ slabs loaded — ask your administrator to run the statutory seed".
 21. **Loans** — grant form with schedule preview, the balance card on the
     profile, repay/close actions (§2.31).
 22. **PT state picker** from the coverage endpoint, in settings and on the
-    location editor (§2.32). Small. The
+    location editor (§2.32). Small.
+23. **Reports** — a Reports screen with the four tables, date range, CSV
+    button; headcount as a chart (§2.33). The
    employee form is a one-page form with a live preview; the queue is a table
    with two actions.
 
@@ -1207,7 +1227,7 @@ default tiles is the lever.
 ## Sanity check
 
 ```bash
-npm test          # 652 tests, including 33 against the running HTTP API
+npm test          # 656 tests, including 33 against the running HTTP API
 npm run verify    # every gate, end to end
 npm run check:responsive   # eight devices, currently clean
 npm run job mail.outbox    # drains queued external mail

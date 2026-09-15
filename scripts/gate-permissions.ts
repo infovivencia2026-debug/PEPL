@@ -43,9 +43,7 @@ const enforcement = sources('src')
  * gate: every entry is printed on each run, so the list cannot quietly grow.
  */
 const ADVISORY: Record<string, string> = {
-  'report.read':
-    'reports derive from employees, attendance and payroll, each gated by its ' +
-    'own permission; this decides only who sees the screen',
+  // report.read was here until the reports routes existed. Keep the list; keep it empty when it can be.
 }
 
 /** The UI may legitimately be the only consumer of a read-only permission. */
