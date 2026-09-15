@@ -14,6 +14,7 @@
  *   3. every correction re-derives the day, and the employee is notified
  */
 import type { PoolClient } from 'pg'
+import { evaluateShiftDay, shiftFor } from './shifts.ts'
 
 export class AttendanceError extends Error {
   readonly code: string
@@ -218,22 +219,43 @@ export async function recomputeDay(
     }
   }
 
-  const worked = firstIn && lastOut
+  let worked = firstIn && lastOut
     ? Math.max(0, Math.round((Date.parse(lastOut) - Date.parse(firstIn)) / 60000))
     : 0
+
+  // A rostered person is judged by their SHIFT: its weekly offs, its grace,
+  // its hours for a full or half day, its overtime. Everyone else falls back to
+  // the company-wide pattern below, so a company with no shifts sees no change.
+  const shift = await shiftFor(tx, employeeId, workDate)
+  let lateMinutes = 0, earlyMinutes = 0, otMinutes = 0
+  const weeklyOff = shift ? evaluateShiftDay(shift, workDate, { firstIn: null, lastOut: null }).isWeeklyOff
+    : isWeeklyOff(workDate, policy.weekPattern)
 
   // A weekly off is not an absence. Nobody was expected in, so the day carries
   // no fraction and must never read as unauthorised absence on a report.
   // A punch overrides it: somebody who came in on a Sunday did come in.
-  if (!firstIn && corrections.length === 0 && isWeeklyOff(workDate, policy.weekPattern)) {
+  if (!firstIn && corrections.length === 0 && weeklyOff) {
     status = 'weekly_off'
     dayFraction = 0
     fractionSource = 'system'
   }
 
-  // Hours-derived half days, where the company asked for them. Only a day the
-  // system worked out is touched: an explicit decision by a manager stands.
-  if (
+  if (shift && firstIn) {
+    const day = evaluateShiftDay(shift, workDate, {
+      firstIn: new Date(firstIn), lastOut: lastOut ? new Date(lastOut) : null,
+    })
+    lateMinutes = day.lateMinutes
+    earlyMinutes = day.earlyMinutes
+    otMinutes = day.otMinutes
+    worked = day.netWorkedMinutes || worked
+    if (status === 'present' && fractionSource === 'system' && lastOut) {
+      dayFraction = day.dayFraction
+      fractionSource = 'shift'
+      if (dayFraction === 0) status = 'absent'
+    }
+  } else if (
+    // Hours-derived half days, where the company asked for them. Only a day the
+    // system worked out is touched: an explicit decision by a manager stands.
     policy.halfDayMode === 'hours_derived' &&
     status === 'present' &&
     fractionSource === 'system' &&
@@ -255,17 +277,20 @@ export async function recomputeDay(
     `INSERT INTO daily_attendance
        (tenant_id, employee_id, work_date, first_in, last_out, worked_minutes, status,
         day_fraction, fraction_source, is_remote, is_field_duty, is_regularized,
-        marked_by_user_id, marked_reason, computed_at)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14, now())
+        marked_by_user_id, marked_reason, computed_at, shift_id, late_minutes, early_minutes, ot_minutes)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14, now(),$15,$16,$17,$18)
      ON CONFLICT (tenant_id, employee_id, work_date) DO UPDATE SET
        first_in = EXCLUDED.first_in, last_out = EXCLUDED.last_out,
        worked_minutes = EXCLUDED.worked_minutes, status = EXCLUDED.status,
        day_fraction = EXCLUDED.day_fraction, fraction_source = EXCLUDED.fraction_source,
        is_remote = EXCLUDED.is_remote, is_field_duty = EXCLUDED.is_field_duty,
        is_regularized = EXCLUDED.is_regularized, marked_by_user_id = EXCLUDED.marked_by_user_id,
-       marked_reason = EXCLUDED.marked_reason, computed_at = now()`,
+       marked_reason = EXCLUDED.marked_reason, computed_at = now(),
+       shift_id = EXCLUDED.shift_id, late_minutes = EXCLUDED.late_minutes,
+       early_minutes = EXCLUDED.early_minutes, ot_minutes = EXCLUDED.ot_minutes`,
     [tid, employeeId, workDate, firstIn, lastOut, worked, status,
-     dayFraction, fractionSource, isRemote, isFieldDuty, regularized, markedBy, markedReason],
+     dayFraction, fractionSource, isRemote, isFieldDuty, regularized, markedBy, markedReason,
+     shift?.id ?? null, lateMinutes, earlyMinutes, otMinutes],
   )
 }
 

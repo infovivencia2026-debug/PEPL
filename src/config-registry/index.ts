@@ -121,6 +121,22 @@ const attendance = defineConfig('attendance', {
     help: 'Reject a mobile punch without a location fix.',
     scopable: ['location', 'department'],
   }),
+  unmarked_day_is_lop: bool({
+    default: false,
+    label: 'A day with no attendance record is loss of pay',
+    help: 'Off: a working day nobody recorded is presumed worked and paid (right for companies without a punch system). On: it is unpaid unless corrected. Either way the payroll summary lists such days.',
+    risk: 'high',
+    affects: ['payroll'],
+  }),
+  late_marks_per_half_day: int({
+    default: 0,
+    min: 0,
+    max: 31,
+    label: 'Late marks that cost half a day',
+    help: 'Every this-many late arrivals in a month (after the shift\'s grace) deduct half a day of pay. 0 turns the rule off. Applies only to people on a shift.',
+    risk: 'high',
+    affects: ['payroll'],
+  }),
   geofence_enforce: bool({
     default: false,
     label: 'Reject punches outside the geofence',

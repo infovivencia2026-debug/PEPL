@@ -4,8 +4,8 @@ This supersedes `API-HANDOFF.md` and contains it. Part 1 is the original handoff
 corrected where the backend has moved on. Part 2 is everything built since. Part 3
 is what to build next and what is still genuinely missing.
 
-The backend is complete and tested for every feature described here: **615 tests,
-146 routes, 20 launch checks, all green in one run.**
+The backend is complete and tested for every feature described here: **621 tests,
+154 routes, 20 launch checks, all green in one run.**
 
 ---
 
@@ -880,6 +880,43 @@ A site with `appliesToAll` fences everyone not exempt — a one-office company
 sets that and never assigns anyone. New setting `attendance.geofence_enforce`
 (default off: record and flag) appears in the generated settings screen.
 
+## 2.24 Shifts, rosters, and payroll from attendance — 8 endpoints
+
+Two things changed underneath. A rostered person's day is now judged against
+their **shift** (grace, break, full/half-day hours, overtime, the shift's own
+weekly offs) and the muster row carries `shift_id`, `late_minutes`,
+`early_minutes`, `ot_minutes`. And payroll no longer needs payable days
+TYPED: the summary proposes freeze rows from the muster, and a run can be
+frozen from it in one call.
+
+**Shifts** (`settings.write` to define; anyone can list)
+
+| Verb | Path | Notes |
+|---|---|---|
+| GET | `/api/v1/shifts` | `{ shifts: [{ id, code, name, start_time, end_time, grace_in_min, grace_out_min, break_min, full_day_min, half_day_min, ot_after_min, ot_eligible, weekly_off_days[], status }] }` |
+| POST | `/api/v1/shifts` | `{ code, name, startTime 'HH:MM', endTime, graceInMin?, graceOutMin?, breakMin?, fullDayMin, halfDayMin, otAfterMin?, otEligible?, weeklyOffDays? }`. End before start = night shift. **Timings are immutable** after creation: the form for an existing shift shows them read-only with "retire and create a successor". |
+| PATCH | `/api/v1/shifts/:id` | `{ name }` only |
+| POST | `/api/v1/shifts/:id/retire` | returns `rosteredNow` — how many people fall back to company policy today; show it in the confirm |
+
+**Roster** (`attendance.correct`, scoped)
+
+| Verb | Path | Notes |
+|---|---|---|
+| GET | `/api/v1/employees/:id/roster` | `{ current, history[] }` |
+| POST | `/api/v1/employees/:id/roster` | `{ shiftId, effectiveFrom }`. Closes the previous entry the day before. 422 `ROSTER_NOT_AFTER_CURRENT` for a date on or before the latest entry. |
+
+**Payroll from attendance** (`payroll.process`)
+
+| Verb | Path | Notes |
+|---|---|---|
+| GET | `/api/v1/attendance/summary?periodId=` | `{ period, employees: [{ employeeNumber, name, calendarDays, payableDays, lopDays, paidLeaveDays, unmarkedDays, lateMarks, lateHalfDays, otMinutes, joinedMidPeriod, exitedMidPeriod, warnings[], row }] }`. **This replaces the typed freeze form.** Render it as the review table; `warnings` per row (no salary structure, N unrecorded days) are what payroll reads before freezing. |
+| POST | `/api/v1/payroll/runs/:id/freeze-from-attendance` | `{ overrides?: [{ employeeId, payableDays?, lopDays?, otMinutes? }], skipEmployeeIds? }`. Freezes with the summary's rows, applying overrides (an edited cell in the review table) and skipping the listed people. 422 `NO_COMPENSATION` lists who has no salary structure — skip them or fix them first. |
+
+Two new settings appear in the attendance block: `unmarked_day_is_lop` and
+`late_marks_per_half_day`. Keep the old `POST …/freeze` for imports and
+edge cases, but the primary freeze button should call
+`freeze-from-attendance`.
+
 ---
 
 # Part 3 — What to build, in order
@@ -909,7 +946,10 @@ sets that and never assigns anyone. New setting `attendance.geofence_enforce`
 13. **Organisation masters** — one settings screen with four tabs, departments
     as a tree; switch the assignment form to pickers (§2.22).
 14. **Geofences** — the map editor, membership on the profile, and the verdict
-    shown on every punch; drop `withinGeofence` from the punch body (§2.23). The
+    shown on every punch; drop `withinGeofence` from the punch body (§2.23).
+15. **Shifts and the attendance-driven freeze** — shift editor, roster on the
+    profile, and replace the typed freeze form with the summary review table
+    (§2.24). This one changes how payroll is run every month. The
    employee form is a one-page form with a live preview; the queue is a table
    with two actions.
 
@@ -984,7 +1024,7 @@ default tiles is the lever.
 ## Sanity check
 
 ```bash
-npm test          # 615 tests, including 33 against the running HTTP API
+npm test          # 621 tests, including 33 against the running HTTP API
 npm run verify    # every gate, end to end
 npm run check:responsive   # eight devices, currently clean
 npm run job mail.outbox    # drains queued external mail
