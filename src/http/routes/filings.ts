@@ -10,6 +10,7 @@ import type { Router } from '../router.ts'
 import { HttpError, authed, ok, requireBody, requireModule, asUuid, assertScope, emit } from './deps.ts'
 import { getRun } from '../../payroll/run.ts'
 import { loadStatutory } from '../../payroll/statutory.ts'
+import { buildForm16, form16Pdf } from '../../payroll/form16.ts'
 import {
   QUARTER_MONTHS, ecrFile, esiFile, filingRows, form24qAnnexureI, ptSummary, type Filing,
 } from '../../payroll/filings.ts'
@@ -40,6 +41,32 @@ function deliver(filing: Filing) {
 }
 
 export function register(router: Router): void {
+  router.get('/api/v1/employees/:id/form16',
+    { summary: 'Form 16 Part B for a fiscal year (?fy=2026-27; &format=pdf) — own record, or payroll',
+      tag: 'payroll', permission: 'payroll.read' },
+    authed('payroll.read', async (ctx) => {
+      const id = asUuid(ctx.req.params.id, 'id')
+      assertScope(ctx.auth, id)
+      const fy = ctx.req.query.get('fy') ?? ''
+      if (!FY.test(fy)) throw new HttpError(422, 'VALIDATION_FAILED', 'fy must look like 2026-27')
+      // Slabs of the year the certificate is for, not this year's.
+      const statutory = await loadStatutory(ctx.tx, `${Number(fy.slice(0, 4)) + 1}-03-31`)
+      const form = await buildForm16(ctx.tx, {
+        employeeId: id, fiscalYear: fy, slabs: statutory.taxSlabs, rules: statutory.taxRules,
+        tan: ctx.config.get<string>('payroll.tan') || null,
+      })
+      await emit(ctx.tx, {
+        action: 'access.tier3.revealed', entityType: 'employee', entityId: id, actorUserId: ctx.auth.userId,
+        subjectEmployeeId: id, metadata: { document: 'form16', fiscalYear: fy, format: ctx.req.query.get('format') ?? 'json' },
+      })
+      if (ctx.req.query.get('format') === 'pdf') {
+        const pdf = form16Pdf(form)
+        return ok({ fileName: `Form16-PartB-${fy}-${form.employee.number}.pdf`, contentType: 'application/pdf',
+          sizeBytes: pdf.length, contentBase64: pdf.toString('base64') })
+      }
+      return ok({ form16: form })
+    }))
+
   router.get('/api/v1/employees/:id/statutory-ids',
     { summary: 'UAN, PF member id, ESI number and PAN (own record for an employee)',
       tag: 'payroll', permission: 'payroll.read' },

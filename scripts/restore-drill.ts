@@ -50,11 +50,13 @@ export async function restoreDrill(): Promise<{ tables: number; rows: number; du
   const src = conn(config.db)
   const admin = conn('postgres')
   await src.connect(); await admin.connect()
+  // A hang here is a lock somebody else holds; say so instead of waiting forever.
+  await admin.query(`SET statement_timeout = '60s'`); await src.query(`SET statement_timeout = '60s'`)
   let scratchClient: pg.Client | null = null
   let appClient: pg.Client | null = null
   try {
     // 1. dump
-    run('pg_dump', ['--format=custom', '--no-owner', '--no-privileges', '-h', config.host, '-p', String(config.port), '-U', config.superUser, '-d', config.db, '-f', dump])
+    run('pg_dump', ['--format=custom', '--no-owner', '--no-privileges', '--lock-wait-timeout=20000', '-h', config.host, '-p', String(config.port), '-U', config.superUser, '-d', config.db, '-f', dump])
     const dumpBytes = statSync(dump).size
 
     // 2. restore into a fresh database
