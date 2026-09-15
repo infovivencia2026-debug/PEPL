@@ -4,7 +4,7 @@ This supersedes `API-HANDOFF.md` and contains it. Part 1 is the original handoff
 corrected where the backend has moved on. Part 2 is everything built since. Part 3
 is what to build next and what is still genuinely missing.
 
-The backend is complete and tested for every feature described here: **642 tests,
+The backend is complete and tested for every feature described here: **644 tests,
 188 routes, 20 launch checks, all green in one run.**
 
 ---
@@ -949,6 +949,15 @@ The engine follows the master: PF wages are the `pf_wage` components (not a
 hard-coded basic + DA), non-taxable components stay out of TDS (`calc_note.taxExempt`),
 non-ESI components stay out of ESI gross. `bill_required` is for the UI only.
 
+**CTC-inclusive structures.** `POST /api/v1/salary/structures` takes
+`ctcIncludesEmployerPf: true` — the annual figure is then CTC as on the offer
+letter: percentages still read off it, employer PF on the PF wages is set
+aside, and the balance line hands out the rest, so components sum to GROSS
+and gross + employer PF = CTC. The preview returns `ctcIncludesEmployerPf` and
+`employerPfPaise`; show it as a line under the components ("Employer PF
+₹1,800 · part of CTC, not paid to you"). A checkbox on the structure editor:
+"CTC includes employer PF".
+
 ## 2.26 Incentive administration — 7 endpoints
 
 The incentive engine (close → calculate → approve → push) existed with no way
@@ -1185,7 +1194,7 @@ default tiles is the lever.
 ## Sanity check
 
 ```bash
-npm test          # 642 tests, including 33 against the running HTTP API
+npm test          # 644 tests, including 33 against the running HTTP API
 npm run verify    # every gate, end to end
 npm run check:responsive   # eight devices, currently clean
 npm run job mail.outbox    # drains queued external mail

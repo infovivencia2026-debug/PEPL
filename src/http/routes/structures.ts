@@ -4,9 +4,9 @@
  * offering it.
  */
 import type { Router } from '../router.ts'
-import { HttpError, authed, ok, created, requireBody, asUuid, emit } from './deps.ts'
+import { HttpError, authed, ok, created, requireBody, asUuid, emit, loadStatutory } from './deps.ts'
 import {
-  createComponent, createStructure, listComponents, listStructures, resolveStructure, retireComponent,
+  createComponent, createStructure, employerPfOf, listComponents, listStructures, resolveForEmployee, retireComponent,
   retireStructure, structureByCode, updateComponent,
 } from '../../payroll/structures.ts'
 
@@ -57,7 +57,7 @@ export function register(router: Router): void {
         { component: 'HRA', formula: { type: 'percent_of', of: 'BASIC', pct: 40 } },
         { component: 'SPECIAL', formula: { type: 'balance' } } ], gradeCodes: [] } },
     authed('settings.write', async (ctx) => {
-      const b = requireBody<{ code: string; name: string; lines: unknown; gradeCodes?: string[] }>(ctx.req, ['code', 'name', 'lines'])
+      const b = requireBody<{ code: string; name: string; lines: unknown; gradeCodes?: string[]; ctcIncludesEmployerPf?: boolean }>(ctx.req, ['code', 'name', 'lines'])
       const structure = await createStructure(ctx.tx, b)
       await emit(ctx.tx, { action: 'payroll.structure.changed', entityType: 'salary_structure', entityId: structure.id,
         actorUserId: ctx.auth.userId, metadata: { op: 'create', code: structure.code, lines: structure.lines.length } })
@@ -80,8 +80,11 @@ export function register(router: Router): void {
       const annual = Number(ctx.req.query.get('annualPaise'))
       if (!Number.isSafeInteger(annual) || annual <= 0) throw new HttpError(422, 'VALIDATION_FAILED', 'annualPaise must be a positive integer')
       const structure = await structureByCode(ctx.tx, ctx.req.params.code!)
-      const monthly = resolveStructure(structure.lines, annual)
+      const statutory = await loadStatutory(ctx.tx)
+      const monthly = await resolveForEmployee(ctx.tx, structure, annual, statutory.config, ctx.config.get<boolean>('payroll.pf_on_full_wage'))
       return ok({ structure: structure.code, annualPaise: annual, monthlyComponents: monthly,
-        monthlyTotalPaise: Object.values(monthly).reduce((n, v) => n + v, 0) })
+        monthlyTotalPaise: Object.values(monthly).reduce((n, v) => n + v, 0),
+        ctcIncludesEmployerPf: structure.ctc_includes_employer_pf,
+        employerPfPaise: structure.ctc_includes_employer_pf ? employerPfOf(monthly, annual) : 0 })
     }))
 }

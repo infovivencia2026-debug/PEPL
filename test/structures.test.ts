@@ -54,6 +54,36 @@ describe('resolveStructure (pure)', () => {
   })
 })
 
+describe('CTC-inclusive structures', () => {
+  const known = new Set(['BASIC', 'HRA', 'SPECIAL'])
+  const lines = validateLines([
+    { component: 'BASIC', formula: { type: 'percent_of', of: 'CTC', pct: 50 } },
+    { component: 'HRA', formula: { type: 'percent_of', of: 'BASIC', pct: 40 } },
+    { component: 'SPECIAL', formula: { type: 'balance' } },
+  ], known)
+  const pf = { rate: 0.12, wageCeilingPaise: L(15_000), pfWageCodes: new Set(['BASIC']) }
+
+  it('employer PF on the capped PF wage comes out of the balance, so gross + employer PF = CTC', () => {
+    // CTC 6L -> 50,000/month; basic 25,000 (cap 15,000 -> employer PF 1,800); HRA 10,000; special 15,000 − 1,800
+    const m = resolveStructure(lines, L(600_000), pf)
+    expect(m).toEqual({ BASIC: L(25_000), HRA: L(10_000), SPECIAL: L(13_200) })
+    const gross = Object.values(m).reduce((n, v) => n + v, 0)
+    expect(gross + L(1_800)).toBe(L(50_000))
+    // on full wage: 12% of 25,000 = 3,000
+    expect(resolveStructure(lines, L(600_000), { ...pf, onFullWage: true }).SPECIAL).toBe(L(15_000) - L(3_000))
+    // without the flag, gross = CTC as before
+    expect(resolveStructure(lines, L(600_000)).SPECIAL).toBe(L(15_000))
+  })
+
+  it('a CTC too small to carry employer PF is refused with the PF named', () => {
+    const tight = validateLines([
+      { component: 'BASIC', formula: { type: 'percent_of', of: 'CTC', pct: 100 } },
+      { component: 'SPECIAL', formula: { type: 'balance' } },
+    ], known)
+    expect(() => resolveStructure(tight, L(120_000), pf)).toThrow(/employer PF/)
+  })
+})
+
 describe('the master, in the database', () => {
   it('defines components, builds a structure from them, previews, and retires in the right order', async () => {
     await withTenant(A.id, async (tx) => {

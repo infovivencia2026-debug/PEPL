@@ -44,12 +44,22 @@ export interface Structure {
   name: string
   lines: Line[]
   grade_codes: string[]
+  /** Gross = CTC − employer PF; the balance line absorbs it. */
+  ctc_includes_employer_pf: boolean
   status: 'active' | 'retired'
+}
+
+export interface EmployerPf {
+  rate: number
+  wageCeilingPaise: number
+  /** Codes that are PF wages (from the component master; basic + DA by convention). */
+  pfWageCodes: ReadonlySet<string>
+  onFullWage?: boolean
 }
 
 const CODE = /^[A-Z][A-Z0-9_]{0,23}$/
 const C_COLS = 'id, code, name, kind, taxable, pf_wage, esi_wage, bill_required, sort_order, status'
-const S_COLS = 'id, code, name, lines, grade_codes, status'
+const S_COLS = 'id, code, name, lines, grade_codes, ctc_includes_employer_pf, status'
 
 export async function listComponents(tx: PoolClient, opts: { includeRetired?: boolean } = {}): Promise<Component[]> {
   const { rows } = await tx.query<Component>(`SELECT ${C_COLS} FROM salary_components WHERE $1 OR status = 'active' ORDER BY sort_order, code`, [opts.includeRetired ?? false])
@@ -127,8 +137,15 @@ export function validateLines(lines: unknown, known: Set<string>): Line[] {
   return out
 }
 
-/** Monthly components in paise from an annual figure. Pure. */
-export function resolveStructure(lines: readonly Line[], annualPaise: number): Record<string, number> {
+/**
+ * Monthly components in paise from an annual figure. Pure.
+ *
+ * With `employerPf`, the annual figure is CTC: percentages still read off it
+ * (an offer's "basic 50% of CTC" means of CTC), the employer's PF on the PF
+ * wages is computed, and the balance line hands out what is left AFTER it —
+ * so components sum to gross, not CTC, and gross + employer PF = CTC.
+ */
+export function resolveStructure(lines: readonly Line[], annualPaise: number, employerPf?: EmployerPf): Record<string, number> {
   if (!Number.isSafeInteger(annualPaise) || annualPaise <= 0) throw new StructureError('VALIDATION_FAILED', 'annual pay must be a positive integer in paise')
   const monthly = Math.round(annualPaise / 12 / 100) * 100
   const out: Record<string, number> = {}
@@ -148,10 +165,24 @@ export function resolveStructure(lines: readonly Line[], annualPaise: number): R
     out[l.component] = v
     used += v
   }
-  const rest = monthly - used
-  if (rest < 0) throw new StructureError('STRUCTURE_EXCEEDS_PAY', `the fixed and percentage lines come to ${(used / 100).toFixed(0)} a month, above the ${(monthly / 100).toFixed(0)} available`)
+  let employerPfPaise = 0
+  if (employerPf) {
+    const pfWage = Object.entries(out).filter(([code]) => employerPf.pfWageCodes.has(code)).reduce((n, [, v]) => n + v, 0)
+    const base = employerPf.onFullWage ? pfWage : Math.min(pfWage, employerPf.wageCeilingPaise)
+    employerPfPaise = Math.round(base * employerPf.rate / 100) * 100
+  }
+  const rest = monthly - used - employerPfPaise
+  if (rest < 0) {
+    throw new StructureError('STRUCTURE_EXCEEDS_PAY',
+      `the fixed and percentage lines${employerPfPaise ? ' plus employer PF' : ''} come to ${((used + employerPfPaise) / 100).toFixed(0)} a month, above the ${(monthly / 100).toFixed(0)} available`)
+  }
   out[balanceCode!] = rest
   return out
+}
+
+/** The employer PF a CTC-inclusive structure set aside, so a preview can show it. */
+export function employerPfOf(components: Record<string, number>, ctcAnnualPaise: number): number {
+  return Math.round(ctcAnnualPaise / 12 / 100) * 100 - Object.values(components).reduce((n, v) => n + v, 0)
 }
 
 export async function listStructures(tx: PoolClient, opts: { includeRetired?: boolean } = {}): Promise<Structure[]> {
@@ -159,7 +190,7 @@ export async function listStructures(tx: PoolClient, opts: { includeRetired?: bo
   return rows
 }
 
-export async function createStructure(tx: PoolClient, i: { code: string; name: string; lines: unknown; gradeCodes?: string[] }): Promise<Structure> {
+export async function createStructure(tx: PoolClient, i: { code: string; name: string; lines: unknown; gradeCodes?: string[]; ctcIncludesEmployerPf?: boolean }): Promise<Structure> {
   const code = i.code.trim().toUpperCase()
   if (!/^[A-Z0-9][A-Z0-9_-]{0,23}$/.test(code)) throw new StructureError('VALIDATION_FAILED', 'code is 1–24 characters: letters, digits, _ or -')
   if (!i.name?.trim() || i.name.length > 120) throw new StructureError('VALIDATION_FAILED', 'name is 1–120 characters')
@@ -169,8 +200,8 @@ export async function createStructure(tx: PoolClient, i: { code: string; name: s
   const tid = (await tx.query<{ t: string }>('SELECT current_tenant()::text AS t')).rows[0]!.t
   if ((await tx.query(`SELECT 1 FROM salary_structures WHERE code = $1`, [code])).rowCount) throw new StructureError('STRUCTURE_EXISTS', `structure ${code} already exists`)
   const { rows } = await tx.query<Structure>(
-    `INSERT INTO salary_structures (tenant_id, code, name, lines, grade_codes) VALUES ($1,$2,$3,$4::jsonb,$5) RETURNING ${S_COLS}`,
-    [tid, code, i.name.trim(), JSON.stringify(lines), (i.gradeCodes ?? []).map((g) => g.toUpperCase())])
+    `INSERT INTO salary_structures (tenant_id, code, name, lines, grade_codes, ctc_includes_employer_pf) VALUES ($1,$2,$3,$4::jsonb,$5,$6) RETURNING ${S_COLS}`,
+    [tid, code, i.name.trim(), JSON.stringify(lines), (i.gradeCodes ?? []).map((g) => g.toUpperCase()), i.ctcIncludesEmployerPf ?? false])
   return rows[0]!
 }
 
@@ -178,6 +209,23 @@ export async function retireStructure(tx: PoolClient, id: string): Promise<Struc
   const { rows } = await tx.query<Structure>(`UPDATE salary_structures SET status = 'retired', retired_at = now() WHERE id = $1 AND status = 'active' RETURNING ${S_COLS}`, [id])
   if (!rows[0]) throw new StructureError('NOT_FOUND', 'no active structure with that id')
   return rows[0]
+}
+
+/** The employer-PF inputs a CTC-inclusive structure needs, from the statutory config and the component master. */
+export async function employerPfFor(tx: PoolClient, statutory: { pf_employer_rate: number; pf_wage_ceiling_paise: bigint }, onFullWage: boolean): Promise<EmployerPf> {
+  const flags = await componentFlags(tx)
+  return {
+    rate: statutory.pf_employer_rate, wageCeilingPaise: Number(statutory.pf_wage_ceiling_paise),
+    pfWageCodes: flags?.pfWageCodes ?? new Set(['BASIC', 'DA']), onFullWage,
+  }
+}
+
+/** Resolves with employer PF when the structure is CTC-inclusive. */
+export async function resolveForEmployee(
+  tx: PoolClient, structure: Structure, annualPaise: number,
+  statutory: { pf_employer_rate: number; pf_wage_ceiling_paise: bigint }, onFullWage: boolean,
+): Promise<Record<string, number>> {
+  return resolveStructure(structure.lines, annualPaise, structure.ctc_includes_employer_pf ? await employerPfFor(tx, statutory, onFullWage) : undefined)
 }
 
 export async function structureByCode(tx: PoolClient, code: string): Promise<Structure> {

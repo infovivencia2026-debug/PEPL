@@ -18,7 +18,8 @@ import {
   profileAt,
   emit,
 } from './deps.ts'
-import { normaliseComponents, resolveStructure, structureByCode } from '../../payroll/structures.ts'
+import { normaliseComponents, resolveForEmployee, structureByCode } from '../../payroll/structures.ts'
+import { loadStatutory } from '../../payroll/statutory.ts'
 import { hold } from '../../approvals/pending.ts'
 
 export function register(router: Router): void {
@@ -160,7 +161,8 @@ export function register(router: Router): void {
       let structureCode: string | undefined
       if (b.structureCode) {
         const structure = await structureByCode(ctx.tx, String(b.structureCode))
-        components = resolveStructure(structure.lines, b.annualCtcPaise)
+        const statutory = await loadStatutory(ctx.tx, b.effectiveFrom)
+        components = await resolveForEmployee(ctx.tx, structure, b.annualCtcPaise, statutory.config, ctx.config.get<boolean>('payroll.pf_on_full_wage'))
         structureCode = structure.code
       } else if (b.components) {
         components = await normaliseComponents(ctx.tx, b.components)
