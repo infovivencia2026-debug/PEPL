@@ -32,6 +32,7 @@ no benefit. If you scale the API to three instances, the scheduler stays at one.
 | `PEPL_MAIL_IDLE_MAX` | no | IMAP IDLE sockets the scheduler holds open across all tenants (default 50, 0 = off). Mailboxes over the cap are polled every five minutes instead |
 | `PEPL_VAPID_PUBLIC_KEY`, `PEPL_VAPID_PRIVATE_KEY`, `PEPL_VAPID_SUBJECT` | for push | Web Push identity. `npm run job push.keygen` prints a pair; subject is a `mailto:` the push services may contact. All three or none. The private key lets anyone push as PEPL — treat it like `PEPL_MAIL_KEY` |
 | `PEPL_PUBLIC_URL` | recommended | The address employees open, e.g. `https://hr.yourcompany.com`. Used to build password-reset links; without it the request's Host header is used, which a proxy can get wrong |
+| `PEPL_RATE_LIMIT_STORE` | with 2+ API instances | `postgres` shares rate-limit counters across instances (one UPSERT per request on an UNLOGGED table, fails open). Default `memory` is exact for one instance and wrong for two: the limit doubles and lockouts depend on which instance answers |
 | `PEPL_METRICS_TOKEN` | no | bearer token for `GET /metrics`; without it the endpoint answers loopback only |
 | `PORT` | no | defaults to 3100 locally, 4010 in the image |
 
@@ -194,4 +195,7 @@ has `notifications.push_enabled` on; check the person has a row in
 
 ## What is not here yet
 
-- **No multi-region anything.** One database, one scheduler.
+- **No multi-region anything.** One database, one scheduler. Two or more API
+  instances behind a balancer are fine with `PEPL_RATE_LIMIT_STORE=postgres`; the
+  SSE bus is still per instance, so a browser sees events from the instance it is
+  connected to — run the scheduler as one copy and pin event streams if you scale out.

@@ -22,6 +22,8 @@ export const GLOBAL_TABLES: ReadonlySet<string> = new Set([
   // would resolve the tenant. Holds an email, an IP and a success flag; no
   // tenant data.
   'login_attempts',
+  // Same reason: keyed by IP or hashed token, before a tenant exists.
+  'rate_limit_buckets',
 ])
 
 /** Tenant-scoped, but keyed on their own id rather than a tenant_id column. */

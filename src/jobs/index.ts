@@ -11,6 +11,7 @@
  * boundary the whole system rests on.
  */
 import { controlDb, projectEntitlements } from '../control-plane/index.ts'
+import { PgRateLimiter } from '../http/rate-limit-pg.ts'
 import type { PoolClient } from 'pg'
 import { withTenant } from '../db/tenant-tx.ts'
 import { accrueMonthly, rollover } from '../leave/ledger.ts'
@@ -176,6 +177,8 @@ export async function purgeOldCoordinates(tx: PoolClient, olderThanDays = 180): 
 }
 
 export async function runRetentionPurge(): Promise<JobResult> {
+  // Rate-limit counters are global, not per tenant; one sweep per pass.
+  await PgRateLimiter.sweep().catch(() => { /* an UNLOGGED counter table is not worth failing the job over */ })
   return perTenant('data.retention', async (tenantId) =>
     withTenant(tenantId, async (tx) => {
       // Attendance selfies and raw coordinates age out first: they are the

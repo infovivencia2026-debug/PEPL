@@ -6,7 +6,8 @@
  * payroll data.
  */
 import type { IncomingMessage, ServerResponse } from 'node:http'
-import { PUBLIC_LIMIT, RateLimiter, SESSION_LIMIT, sessionKey, type Limit } from './rate-limit.ts'
+import { PUBLIC_LIMIT, RateLimiter, SESSION_LIMIT, sessionKey, type Limit, type Verdict } from './rate-limit.ts'
+import { PgRateLimiter } from './rate-limit-pg.ts'
 import { httpDuration, httpRequests, rateLimited } from '../lib/metrics.ts'
 
 export type Method = 'GET' | 'POST' | 'PATCH' | 'PUT' | 'DELETE'
@@ -239,11 +240,21 @@ export interface HandlerOptions {
   /** Override the defaults; tests set these low to exercise the 429 path. */
   publicLimit?: Limit
   sessionLimit?: Limit
+  /**
+   * 'memory' (default) is exact for one instance. 'postgres' shares counts
+   * across instances behind a balancer at one round-trip per request.
+   * Defaults from PEPL_RATE_LIMIT_STORE.
+   */
+  store?: 'memory' | 'postgres'
 }
 
+interface Limiter { check(key: string, now?: number): Verdict | Promise<Verdict> }
+
 export function createHandler(router: Router, options: HandlerOptions = {}) {
-  const publicLimiter = new RateLimiter(options.publicLimit ?? PUBLIC_LIMIT)
-  const sessionLimiter = new RateLimiter(options.sessionLimit ?? SESSION_LIMIT)
+  const store = options.store ?? (process.env.PEPL_RATE_LIMIT_STORE === 'postgres' ? 'postgres' : 'memory')
+  const make = (limit: Limit): Limiter => store === 'postgres' ? new PgRateLimiter(limit) : new RateLimiter(limit)
+  const publicLimiter = make(options.publicLimit ?? PUBLIC_LIMIT)
+  const sessionLimiter = make(options.sessionLimit ?? SESSION_LIMIT)
 
   return async (req: IncomingMessage, res: ServerResponse): Promise<void> => {
     const url = new URL(req.url ?? '/', 'http://localhost')
@@ -277,9 +288,9 @@ export function createHandler(router: Router, options: HandlerOptions = {}) {
     if (!url.pathname.startsWith('/health') && url.pathname !== '/api/v1/events') {
       const auth = req.headers.authorization
       const token = auth?.startsWith('Bearer ') ? auth.slice(7).trim() : null
-      const verdict = token
+      const verdict = await (token
         ? sessionLimiter.check(sessionKey(token))
-        : publicLimiter.check(`ip:${req.socket.remoteAddress ?? 'unknown'}`)
+        : publicLimiter.check(`ip:${req.socket.remoteAddress ?? 'unknown'}`))
       if (!verdict.allowed) {
         rateLimited.inc({ limiter: token ? 'session' : 'public' })
         send(429, {

@@ -4,7 +4,7 @@ This supersedes `API-HANDOFF.md` and contains it. Part 1 is the original handoff
 corrected where the backend has moved on. Part 2 is everything built since. Part 3
 is what to build next and what is still genuinely missing.
 
-The backend is complete and tested for every feature described here: **602 tests,
+The backend is complete and tested for every feature described here: **607 tests,
 134 routes, 20 launch checks, all green in one run.**
 
 ---
@@ -931,7 +931,7 @@ default tiles is the lever.
 ## Sanity check
 
 ```bash
-npm test          # 602 tests, including 33 against the running HTTP API
+npm test          # 607 tests, including 33 against the running HTTP API
 npm run verify    # every gate, end to end
 npm run check:responsive   # eight devices, currently clean
 npm run job mail.outbox    # drains queued external mail
