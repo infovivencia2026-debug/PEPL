@@ -66,6 +66,7 @@ export const ROLE_PERMISSIONS: Readonly<Record<string, { permissions: Permission
       permissions: [
         'employee.read',
         'compensation.read', 'compensation.write',
+        'document.read',
         'bank.read', 'bank.export',
         'payroll.read', 'payroll.process', 'payroll.approve', 'payroll.lock', 'payroll.revise',
         'incentive.read', 'incentive.write', 'incentive.approve',
@@ -98,7 +99,7 @@ export const ROLE_PERMISSIONS: Readonly<Record<string, { permissions: Permission
       permissions: [
         'employee.read',
         'attendance.read', 'leave.read', 'leave.apply',
-        'payroll.read', 'document.read', 'ticket.read', 'ticket.write',
+        'payroll.read', 'document.read', 'document.write', 'ticket.read', 'ticket.write',
         'task.read', 'announcement.read',
       ],
     },

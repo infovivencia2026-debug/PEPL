@@ -24,7 +24,6 @@ import {
   loadStatutory,
   ptFor,
   computeTds,
-  monthsRemainingInFY,
 } from './deps.ts'
 
 /**
@@ -33,7 +32,10 @@ import {
  * rather than silently deducting a wrong figure.
  */
 function tdsFor(statutory: Awaited<ReturnType<typeof loadStatutory>>) {
-  return (args: { monthlyTaxableGrossPaise: bigint; regime: 'old' | 'new'; declaredDeductionsPaise: bigint }) => {
+  return (args: {
+    monthlyTaxableGrossPaise: bigint; regime: 'old' | 'new'; declaredDeductionsPaise: bigint
+    earnedToDatePaise: bigint; deductedToDatePaise: bigint; monthsRemaining: number
+  }) => {
     const rules = statutory.taxRules[args.regime]
     const slabs = statutory.taxSlabs[args.regime]
     if (!rules || slabs.length === 0) {
@@ -42,7 +44,10 @@ function tdsFor(statutory: Awaited<ReturnType<typeof loadStatutory>>) {
     const r = computeTds(
       {
         monthlyTaxableGrossPaise: args.monthlyTaxableGrossPaise,
-        monthsRemaining: monthsRemainingInFY(new Date()),
+        // All three are frozen VALUES on the run; the wall clock has no say.
+        monthsRemaining: args.monthsRemaining,
+        earnedToDatePaise: args.earnedToDatePaise,
+        deductedToDatePaise: args.deductedToDatePaise,
         regime: args.regime,
         declaredDeductionsPaise: args.declaredDeductionsPaise,
       },

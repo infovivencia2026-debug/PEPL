@@ -42,6 +42,11 @@ export interface PayrollInput {
   taxRegime: 'old' | 'new'
   /** Allowed Chapter VI-A + HRA exemption for the year, resolved at freeze. */
   chapterViaPaise?: bigint
+  /** Taxable gross and TDS already in locked runs this fiscal year, resolved at freeze. */
+  ytdTaxablePaise?: bigint
+  ytdTdsPaise?: bigint
+  /** Months left in the fiscal year including this period's. From the period, not the clock. */
+  monthsRemaining?: number
   adhoc: { code: string; amountPaise: number; taxable?: boolean }[]
   joinedMidPeriod?: boolean
   exitedMidPeriod?: boolean
@@ -64,6 +69,9 @@ export interface EngineOptions {
     regime: 'old' | 'new'
     /** Allowed Chapter VI-A + HRA exemption for the year, resolved at freeze. */
     declaredDeductionsPaise: bigint
+    earnedToDatePaise: bigint
+    deductedToDatePaise: bigint
+    monthsRemaining: number
   }) => { monthlyTdsPaise: bigint; trace: Record<string, unknown> }
 }
 
@@ -184,6 +192,9 @@ export function computePayroll(input: PayrollInput, opts: EngineOptions): Comput
       monthlyTaxableGrossPaise: taxableGross,
       regime: input.taxRegime,
       declaredDeductionsPaise: input.chapterViaPaise ?? 0n,
+      earnedToDatePaise: input.ytdTaxablePaise ?? 0n,
+      deductedToDatePaise: input.ytdTdsPaise ?? 0n,
+      monthsRemaining: input.monthsRemaining ?? 12,
     })
     if (result.monthlyTdsPaise > 0n) {
       lines.push({

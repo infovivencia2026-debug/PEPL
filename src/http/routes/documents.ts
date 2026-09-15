@@ -58,6 +58,11 @@ export function register(router: Router): void {
         if (!owner) throw new HttpError(422, 'VALIDATION_FAILED', 'ownerId is required for an employee document')
         assertScope(ctx.auth, owner)
       }
+      // A company-wide document (policies, handbooks) is not something a person
+      // with self-scope publishes, whatever else document.write lets them upload.
+      if (type === 'tenant' && ctx.auth.scope !== 'all') {
+        throw new HttpError(403, 'PERMISSION_DENIED', 'only company-wide roles can publish company documents')
+      }
 
       // The company's own limit, never above what the storage layer accepts.
       const limit = Math.min(

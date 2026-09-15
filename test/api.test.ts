@@ -253,6 +253,17 @@ describe('the manager/salary boundary holds over HTTP', () => {
     expect(r.status).toBe(403)
     expect(r.body.error?.code).toBe('PERMISSION_DENIED')
   })
+
+  it('an employee may upload to their own file but not publish a company document', async () => {
+    const token = await loginAs(ids.employee!)
+    const doc = { fileName: 'proof.txt', contentType: 'text/plain', contentBase64: Buffer.from('rent receipt').toString('base64') }
+    const own = await api('POST', '/api/v1/documents', { token, body: { ...doc, ownerType: 'employee', ownerId: ids.employeeEmp } })
+    expect(own.status).toBe(201)
+    const colleague = await api('POST', '/api/v1/documents', { token, body: { ...doc, ownerType: 'employee', ownerId: ids.otherEmp } })
+    expect(colleague.status).toBe(404)
+    const company = await api('POST', '/api/v1/documents', { token, body: { ...doc, ownerType: 'tenant' } })
+    expect(company.status).toBe(403)
+  })
 })
 
 describe('validation and domain errors surface properly', () => {

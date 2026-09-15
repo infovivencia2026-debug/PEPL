@@ -9,7 +9,7 @@
 import type { PoolClient } from 'pg'
 import { computePayroll, validateRun, type EngineOptions, type PayrollInput, type StatutoryConfig } from './engine.ts'
 import { allowanceFor } from './declarations.ts'
-import { fiscalYearOf } from './tds.ts'
+import { fiscalYearOf, monthsRemainingInFY } from './tds.ts'
 
 export class PayrollError extends Error {
   readonly code: string
@@ -58,6 +58,10 @@ export interface FreezeRow {
   taxRegime?: 'old' | 'new'
   /** Allowed Chapter VI-A deductions + HRA exemption for the year, resolved at freeze. */
   chapterViaPaise?: bigint | number
+  /** Taxable gross already paid this fiscal year in locked runs. Resolved at freeze if omitted. */
+  ytdTaxablePaise?: bigint | number
+  /** TDS already deducted this fiscal year in locked runs. Resolved at freeze if omitted. */
+  ytdTdsPaise?: bigint | number
   adhoc?: { code: string; amountPaise: number }[]
   joinedMidPeriod?: boolean
   exitedMidPeriod?: boolean
@@ -84,7 +88,10 @@ export async function freezeInputs(
   const { rows: period } = await tx.query<{ period_start: string }>(
     `SELECT period_start::text FROM payroll_periods WHERE id = $1`, [run.period_id])
   if (!period[0]) throw new PayrollError('PERIOD_NOT_FOUND', `run ${runId} has no period`)
-  const fiscalYear = fiscalYearOf(new Date(period[0].period_start))
+  const periodStart = new Date(period[0].period_start)
+  const fiscalYear = fiscalYearOf(periodStart)
+  // From the PERIOD, never the clock: September processed in October is September.
+  const monthsRemaining = monthsRemainingInFY(periodStart)
 
   for (const row of rows) {
     // Chapter VI-A is resolved HERE, once, into a value. A caller may pass its own
@@ -98,19 +105,24 @@ export async function freezeInputs(
       })
       r = { ...r, chapterViaPaise: resolved.allowance.totalPaise, taxRegime: r.taxRegime ?? resolved.regime }
     }
+    if (r.ytdTaxablePaise === undefined || r.ytdTdsPaise === undefined) {
+      const ytd = await yearToDate(tx, r.employeeId, periodStart)
+      r = { ...r, ytdTaxablePaise: r.ytdTaxablePaise ?? ytd.taxablePaise, ytdTdsPaise: r.ytdTdsPaise ?? ytd.tdsPaise }
+    }
     await tx.query(
       `INSERT INTO payroll_inputs
          (tenant_id, run_id, employee_id, calendar_days, payable_days, lop_days,
           paid_leave_days, ot_minutes, monthly_components, annual_ctc_paise, state_code,
           pf_applicable, esi_applicable, tax_regime, adhoc, joined_mid_period, exited_mid_period,
-          chapter_via_paise)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9::jsonb,$10,$11,$12,$13,$14,$15::jsonb,$16,$17,$18)`,
+          chapter_via_paise, ytd_taxable_paise, ytd_tds_paise, months_remaining)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9::jsonb,$10,$11,$12,$13,$14,$15::jsonb,$16,$17,$18,$19,$20,$21)`,
       [tid, runId, r.employeeId, r.calendarDays, r.payableDays, r.lopDays,
        r.paidLeaveDays ?? 0, r.otMinutes ?? 0,
        JSON.stringify(r.monthlyComponents), String(r.annualCtcPaise), r.stateCode,
        r.pfApplicable ?? true, r.esiApplicable ?? false, r.taxRegime ?? 'new',
        JSON.stringify(r.adhoc ?? []), r.joinedMidPeriod ?? false, r.exitedMidPeriod ?? false,
-       String(r.chapterViaPaise ?? 0)],
+       String(r.chapterViaPaise ?? 0), String(r.ytdTaxablePaise ?? 0), String(r.ytdTdsPaise ?? 0),
+       monthsRemaining],
     )
   }
 
@@ -122,6 +134,50 @@ export async function freezeInputs(
     [tid, runId, JSON.stringify(configSnapshot), statutoryConfigId, rows.length],
   )
   return rows.length
+}
+
+/**
+ * What this employee has already been paid and taxed this fiscal year.
+ *
+ * LOCKED runs only — a calculated-but-unlocked run can still change. A run
+ * that a later revision supersedes is excluded, or a corrected month would be
+ * counted twice. Taxable = gross minus the employee's own PF, which is what the
+ * engine hands the TDS hook each month, so the two agree by construction.
+ */
+export async function yearToDate(
+  tx: PoolClient,
+  employeeId: string,
+  periodStart: Date,
+): Promise<{ taxablePaise: bigint; tdsPaise: bigint; runs: number }> {
+  const fy = fiscalYearOf(periodStart)
+  const fyStart = `${fy.slice(0, 4)}-04-01`
+  const { rows } = await tx.query<{ gross: string; pf: string; tds: string; runs: string }>(
+    `WITH prior AS (
+       SELECT r.id
+         FROM payroll_runs r
+         JOIN payroll_periods p ON (p.tenant_id, p.id) = (r.tenant_id, r.period_id)
+        WHERE r.status = 'locked'
+          AND p.period_start >= $2::date AND p.period_start < $3::date
+          AND NOT EXISTS (SELECT 1 FROM payroll_runs n
+                           WHERE n.tenant_id = r.tenant_id AND n.supersedes_run_id = r.id
+                             AND n.status = 'locked')
+     ),
+     lines AS (
+       SELECT component_code, sum(amount_paise) AS amt
+         FROM payroll_lines
+        WHERE run_id IN (SELECT id FROM prior) AND employee_id = $1
+        GROUP BY component_code
+     )
+     SELECT coalesce((SELECT sum(gross_paise) FROM payslips
+                       WHERE run_id IN (SELECT id FROM prior) AND employee_id = $1), 0)::text AS gross,
+            coalesce((SELECT amt FROM lines WHERE component_code = 'PF_EE'), 0)::text AS pf,
+            coalesce((SELECT amt FROM lines WHERE component_code = 'TDS'), 0)::text AS tds,
+            (SELECT count(*) FROM payslips
+              WHERE run_id IN (SELECT id FROM prior) AND employee_id = $1)::text AS runs`,
+    [employeeId, fyStart, periodStart.toISOString().slice(0, 10)],
+  )
+  const r = rows[0]!
+  return { taxablePaise: BigInt(r.gross) - BigInt(r.pf), tdsPaise: BigInt(r.tds), runs: Number(r.runs) }
 }
 
 /** Only before calculation, and only from inputs_frozen. Audited by the caller. */
@@ -341,10 +397,12 @@ async function readInputs(tx: PoolClient, runId: string): Promise<PayrollInput[]
     pf_applicable: boolean; esi_applicable: boolean; tax_regime: 'old' | 'new'
     adhoc: { code: string; amountPaise: number }[]
     joined_mid_period: boolean; exited_mid_period: boolean; chapter_via_paise: string
+    ytd_taxable_paise: string; ytd_tds_paise: string; months_remaining: number
   }>(
     `SELECT employee_id, calendar_days::text, payable_days::text, lop_days::text,
             monthly_components, state_code, pf_applicable, esi_applicable, tax_regime,
-            adhoc, joined_mid_period, exited_mid_period, chapter_via_paise::text
+            adhoc, joined_mid_period, exited_mid_period, chapter_via_paise::text,
+            ytd_taxable_paise::text, ytd_tds_paise::text, months_remaining
        FROM payroll_inputs WHERE run_id = $1 ORDER BY employee_id`,
     [runId],
   )
@@ -362,5 +420,8 @@ async function readInputs(tx: PoolClient, runId: string): Promise<PayrollInput[]
     joinedMidPeriod: r.joined_mid_period,
     exitedMidPeriod: r.exited_mid_period,
     chapterViaPaise: BigInt(r.chapter_via_paise ?? '0'),
+    ytdTaxablePaise: BigInt(r.ytd_taxable_paise ?? '0'),
+    ytdTdsPaise: BigInt(r.ytd_tds_paise ?? '0'),
+    monthsRemaining: r.months_remaining ?? 12,
   }))
 }
