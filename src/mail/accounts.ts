@@ -43,6 +43,115 @@ export interface MailAccount {
   provider: string
   status: string
   last_error: string | null
+  /** Shown in the account switcher: "Work", "Recruiting", "Support desk". */
+  label: string | null
+  is_default: boolean
+  imap_host: string | null
+  smtp_host: string | null
+  created_at: string
+}
+
+const LIVE = `status NOT IN ('disconnected', 'removed')`
+
+/** Every live mailbox a person has, the default first. */
+export async function listAccounts(tx: PoolClient, userId: string): Promise<MailAccount[]> {
+  const { rows } = await tx.query<MailAccount>(
+    `SELECT id, user_id, email, display_name, provider, status, last_error, label, is_default,
+            imap_host, smtp_host, created_at::text
+       FROM mail_accounts WHERE user_id = $1 AND ${LIVE}
+      ORDER BY is_default DESC, created_at`, [userId])
+  return rows
+}
+
+/**
+ * One of the person's mailboxes by id — or, with no id, the default one.
+ * An id that is not theirs is "not found", never someone else's mailbox.
+ */
+export async function accountForUser(
+  tx: PoolClient, userId: string, accountId?: string | null,
+): Promise<MailAccount | null> {
+  const { rows } = await tx.query<MailAccount>(
+    `SELECT id, user_id, email, display_name, provider, status, last_error, label, is_default,
+            imap_host, smtp_host, created_at::text
+       FROM mail_accounts
+      WHERE user_id = $1 AND ${LIVE} AND ($2::uuid IS NULL OR id = $2)
+      ORDER BY is_default DESC, created_at LIMIT 1`, [userId, accountId ?? null])
+  return rows[0] ?? null
+}
+
+/** Makes one mailbox the default; the previous default steps down in the same statement. */
+export async function setDefaultAccount(tx: PoolClient, userId: string, accountId: string): Promise<void> {
+  const owned = await accountForUser(tx, userId, accountId)
+  if (!owned) throw new MailError('MAILBOX_NOT_FOUND', 'no such mailbox')
+  // Two statements: the one-default-per-person index is checked row by row, so
+  // a single UPDATE would briefly hold two defaults and fail.
+  await tx.query(`UPDATE mail_accounts SET is_default = false WHERE user_id = $1 AND is_default`, [userId])
+  await tx.query(`UPDATE mail_accounts SET is_default = true WHERE id = $1`, [accountId])
+}
+
+export async function updateAccount(
+  tx: PoolClient, userId: string, accountId: string, patch: { label?: string | null; displayName?: string | null },
+): Promise<MailAccount> {
+  const owned = await accountForUser(tx, userId, accountId)
+  if (!owned) throw new MailError('MAILBOX_NOT_FOUND', 'no such mailbox')
+  await tx.query(
+    `UPDATE mail_accounts
+        SET label        = CASE WHEN $2::boolean THEN $3 ELSE label END,
+            display_name = CASE WHEN $4::boolean THEN $5 ELSE display_name END
+      WHERE id = $1`,
+    [accountId, 'label' in patch, patch.label?.trim().slice(0, 60) || null,
+     'displayName' in patch, patch.displayName?.trim().slice(0, 120) || null])
+  return (await accountForUser(tx, userId, accountId))!
+}
+
+/**
+ * Removing a mailbox destroys its credential at once and takes it out of every
+ * list, but keeps its mail for retention. A person always keeps at least one.
+ */
+export async function removeAccount(tx: PoolClient, userId: string, accountId: string): Promise<void> {
+  const all = await listAccounts(tx, userId)
+  const target = all.find((a) => a.id === accountId)
+  if (!target) throw new MailError('MAILBOX_NOT_FOUND', 'no such mailbox')
+  if (all.length === 1) throw new MailError('LAST_MAILBOX', 'you cannot remove your only mailbox')
+  await tx.query(
+    `UPDATE mail_accounts SET status = 'removed', secret_ciphertext = NULL, is_default = false WHERE id = $1`,
+    [accountId])
+  if (target.is_default) {
+    const next = all.find((a) => a.id !== accountId)!
+    await tx.query(`UPDATE mail_accounts SET is_default = true WHERE id = $1`, [next.id])
+  }
+}
+
+/**
+ * A second (third…) address with no server behind it: an alias such as
+ * hr@ or careers@ that colleagues can write to. One owner per address across
+ * the company, or internal delivery would have to guess.
+ */
+export async function addInternalAddress(
+  tx: PoolClient, args: { userId: string; email: string; label?: string | null; displayName?: string | null },
+): Promise<MailAccount> {
+  const email = args.email.trim().toLowerCase()
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) throw new MailError('VALIDATION_FAILED', 'email must be an address')
+  const taken = await findAccountByEmail(tx, email)
+  if (taken) throw new MailError('EMAIL_TAKEN', `${email} already belongs to a mailbox in this company`)
+  const tid = await tenantId(tx)
+  const id = randomUUID()
+  await tx.query(
+    `INSERT INTO mail_accounts (tenant_id, id, user_id, email, display_name, label, provider, auth_type)
+     VALUES ($1,$2,$3,$4,$5,$6,'internal','password')`,
+    [tid, id, args.userId, email, args.displayName ?? null, args.label ?? null])
+  await provisionFolders(tx, tid, id)
+  return (await accountForUser(tx, args.userId, id))!
+}
+
+export async function provisionFolders(tx: PoolClient, tid: string, accountId: string): Promise<void> {
+  for (const f of STANDARD) {
+    await tx.query(
+      `INSERT INTO mail_folders (tenant_id, account_id, path, name, role)
+       VALUES ($1,$2,$3,$4,$5) ON CONFLICT DO NOTHING`,
+      [tid, accountId, f.path, f.name, f.role],
+    )
+  }
 }
 
 /**
@@ -62,17 +171,11 @@ export async function ensureAccount(
 
   const id = randomUUID()
   await tx.query(
-    `INSERT INTO mail_accounts (tenant_id, id, user_id, email, display_name, provider, auth_type)
-     VALUES ($1,$2,$3,$4,$5,'internal','password')`,
+    `INSERT INTO mail_accounts (tenant_id, id, user_id, email, display_name, provider, auth_type, is_default)
+     VALUES ($1,$2,$3,$4,$5,'internal','password',true)`,
     [tid, id, args.userId, args.email.toLowerCase(), args.displayName ?? null],
   )
-  for (const f of STANDARD) {
-    await tx.query(
-      `INSERT INTO mail_folders (tenant_id, account_id, path, name, role)
-       VALUES ($1,$2,$3,$4,$5) ON CONFLICT DO NOTHING`,
-      [tid, id, f.path, f.name, f.role],
-    )
-  }
+  await provisionFolders(tx, tid, id)
   const created = await findAccountByUser(tx, args.userId)
   if (!created) throw new MailError('MAILBOX_NOT_FOUND', 'the mailbox vanished after creation')
   return created
@@ -82,13 +185,7 @@ export async function findAccountByUser(
   tx: PoolClient,
   userId: string,
 ): Promise<MailAccount | null> {
-  const { rows } = await tx.query<MailAccount>(
-    `SELECT id, user_id, email, display_name, provider, status, last_error
-       FROM mail_accounts WHERE user_id = $1 AND status <> 'disconnected'
-       ORDER BY created_at LIMIT 1`,
-    [userId],
-  )
-  return rows[0] ?? null
+  return accountForUser(tx, userId)
 }
 
 export async function findAccountByEmail(
@@ -96,8 +193,9 @@ export async function findAccountByEmail(
   email: string,
 ): Promise<MailAccount | null> {
   const { rows } = await tx.query<MailAccount>(
-    `SELECT id, user_id, email, display_name, provider, status, last_error
-       FROM mail_accounts WHERE lower(email) = lower($1) AND status <> 'disconnected'
+    `SELECT id, user_id, email, display_name, provider, status, last_error, label, is_default,
+            imap_host, smtp_host, created_at::text
+       FROM mail_accounts WHERE lower(email) = lower($1) AND ${LIVE}
        ORDER BY created_at LIMIT 1`,
     [email],
   )

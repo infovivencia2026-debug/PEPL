@@ -9,17 +9,27 @@ import {
   sendMail, setFlag, type Flag, type MailAccount,
   listAttachments, readAttachment, uploadAttachment, assertAttachmentsUsable, MAX_ATTACHMENT_BYTES,
   createFolder, renameFolder, deleteFolder, getSettings, updateSettings, bulk, suggestRecipients,
+  listAccounts, accountForUser, setDefaultAccount, updateAccount, removeAccount, addInternalAddress,
   type BulkAction,
 } from '../../mail/index.ts'
+import { connectMailbox } from '../../comms/index.ts'
 import type { Ctx } from '../context.ts'
 
 /**
- * The caller's own mailbox, created on first visit.
+ * The caller's mailbox — the one named by `?accountId=` (or `accountId` in the
+ * body), else their default — created on first visit.
  *
  * Provisioning lazily means a company that never turns mail on carries no rows
- * for it, and turning it on needs no migration of existing people.
+ * for it, and turning it on needs no migration of existing people. An id that
+ * belongs to someone else is a 404, not a different mailbox.
  */
 async function myAccount(ctx: Ctx): Promise<MailAccount> {
+  const wanted = ctx.req.query.get('accountId') ?? (ctx.req.body as { accountId?: string } | undefined)?.accountId
+  if (wanted) {
+    const chosen = await accountForUser(ctx.tx, ctx.session.userId, asUuid(wanted, 'accountId'))
+    if (!chosen) throw new HttpError(404, 'MAILBOX_NOT_FOUND', 'no such mailbox')
+    return chosen
+  }
   const existing = await findAccountByUser(ctx.tx, ctx.session.userId)
   if (existing) return existing
   const { rows } = await ctx.tx.query<{ email: string; full_name: string | null }>(
@@ -43,6 +53,68 @@ async function assertOwnMessage(ctx: Ctx, accountId: string, envelopeId: string)
 const FLAGS: readonly Flag[] = ['seen', 'unseen', 'flagged', 'unflagged']
 
 export function register(router: Router): void {
+  router.get('/api/v1/mail/accounts',
+    { summary: 'Your mailboxes, default first (the first visit creates one)', tag: 'mail' },
+    authed(null, async (ctx) => {
+      requireModule(ctx, 'mail.enabled')
+      await myAccount(ctx)
+      return ok({ accounts: await listAccounts(ctx.tx, ctx.session.userId) })
+    }))
+
+  router.post('/api/v1/mail/accounts',
+    { summary: 'Add a mailbox: an internal alias (email only) or an external IMAP/SMTP account', tag: 'mail',
+      requestExample: { email: 'careers@acme.com', label: 'Recruiting', imapHost: 'imap.acme.com', smtpHost: 'smtp.acme.com',
+        username: 'careers@acme.com', password: '…' } },
+    authed(null, async (ctx) => {
+      requireModule(ctx, 'mail.enabled')
+      await myAccount(ctx)
+      const b = requireBody<{
+        email: string; label?: string; displayName?: string
+        imapHost?: string; imapPort?: number; imapSecure?: boolean
+        smtpHost?: string; smtpPort?: number; smtpSecure?: boolean
+        username?: string; password?: string
+      }>(ctx.req, ['email'])
+      if (!b.imapHost && !b.smtpHost) {
+        return created(await addInternalAddress(ctx.tx, {
+          userId: ctx.session.userId, email: b.email, label: b.label ?? null, displayName: b.displayName ?? null }))
+      }
+      if (!b.imapHost || !b.smtpHost || !b.username || !b.password) {
+        throw new HttpError(422, 'VALIDATION_FAILED', 'an external mailbox needs imapHost, smtpHost, username and password')
+      }
+      const master = process.env.PEPL_MAIL_KEY
+      if (!master) throw new HttpError(503, 'MAIL_KEY_MISSING', 'this server cannot store mail credentials (PEPL_MAIL_KEY is not set)')
+      const id = await connectMailbox(ctx.tx, {
+        userId: ctx.session.userId, email: b.email, username: b.username, password: b.password, master,
+        imapHost: b.imapHost, imapPort: b.imapPort, imapSecure: b.imapSecure,
+        smtpHost: b.smtpHost, smtpPort: b.smtpPort, smtpSecure: b.smtpSecure,
+        label: b.label ?? null, displayName: b.displayName ?? null,
+      })
+      await emit(ctx.tx, { action: 'mail.account.connected', entityType: 'mail_account', entityId: id,
+        actorUserId: ctx.session.userId, metadata: { email: b.email.toLowerCase(), imapHost: b.imapHost } })
+      return created(await accountForUser(ctx.tx, ctx.session.userId, id))
+    }))
+
+  router.patch('/api/v1/mail/accounts/:id',
+    { summary: 'Rename a mailbox (label, display name) or make it your default', tag: 'mail',
+      requestExample: { label: 'Recruiting', isDefault: true } },
+    authed(null, async (ctx) => {
+      requireModule(ctx, 'mail.enabled')
+      const id = asUuid(ctx.req.params.id, 'id')
+      const b = requireBody<{ label?: string | null; displayName?: string | null; isDefault?: boolean }>(ctx.req, [])
+      if (b.isDefault) await setDefaultAccount(ctx.tx, ctx.session.userId, id)
+      return ok(await updateAccount(ctx.tx, ctx.session.userId, id, b))
+    }))
+
+  router.del('/api/v1/mail/accounts/:id',
+    { summary: 'Remove a mailbox: credential destroyed now, mail kept for retention; not your last one', tag: 'mail' },
+    authed(null, async (ctx) => {
+      requireModule(ctx, 'mail.enabled')
+      const id = asUuid(ctx.req.params.id, 'id')
+      await removeAccount(ctx.tx, ctx.session.userId, id)
+      await emit(ctx.tx, { action: 'mail.account.removed', entityType: 'mail_account', entityId: id, actorUserId: ctx.session.userId })
+      return noContent()
+    }))
+
   router.get('/api/v1/mail/folders',
     { summary: 'Your mailbox and its folders, with unread counts', tag: 'mail' },
     authed(null, async (ctx) => {

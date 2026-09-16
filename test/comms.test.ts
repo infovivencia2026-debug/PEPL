@@ -257,9 +257,9 @@ describe('mail credential custody', () => {
     )
     await withTenant(A.id, (tx) => disconnectMailbox(tx, id))
     const rows = await withTenant(A.id, async (tx) =>
-      (await tx.query('SELECT * FROM mail_accounts')).rows,
+      (await tx.query('SELECT status, secret_ciphertext FROM mail_accounts WHERE id = $1', [id])).rows,
     )
-    expect(rows).toHaveLength(0)
+    expect(rows).toEqual([{ status: 'disconnected', secret_ciphertext: null }])
   })
 
   it('another company cannot see a mailbox connection', async () => {

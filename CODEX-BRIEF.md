@@ -1285,6 +1285,52 @@ POST   /api/v1/mail/messages/bulk       { ids[], action: flag|move|delete, flag?
 
 ---
 
+## 2.41 Several mailboxes per person — 4 endpoints, one query parameter
+
+Some people run more than one address: their own, plus `hr@`, `careers@`,
+`payroll@`, or a personal Gmail they answer candidates from. Every mail route
+now takes **`?accountId=<uuid>`** (or `accountId` in a POST body) and works on
+that mailbox; with no parameter it works on the person's **default** mailbox,
+so the existing screen keeps working unchanged.
+
+```
+GET    /api/v1/mail/accounts           -> { accounts: [{ id, email, display_name, label, is_default, provider, status, last_error, imap_host, smtp_host }] }
+POST   /api/v1/mail/accounts           { email, label?, displayName? }                                  -> 201 internal alias
+                                       { email, label?, imapHost, smtpHost, username, password,
+                                         imapPort?, imapSecure?, smtpPort?, smtpSecure? }               -> 201 external account
+PATCH  /api/v1/mail/accounts/:id       { label?, displayName?, isDefault?: true }
+DELETE /api/v1/mail/accounts/:id       -> 204   (credential destroyed now; mail kept; 409 LAST_MAILBOX for the only one)
+```
+
+Codes: `409 EMAIL_TAKEN` (an address has exactly one owner in the company),
+`503 MAIL_KEY_MISSING` (server has no credential key — show "ask your
+administrator"), `404 MAILBOX_NOT_FOUND` for an `accountId` that is not yours.
+
+Build:
+
+- **Account switcher** at the top of the folder rail: the default mailbox's
+  address with a chevron; the menu lists every account as
+  `label — email` (label first when set), a tick on the current one, and
+  "Add mailbox…" / "Manage mailboxes…". Switching sets `accountId` on every
+  subsequent mail call and reloads folders + list. Remember the last choice in
+  `localStorage`, but never trust it — if the id is not in `GET /mail/accounts`,
+  fall back to the default.
+- **Compose "From"**: a select above To, defaulting to the current mailbox,
+  listing all accounts. Send with that `accountId`. Reply / reply-all / forward
+  preselect the mailbox the original arrived in (it is the one you are viewing).
+- **Add mailbox** dialog with two tabs: *Company address* (email + label — for an
+  alias like `careers@`) and *External account* (email, label, IMAP host/port/TLS,
+  SMTP host/port/TLS, username, password; defaults 993/TLS and 587/STARTTLS).
+  Save → 201 → switch to it. External accounts show `status` and `last_error`
+  in Manage mailboxes (the sync sets `auth_failed` with the server's message).
+- **Manage mailboxes**: rename label / display name, "Make default", Remove
+  (confirm; explain that the mail stays but the address stops receiving).
+- Unread badges: `GET /mail/folders?accountId=` per account is fine for the
+  menu (one call each, lazily on open); do not poll.
+- Signature and settings (§2.40) are per mailbox: pass `accountId` there too.
+
+---
+
 # Part 3 — What to build, in order
 
 1. **Chat UI.** The largest visible hole. Conversation list, thread, composer,
@@ -1344,6 +1390,8 @@ POST   /api/v1/mail/messages/bulk       { ids[], action: flag|move|delete, flag?
    with two actions.
 26. **"Send payslips now"** on the locked run, with the sent / skipped / failed
     result, and a Sent tick on the payslip list (§2.38).
+27. **Mailbox switcher, From selector, Add/Manage mailboxes** (§2.41) — do this
+    right after §2.40; it is the same screen.
 
 ## Running it
 

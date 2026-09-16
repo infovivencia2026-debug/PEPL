@@ -66,6 +66,8 @@ export const ACTIONS: Readonly<Record<string, ActionDef>> = Object.freeze({
   'people.compensation.requested': { category: 'people', severity: 'notice', requiresReason: true },
   'payroll.loan.changed': { category: 'payroll', severity: 'notice' },
   'payroll.payslips.distributed': { category: 'payroll', severity: 'notice' },
+  'mail.account.connected': { category: 'comms', severity: 'notice' },
+  'mail.account.removed': { category: 'comms', severity: 'notice' },
   'attendance.correction.requested': { category: 'attendance', severity: 'info', requiresReason: true },
   'roles.user.changed': { category: 'security', severity: 'warning' },
   'employee.separation.cancelled': { category: 'people', severity: 'notice', requiresReason: true },
@@ -97,7 +99,6 @@ export const ACTIONS: Readonly<Record<string, ActionDef>> = Object.freeze({
   'comms.message.sent': { category: 'comms', severity: 'info' },
   'comms.conversation.created': { category: 'comms', severity: 'info' },
   'mail.message.sent': { category: 'comms', severity: 'notice' },
-  'mail.account.connected': { category: 'comms', severity: 'notice' },
 })
 
 /** Fields never written in full, whatever the caller passes. */

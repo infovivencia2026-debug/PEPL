@@ -8,6 +8,7 @@
 import { createCipheriv, createDecipheriv, randomBytes, scryptSync } from 'node:crypto'
 import type { PoolClient } from 'pg'
 import { CommsError, tenantId } from './base.ts'
+import { MailError, findAccountByEmail, provisionFolders } from '../mail/accounts.ts'
 
 export { CommsError, tenantId } from './base.ts'
 export * from './chat.ts'
@@ -164,23 +165,42 @@ export async function connectMailbox(
   args: {
     userId: string; email: string; username: string; password: string
     imapHost: string; smtpHost: string; master: string
+    imapPort?: number; imapSecure?: boolean; smtpPort?: number; smtpSecure?: boolean
+    label?: string | null; displayName?: string | null
   },
 ): Promise<string> {
   const tid = await tenantId(tx)
+  const email = args.email.trim().toLowerCase()
+  if (await findAccountByEmail(tx, email)) {
+    throw new MailError('EMAIL_TAKEN', `${email} already belongs to a mailbox in this company`)
+  }
   const id = crypto.randomUUID()
   await tx.query(
     `INSERT INTO mail_accounts
-       (tenant_id, id, user_id, email, username, imap_host, imap_port, imap_secure,
-        smtp_host, smtp_port, smtp_secure, secret_ciphertext)
-     VALUES ($1,$2,$3,$4,$5,$6,993,true,$7,587,false,$8)`,
-    [tid, id, args.userId, args.email, args.username, args.imapHost, args.smtpHost,
+       (tenant_id, id, user_id, email, display_name, label, username, imap_host, imap_port, imap_secure,
+        smtp_host, smtp_port, smtp_secure, secret_ciphertext,
+        is_default)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,
+             NOT EXISTS (SELECT 1 FROM mail_accounts WHERE user_id = $3 AND status NOT IN ('disconnected','removed')))`,
+    [tid, id, args.userId, email, args.displayName ?? null, args.label ?? null, args.username,
+     args.imapHost, args.imapPort ?? 993, args.imapSecure ?? true,
+     args.smtpHost, args.smtpPort ?? 587, args.smtpSecure ?? false,
      encryptSecret(args.password, tid, args.master)],
   )
+  // Standard folders exist before the first sync, so Sent and Drafts work at once;
+  // the sync adopts them under the server's own names.
+  await provisionFolders(tx, tid, id)
   return id
 }
 
-/** Disconnecting destroys the credential immediately. One click, and it completes. */
+/**
+ * Disconnecting destroys the credential immediately. One click, and it
+ * completes. The row stays (folders and mail hang off it, and retention owns
+ * their lifetime); it just stops syncing, sending and receiving.
+ */
 export async function disconnectMailbox(tx: PoolClient, accountId: string): Promise<void> {
   const tid = await tenantId(tx)
-  await tx.query('DELETE FROM mail_accounts WHERE tenant_id = $1 AND id = $2', [tid, accountId])
+  await tx.query(
+    `UPDATE mail_accounts SET status = 'disconnected', secret_ciphertext = NULL, is_default = false
+      WHERE tenant_id = $1 AND id = $2`, [tid, accountId])
 }
