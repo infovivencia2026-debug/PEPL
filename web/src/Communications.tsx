@@ -4,6 +4,7 @@ import { ApiError, fullName } from './api'
 import { domainApi } from './domainApi'
 import { on } from './live'
 import type { Employee, Workspace } from './types'
+import { Mailbox } from './Mailbox'
 
 type Conversation = { id: string; kind: 'dm' | 'group'; title: string | null; last_message_body: string | null; unread: number; is_readonly: boolean }
 type Message = { id: number; body: string | null; sender_user_id: string | null; sent_at: string; edited_at: string | null; deleted_at: string | null }
@@ -17,7 +18,11 @@ const request = domainApi
 const htmlText = (html: string) => new DOMParser().parseFromString(html, 'text/html').body.textContent ?? ''
 const escapeHtml = (value: string) => value.replace(/[&<>"']/g, character => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[character]!).replace(/\n/g, '<br>')
 
-export function Communications({ mode, data }: { mode: 'chat' | 'mail'; data: Workspace }) {
+export function Communications(props: { mode: 'chat' | 'mail'; data: Workspace }) {
+  return props.mode === 'mail' ? <Mailbox data={props.data} /> : <ChatCommunications {...props} />
+}
+
+function ChatCommunications({ mode, data }: { mode: 'chat' | 'mail'; data: Workspace }) {
   const mail = mode === 'mail'
   const [conversations, setConversations] = useState<Conversation[]>([])
   const [folders, setFolders] = useState<Folder[]>([])

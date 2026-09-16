@@ -26,7 +26,8 @@ import { isGlobal, isTenantRoot } from '../src/db/table-classification.ts'
 
 const superEnv = { ...process.env, PGPASSWORD: config.superPassword }
 const run = (cmd: string, args: string[]): void => {
-  const r = spawnSync(cmd, args, { env: superEnv, encoding: 'utf8' })
+  const r = spawnSync(cmd, args, { env: superEnv, encoding: 'utf8', timeout: 30_000 })
+  if (r.error) throw new Error(`${cmd} ${args.join(' ')} could not complete: ${r.error.message}`)
   if (r.status !== 0) throw new Error(`${cmd} ${args.join(' ')} failed:\n${r.stderr || r.stdout}`)
 }
 const conn = (database: string, user = config.superUser, password = config.superPassword) =>
