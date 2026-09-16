@@ -347,6 +347,28 @@ describe('the outbox worker', () => {
     expect(fake.messages[0]).toContain('From: Alice <alice@acme.test>')
   })
 
+  it('keeps Bcc out of the headers and in the envelope, and writes Cc and Reply-To', async () => {
+    fake = await startFakeSmtp()
+    await withTenant(A.id, async (tx) => {
+      const account = await ensureAccount(tx, { userId: ALICE, email: 'alice@acme.test', displayName: 'Alice' })
+      await tx.query(`UPDATE mail_accounts SET smtp_host = '127.0.0.1', smtp_port = $2, smtp_secure = false, reply_to = 'hr@acme.test' WHERE id = $1`,
+        [account.id, fake!.port])
+      await sendMail(tx, { account, userId: ALICE, idempotencyKey: 'bcc-1', allowExternal: true,
+        draft: { to: ['to@external.example'], cc: ['cc@external.example'], bcc: ['hidden@external.example'],
+          subject: 'Blind', bodyHtml: '<p>x</p>' } })
+    })
+    const run = await runOutbox(A.id, { master: MASTER })
+    expect(run.sent).toBe(1)
+    const rcpt = fake.transcript.filter((t) => t.startsWith('RCPT TO')).map((t) => t.replace(/^RCPT TO:<(.*)>$/, '$1')).sort()
+    expect(rcpt).toEqual(['cc@external.example', 'hidden@external.example', 'to@external.example'])
+    const headers = fake.messages[0]!.split('\r\n\r\n')[0]!
+    expect(headers).toContain('To: to@external.example')
+    expect(headers).toContain('Cc: cc@external.example')
+    expect(headers).toContain('Reply-To: hr@acme.test')
+    expect(headers).not.toContain('hidden@external.example')
+    expect(headers).not.toMatch(/^Bcc:/m)
+  })
+
   it('leaves a temporary failure queued for another attempt', async () => {
     fake = await startFakeSmtp({ failAt: { stage: 'mail', reply: '451 4.3.0 Try again' } })
     await queueExternalMessage(A.id, fake.port)

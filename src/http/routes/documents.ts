@@ -104,7 +104,7 @@ export function register(router: Router): void {
     { summary: 'Document metadata', tag: 'documents', permission: 'document.read' },
     authed('document.read', async (ctx) => {
       const meta = await getDocument(ctx.tx, asUuid(ctx.req.params.id, 'id'))
-      if (!meta) throw new HttpError(404, 'NOT_FOUND', 'no such document')
+      if (!meta || meta.owner_type === 'mail') throw new HttpError(404, 'NOT_FOUND', 'no such document')
       if (meta.owner_type === 'employee' && meta.owner_id) assertScope(ctx.auth, meta.owner_id)
       return ok(meta)
     }))
@@ -113,7 +113,8 @@ export function register(router: Router): void {
     { summary: 'Download a document as base64', tag: 'documents', permission: 'document.read' },
     authed('document.read', async (ctx) => {
       const found = await readDocument(ctx.tx, asUuid(ctx.req.params.id, 'id'))
-      if (!found) throw new HttpError(404, 'NOT_FOUND', 'no such document')
+      // Mail attachments are read through the message that carries them, never here.
+      if (!found || found.meta.owner_type === 'mail') throw new HttpError(404, 'NOT_FOUND', 'no such document')
       if (found.meta.owner_type === 'employee' && found.meta.owner_id) {
         assertScope(ctx.auth, found.meta.owner_id)
       }
@@ -131,7 +132,7 @@ export function register(router: Router): void {
     authed('document.write', async (ctx) => {
       const id = asUuid(ctx.req.params.id, 'id')
       const meta = await getDocument(ctx.tx, id)
-      if (!meta) throw new HttpError(404, 'NOT_FOUND', 'no such document')
+      if (!meta || meta.owner_type === 'mail') throw new HttpError(404, 'NOT_FOUND', 'no such document')
       if (meta.owner_type === 'employee' && meta.owner_id) assertScope(ctx.auth, meta.owner_id)
       const b = requireBody<{ reason: string }>(ctx.req, ['reason'])
       await deleteDocument(ctx.tx, id, b.reason)

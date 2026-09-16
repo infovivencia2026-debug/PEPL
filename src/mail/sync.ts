@@ -22,6 +22,8 @@ import { withTenant } from '../db/tenant-tx.ts'
 import { decryptSecret } from '../comms/index.ts'
 import { connectImap, ImapError, type Connection, type ImapConfig } from './imap.ts'
 import { MailError } from './accounts.ts'
+import { parseMessage } from './parse.ts'
+import { storeParsedBody } from './attachments.ts'
 
 /** One pass will not pull more than this per folder, so a first sync ends. */
 export const PAGE_SIZE = 200
@@ -226,7 +228,8 @@ export async function syncAccount(
         let addedHere = 0
 
         for (const envelope of envelopes) {
-          const body = opts.storeBodies ? await connection.fetchBody(envelope.uid) : null
+          const fetched = opts.storeBodies ? await connection.fetchBody(envelope.uid) : null
+          const parsed = fetched?.source ? parseMessage(fetched.source) : null
           await withTenant(tenantId, async (tx) => {
             const id = randomUUID()
             const inserted = await tx.query(
@@ -246,15 +249,11 @@ export async function syncAccount(
                 envelope.subject, null,
                 envelope.date ? new Date(envelope.date).toISOString() : null,
                 envelope.size, envelope.seen, envelope.flagged, envelope.answered,
-                envelope.hasAttachment,
+                envelope.hasAttachment || (parsed?.attachments.some((a) => !a.inline) ?? false),
               ],
             )
-            if (inserted.rowCount && body) {
-              await tx.query(
-                `INSERT INTO mail_bodies (tenant_id, envelope_id, body_html, body_text)
-                 VALUES ($1,$2,$3,$4) ON CONFLICT DO NOTHING`,
-                [tenantId, id, body.html, body.text],
-              )
+            if (inserted.rowCount && parsed) {
+              await storeParsedBody(tx, { tenantId, envelopeId: id, accountId: account.id, parsed })
             }
             if (inserted.rowCount) { result.messagesAdded++; addedHere++ }
           })

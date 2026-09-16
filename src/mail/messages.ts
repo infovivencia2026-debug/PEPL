@@ -10,6 +10,8 @@
  * than lost. The worker that drains it is mail.outbox, run by the scheduler.
  */
 import { randomUUID } from 'node:crypto'
+import { sanitizeHtml } from './sanitize.ts'
+import { htmlToText } from './mime.ts'
 import type { PoolClient } from 'pg'
 import {
   MailError, folderByRole, findAccountByEmail, tenantId, type MailAccount,
@@ -24,6 +26,10 @@ export interface Envelope {
   from_address: string | null
   to_addresses: string[]
   cc_addresses: string[]
+  /** Only ever populated on the sender's own copies; a recipient never sees who was bcc'd. */
+  bcc_addresses: string[]
+  message_id: string | null
+  in_reply_to: string | null
   subject: string | null
   preview: string | null
   sent_at: string | null
@@ -37,7 +43,7 @@ export interface Envelope {
 }
 
 const ENVELOPE_COLUMNS = `id, folder_id, source, thread_key, from_name, from_address,
-  to_addresses, cc_addresses, subject, preview, sent_at, received_at,
+  to_addresses, cc_addresses, bcc_addresses, message_id, in_reply_to, subject, preview, sent_at, received_at,
   is_seen, is_flagged, is_answered, is_draft, has_attachment, attachment_document_ids`
 
 /** A page of a folder, newest first. Bodies are not read here. */
@@ -129,6 +135,8 @@ async function insertEnvelope(
   },
 ): Promise<string> {
   const id = randomUUID()
+  // Our own composer's HTML is held to the same rule as a stranger's.
+  const bodyHtml = sanitizeHtml(args.draft.bodyHtml)
   await tx.query(
     `INSERT INTO mail_envelopes
        (tenant_id, id, account_id, folder_id, source, message_id, thread_key, in_reply_to,
@@ -143,9 +151,9 @@ async function insertEnvelope(
       args.from.display_name, args.from.email,
       JSON.stringify(args.draft.to), JSON.stringify(args.draft.cc ?? []),
       JSON.stringify(args.draft.bcc ?? []),
-      args.draft.subject, preview(args.draft.bodyHtml),
+      args.draft.subject, preview(bodyHtml),
       args.isDraft ? null : new Date().toISOString(),
-      Buffer.byteLength(args.draft.bodyHtml), args.isSeen, args.isDraft,
+      Buffer.byteLength(bodyHtml), args.isSeen, args.isDraft,
       (args.draft.attachmentDocumentIds?.length ?? 0) > 0,
       args.draft.attachmentDocumentIds ?? [],
     ],
@@ -153,7 +161,7 @@ async function insertEnvelope(
   await tx.query(
     `INSERT INTO mail_bodies (tenant_id, envelope_id, body_html, body_text)
      VALUES ($1,$2,$3,$4)`,
-    [args.tid, id, args.draft.bodyHtml, preview(args.draft.bodyHtml)],
+    [args.tid, id, bodyHtml, htmlToText(bodyHtml)],
   )
   return id
 }
@@ -216,8 +224,9 @@ export async function sendMail(
     const inbox = await folderByRole(tx, account.id, 'inbox')
     await insertEnvelope(tx, {
       tid, accountId: account.id, folderId: inbox, messageId,
-      // the recipient's copy keeps the sender's thread key, so replies group
-      draft: { ...args.draft, threadKey: args.draft.threadKey ?? messageId },
+      // the recipient's copy keeps the sender's thread key, so replies group —
+      // and drops the bcc list, which is the sender's secret to keep
+      draft: { ...args.draft, bcc: [], threadKey: args.draft.threadKey ?? messageId },
       from: args.account, isDraft: false, isSeen: false,
     })
     deliveredTo.push(address)

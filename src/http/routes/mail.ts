@@ -7,6 +7,9 @@ import {
   deleteMessage, ensureAccount, findAccountByUser, folderByRole, getEnvelope,
   listEnvelopes, listFolders, listThread, moveToFolder, openMessage, saveDraft,
   sendMail, setFlag, type Flag, type MailAccount,
+  listAttachments, readAttachment, uploadAttachment, assertAttachmentsUsable, MAX_ATTACHMENT_BYTES,
+  createFolder, renameFolder, deleteFolder, getSettings, updateSettings, bulk, suggestRecipients,
+  type BulkAction,
 } from '../../mail/index.ts'
 import type { Ctx } from '../context.ts'
 
@@ -75,7 +78,7 @@ export function register(router: Router): void {
       await assertOwnMessage(ctx, account.id, id)
       const message = await openMessage(ctx.tx, id)
       if (!message) throw new HttpError(404, 'NOT_FOUND', 'no such message')
-      return ok(message)
+      return ok({ ...message, attachments: await listAttachments(ctx.tx, id) })
     }))
 
   router.get('/api/v1/mail/threads/:threadKey',
@@ -108,6 +111,8 @@ export function register(router: Router): void {
       if (!Array.isArray(b.to) || b.to.length === 0) {
         throw new HttpError(422, 'NO_RECIPIENTS', 'a message needs at least one recipient')
       }
+      const attachmentIds = (b.attachmentDocumentIds ?? []).map((id) => asUuid(id, 'attachmentDocumentIds'))
+      await assertAttachmentsUsable(ctx.tx, { accountId: account.id, documentIds: attachmentIds })
 
       const result = await sendMail(ctx.tx, {
         account,
@@ -117,7 +122,7 @@ export function register(router: Router): void {
         draft: {
           to: b.to, cc: b.cc, bcc: b.bcc, subject: b.subject, bodyHtml: b.bodyHtml,
           inReplyTo: b.inReplyTo ?? null, threadKey: b.threadKey ?? null,
-          attachmentDocumentIds: b.attachmentDocumentIds?.map((id) => asUuid(id, 'attachmentDocumentIds')),
+          attachmentDocumentIds: attachmentIds,
         },
       })
 
@@ -154,14 +159,129 @@ export function register(router: Router): void {
       requireModule(ctx, 'mail.enabled')
       const account = await myAccount(ctx)
       const b = requireBody<{
-        to?: string[]; cc?: string[]; subject: string; bodyHtml: string; draftId?: string
+        to?: string[]; cc?: string[]; bcc?: string[]; subject: string; bodyHtml: string; draftId?: string
+        attachmentDocumentIds?: string[]; inReplyTo?: string; threadKey?: string
       }>(ctx.req, ['subject', 'bodyHtml'])
+      const attachmentIds = (b.attachmentDocumentIds ?? []).map((id) => asUuid(id, 'attachmentDocumentIds'))
+      await assertAttachmentsUsable(ctx.tx, { accountId: account.id, documentIds: attachmentIds })
       const id = await saveDraft(ctx.tx, {
         account,
         draftId: b.draftId ? asUuid(b.draftId, 'draftId') : undefined,
-        draft: { to: b.to ?? [], cc: b.cc, subject: b.subject, bodyHtml: b.bodyHtml },
+        draft: {
+          to: b.to ?? [], cc: b.cc, bcc: b.bcc, subject: b.subject, bodyHtml: b.bodyHtml,
+          attachmentDocumentIds: attachmentIds, inReplyTo: b.inReplyTo ?? null, threadKey: b.threadKey ?? null,
+        },
       })
       return created({ id })
+    }))
+
+  router.post('/api/v1/mail/attachments',
+    { summary: 'Upload a file to attach to a message you are writing (base64)', tag: 'mail',
+      requestExample: { fileName: 'quote.pdf', contentType: 'application/pdf', contentBase64: 'JVBERi0…' } },
+    authed(null, async (ctx) => {
+      requireModule(ctx, 'mail.enabled')
+      const account = await myAccount(ctx)
+      const b = requireBody<{ fileName: string; contentType: string; contentBase64: string }>(
+        ctx.req, ['fileName', 'contentType', 'contentBase64'])
+      if (b.contentBase64.length > Math.ceil(MAX_ATTACHMENT_BYTES / 3) * 4 + 16) {
+        throw new HttpError(413, 'ATTACHMENT_TOO_LARGE',
+          `an attachment may be at most ${Math.round(MAX_ATTACHMENT_BYTES / 1024 / 1024)} MB`)
+      }
+      const meta = await uploadAttachment(ctx.tx, {
+        accountId: account.id, userId: ctx.session.userId,
+        fileName: b.fileName, contentType: b.contentType, bytes: Buffer.from(b.contentBase64, 'base64'),
+      })
+      return created({ documentId: meta.id, fileName: meta.file_name, contentType: meta.content_type, sizeBytes: meta.size_bytes })
+    }))
+
+  router.get('/api/v1/mail/messages/:id/attachments/:documentId/content',
+    { summary: 'Download one attachment of a message in your mailbox (base64)', tag: 'mail' },
+    authed(null, async (ctx) => {
+      requireModule(ctx, 'mail.enabled')
+      const account = await myAccount(ctx)
+      const id = asUuid(ctx.req.params.id, 'id')
+      await assertOwnMessage(ctx, account.id, id)
+      const found = await readAttachment(ctx.tx, { envelopeId: id, documentId: asUuid(ctx.req.params.documentId, 'documentId') })
+      if (!found) throw new HttpError(404, 'NOT_FOUND', 'no such attachment on this message')
+      return ok({ fileName: found.meta.file_name, contentType: found.meta.content_type,
+        sizeBytes: found.meta.size_bytes, contentBase64: found.bytes.toString('base64') })
+    }))
+
+  router.get('/api/v1/mail/settings',
+    { summary: 'Your mailbox settings: display name, signature, reply-to', tag: 'mail' },
+    authed(null, async (ctx) => {
+      requireModule(ctx, 'mail.enabled')
+      const account = await myAccount(ctx)
+      return ok(await getSettings(ctx.tx, account.id))
+    }))
+
+  router.patch('/api/v1/mail/settings',
+    { summary: 'Change your signature (HTML, sanitised), reply-to or display name', tag: 'mail',
+      requestExample: { signature_html: '<p>Priya Nair<br>HR, Acme</p>' } },
+    authed(null, async (ctx) => {
+      requireModule(ctx, 'mail.enabled')
+      const account = await myAccount(ctx)
+      const b = requireBody<{ signature_html?: string | null; reply_to?: string | null; display_name?: string | null }>(ctx.req, [])
+      return ok(await updateSettings(ctx.tx, account.id, b))
+    }))
+
+  router.get('/api/v1/mail/recipients',
+    { summary: 'Recipient suggestions while typing: colleagues, then people you have written to', tag: 'mail' },
+    authed(null, async (ctx) => {
+      requireModule(ctx, 'mail.enabled')
+      const account = await myAccount(ctx)
+      return ok({ suggestions: await suggestRecipients(ctx.tx, { accountId: account.id, q: ctx.req.query.get('q') ?? '' }) })
+    }))
+
+  router.post('/api/v1/mail/folders',
+    { summary: 'Create a folder', tag: 'mail', requestExample: { name: 'Vendors' } },
+    authed(null, async (ctx) => {
+      requireModule(ctx, 'mail.enabled')
+      const account = await myAccount(ctx)
+      const b = requireBody<{ name: string }>(ctx.req, ['name'])
+      return created(await createFolder(ctx.tx, { accountId: account.id, name: b.name }))
+    }))
+
+  router.patch('/api/v1/mail/folders/:id',
+    { summary: 'Rename a folder you created', tag: 'mail', requestExample: { name: 'Suppliers' } },
+    authed(null, async (ctx) => {
+      requireModule(ctx, 'mail.enabled')
+      const account = await myAccount(ctx)
+      const b = requireBody<{ name: string }>(ctx.req, ['name'])
+      await renameFolder(ctx.tx, { accountId: account.id, folderId: asUuid(ctx.req.params.id, 'id'), name: b.name })
+      return noContent()
+    }))
+
+  router.del('/api/v1/mail/folders/:id',
+    { summary: 'Delete a folder you created; its messages go to Trash', tag: 'mail' },
+    authed(null, async (ctx) => {
+      requireModule(ctx, 'mail.enabled')
+      const account = await myAccount(ctx)
+      return ok(await deleteFolder(ctx.tx, { accountId: account.id, folderId: asUuid(ctx.req.params.id, 'id') }))
+    }))
+
+  router.post('/api/v1/mail/messages/bulk',
+    { summary: 'Mark, move or delete many messages at once', tag: 'mail',
+      requestExample: { ids: ['…', '…'], action: 'flag', flag: 'seen' } },
+    authed(null, async (ctx) => {
+      requireModule(ctx, 'mail.enabled')
+      const account = await myAccount(ctx)
+      const b = requireBody<{ ids: string[]; action: string; flag?: Flag; folderId?: string }>(ctx.req, ['ids', 'action'])
+      if (!Array.isArray(b.ids)) throw new HttpError(422, 'VALIDATION_FAILED', 'ids must be an array')
+      const ids = b.ids.map((id) => asUuid(id, 'ids'))
+      let op: BulkAction
+      if (b.action === 'flag') {
+        if (!b.flag || !FLAGS.includes(b.flag)) throw new HttpError(422, 'VALIDATION_FAILED', `flag must be one of: ${FLAGS.join(', ')}`)
+        op = { action: 'flag', flag: b.flag }
+      } else if (b.action === 'move') {
+        if (!b.folderId) throw new HttpError(422, 'VALIDATION_FAILED', 'folderId is required to move')
+        op = { action: 'move', folderId: asUuid(b.folderId, 'folderId') }
+      } else if (b.action === 'delete') {
+        op = { action: 'delete' }
+      } else {
+        throw new HttpError(422, 'VALIDATION_FAILED', 'action must be flag, move or delete')
+      }
+      return ok(await bulk(ctx.tx, { account, envelopeIds: ids, op }))
     }))
 
   router.post('/api/v1/mail/messages/:id/flag',

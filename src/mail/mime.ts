@@ -18,6 +18,8 @@ export interface MessageInput {
   from: { name?: string | null; address: string }
   to: readonly string[]
   cc?: readonly string[]
+  /** Never a Bcc header: those recipients exist only in the SMTP envelope. */
+  replyTo?: string | null
   subject: string
   bodyHtml: string
   bodyText?: string
@@ -85,6 +87,7 @@ export function buildMessage(input: MessageInput): string {
     `From: ${address(input.from)}`,
     `To: ${input.to.join(', ')}`,
     ...(input.cc?.length ? [`Cc: ${input.cc.join(', ')}`] : []),
+    ...(input.replyTo ? [`Reply-To: ${input.replyTo}`] : []),
     `Subject: ${encodeHeader(input.subject)}`,
     `Date: ${(input.date ?? new Date()).toUTCString()}`,
     `Message-ID: <${input.messageId}>`,

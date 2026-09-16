@@ -77,7 +77,7 @@ function fakeConnection(mailbox: FakeMailbox): () => Promise<Connection> {
       },
       async fetchBody(uid) {
         const body = mailbox.bodies?.[uid] ?? null
-        return { html: body, text: null }
+        return { source: body ? Buffer.from(`Content-Type: text/html; charset=utf-8\r\n\r\n${body}`) : null }
       },
       async setFlag() {},
       async moveTo() {},

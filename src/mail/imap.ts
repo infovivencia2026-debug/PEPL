@@ -68,7 +68,8 @@ export interface Connection {
   listFolders(): Promise<ImapFolder[]>
   select(path: string): Promise<{ exists: number; uidValidity: number; uidNext: number }>
   fetchSince(uid: number, limit: number): Promise<ImapEnvelope[]>
-  fetchBody(uid: number): Promise<{ html: string | null; text: string | null }>
+  /** The raw RFC 5322 source, for the parser. Bytes, not a string: charsets are the parser's business. */
+  fetchBody(uid: number): Promise<{ source: Buffer | null }>
   setFlag(uid: number, flag: '\\Seen' | '\\Flagged', on: boolean): Promise<void>
   moveTo(uid: number, path: string): Promise<void>
   /**
@@ -238,13 +239,8 @@ export async function connectImap(config: ImapConfig): Promise<Connection> {
 
     async fetchBody(uid) {
       const message = await client.fetchOne(String(uid), { source: true }, { uid: true })
-      if (!message || typeof message === 'boolean' || !message.source) {
-        return { html: null, text: null }
-      }
-      const source = message.source.toString('utf8')
-      const separator = source.indexOf('\r\n\r\n')
-      const body = separator === -1 ? source : source.slice(separator + 4)
-      return /<[a-z][\s\S]*>/i.test(body) ? { html: body, text: null } : { html: null, text: body }
+      if (!message || typeof message === 'boolean' || !message.source) return { source: null }
+      return { source: message.source }
     },
 
     async setFlag(uid, flag, on) {

@@ -14,5 +14,5 @@ describe('restore drill', () => {
     const r = await restoreDrill()
     expect(r.tables).toBeGreaterThan(80)
     expect(r.dumpBytes).toBeGreaterThan(10_000)
-  }, 120_000)
+  }, 300_000)   // ~40 s idle; over 120 s when the API, Vite and another suite share the box
 })

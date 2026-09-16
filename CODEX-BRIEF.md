@@ -275,7 +275,7 @@ Build notes that matter:
 - `chat.allow_groups` and `chat.allow_attachments` are separate tenant settings; both
   return `MODULE_NOT_AVAILABLE` with `details.key` naming which one.
 
-## 2.2 Mail — 9 endpoints, `modules.mail`
+## 2.2 Mail — 9 endpoints, `modules.mail` (superseded by §2.40 — read that first)
 
 An Outlook-shaped mailbox. Each person's mailbox is **created on first visit**, with
 Inbox, Drafts, Sent, Archive and Trash already there — the UI never has to handle a
@@ -1209,12 +1209,90 @@ exactly as received and nothing else changes.
 
 ---
 
+## 2.40 Mail is a real mail client now — 10 more endpoints, and the composer must catch up
+
+**Priority over everything else in Part 3.** The screen at `web/src/Communications.tsx`
+exposes To, Subject and a plain textarea. The API has had Cc, Bcc, HTML bodies,
+attachments, drafts, reply threading, flags, move, trash and search for some
+time, and now has the rest. Build the composer and reading pane to the full
+shape below. Reference: Outlook web / Gmail — that is the bar the user set.
+
+### Compose (`POST /api/v1/mail/messages`, `POST /api/v1/mail/drafts`)
+
+Both accept the same body now:
+`{ to[], cc?[], bcc?[], subject, bodyHtml, attachmentDocumentIds?[], inReplyTo?, threadKey?, draftId? }`
+(+ `idempotencyKey` on send). Fields the composer needs:
+
+- **To / Cc / Bcc** as chip inputs with autocomplete from
+  `GET /api/v1/mail/recipients?q=` → `{ suggestions: [{ email, name, source: colleague|recent }] }`.
+  Show Cc/Bcc collapsed behind a "Cc Bcc" link like Gmail; expand if the draft has them.
+- **Rich text.** `bodyHtml` is real HTML — bold, italic, underline, lists, links,
+  headings, blockquote, colour, alignment, tables, inline images as
+  `data:image/...;base64`. Use `contentEditable` + `document.execCommand` or a
+  small editor; **stop passing `escapeHtml(textarea)`**. The server sanitises
+  everything it stores (allowlist: formatting tags, tables, `img`, `a`; scripts,
+  forms, frames, `javascript:`, event handlers and CSS `url()` are removed), so
+  send what the editor produces.
+- **Attachments.** `POST /api/v1/mail/attachments { fileName, contentType, contentBase64 }`
+  → `{ documentId, fileName, contentType, sizeBytes }` per file, 10 MB each. Collect
+  the ids into `attachmentDocumentIds`. Show chips with size and a remove ×.
+  Codes: `413 ATTACHMENT_TOO_LARGE`, `422 ATTACHMENT_NOT_YOURS`.
+- **Signature.** `GET /api/v1/mail/settings` → `{ signature_html, reply_to, display_name }`.
+  Append `signature_html` under a `<br><br>` when a new compose opens (and above
+  the quoted text on a reply). `PATCH /api/v1/mail/settings` saves any of the three
+  from a small settings dialog; the signature is a rich-text field too.
+- **Drafts** autosave every ~10 s while dirty (`draftId` replaces in place) and are
+  deleted on send by passing `draftId`.
+
+### Reading pane (`GET /api/v1/mail/messages/:id`)
+
+Response is now `{ envelope, body_html, body_text, attachments: [...] }`.
+
+- `envelope` carries `to_addresses, cc_addresses, bcc_addresses` (Bcc only on the
+  sender's own copy), `message_id`, `in_reply_to`, `thread_key`.
+- **Render `body_html` in a sandboxed iframe** (`sandbox=""`, `srcdoc`), styled
+  with the app font; fall back to `body_text` in `<pre>` when `body_html` is null.
+  Inline images already point at our own URLs.
+- `attachments: [{ document_id, file_name, content_type, size_bytes, is_inline, url }]`.
+  Hide `is_inline`; show the rest as download chips. `GET <url>` returns
+  `{ fileName, contentType, contentBase64 }` — build a blob and save it.
+- **Reply / Reply all / Forward** are compose presets, not endpoints:
+  - Reply: `to = [from_address]`, `inReplyTo = message_id`, `threadKey`, subject
+    `Re: …`, quoted original under `<blockquote>` with "On <date>, <from> wrote:".
+  - Reply all: as reply, plus every `to_addresses`/`cc_addresses` except yourself into Cc.
+  - Forward: subject `Fwd: …`, quoted original with a header block (From/Date/To/Subject),
+    and `attachmentDocumentIds = attachments.filter(a => !a.is_inline).map(a => a.document_id)`
+    — the server lets you re-use the parts of any message in your own mailbox.
+
+### Folders and the list
+
+```
+POST   /api/v1/mail/folders             { name }            -> { id }        409 FOLDER_EXISTS
+PATCH  /api/v1/mail/folders/:id         { name }            custom folders only
+DELETE /api/v1/mail/folders/:id                             -> { moved }     (messages go to Trash)
+POST   /api/v1/mail/messages/bulk       { ids[], action: flag|move|delete, flag?, folderId? } -> { affected }
+```
+
+- Folder rail: standard folders fixed at the top (Inbox, Drafts, Sent, Archive,
+  Trash), then custom folders with a "+ New folder", right-click/⋯ to rename or delete.
+- List: checkbox per row; a selection toolbar with Mark read / unread, Flag, Move to…
+  (folder picker), Delete — all through `bulk`. Drag-to-folder is welcome.
+- Row anatomy: unread weight, flag star, paperclip when `has_attachment`, sender,
+  subject, preview, time. Keyboard: j/k, e (archive = move to the archive folder),
+  # (delete), r (reply).
+- Live: `mail.received` and `mail.delivered` events already arrive on the SSE stream —
+  refresh the folder counts and the open folder, never poll.
+
+---
+
 # Part 3 — What to build, in order
 
 1. **Chat UI.** The largest visible hole. Conversation list, thread, composer,
    attachments. Subscribe to `chat.message` (§2.7) — do not poll.
-2. **Mail UI.** Folder rail, message list, reading pane, composer, thread view.
-   Show delivered-vs-queued honestly on send.
+2. **Mail UI — to §2.40.** The current screen is a textarea; the target is
+   Outlook/Gmail: Cc/Bcc chips with autocomplete, rich text, attachments,
+   signature, reply/reply-all/forward, custom folders, bulk actions, sandboxed
+   HTML rendering. Show delivered-vs-queued honestly on send.
 3. **Document upload** on the employee profile, the ticket detail and the chat
    composer — one component, three placements.
 4. **Payslip download** on the payslip screen and in the employee's own pay history.

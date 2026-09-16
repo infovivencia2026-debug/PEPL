@@ -44,6 +44,7 @@ interface QueuedRow {
 interface AccountRow {
   email: string
   display_name: string | null
+  reply_to: string | null
   username: string | null
   smtp_host: string | null
   smtp_port: number | null
@@ -169,7 +170,7 @@ async function deliver(
 ): Promise<void> {
   const prepared = await withTenant(tenantId, async (tx) => {
     const { rows: accounts } = await tx.query<AccountRow>(
-      `SELECT email, display_name, username, smtp_host, smtp_port, smtp_secure, secret_ciphertext
+      `SELECT email, display_name, reply_to, username, smtp_host, smtp_port, smtp_secure, secret_ciphertext
          FROM mail_accounts WHERE id = $1`, [row.account_id],
     )
     const account = accounts[0]
@@ -189,8 +190,10 @@ async function deliver(
       in_reply_to: string | null
       message_id: string | null
       attachment_document_ids: string[]
+      to_addresses: string[]
+      cc_addresses: string[]
     }>(
-      `SELECT subject, in_reply_to, message_id, attachment_document_ids
+      `SELECT subject, in_reply_to, message_id, attachment_document_ids, to_addresses, cc_addresses
          FROM mail_envelopes WHERE id = $1`, [envelopeId],
     )
     const envelope = envelopes[0]
@@ -220,9 +223,13 @@ async function deliver(
     ? decryptSecret(account.secret_ciphertext, tenantId, master)
     : undefined
 
+  // Headers show To and Cc as written; the SMTP envelope carries every external
+  // recipient, which is how Bcc stays blind.
   const raw = buildMessage({
     from: { name: account.display_name, address: account.email },
-    to: row.payload.external ?? [],
+    to: prepared.envelope.to_addresses,
+    cc: prepared.envelope.cc_addresses,
+    replyTo: account.reply_to,
     subject: prepared.envelope.subject ?? '(no subject)',
     bodyHtml: prepared.body?.body_html ?? '',
     bodyText: prepared.body?.body_text ?? undefined,

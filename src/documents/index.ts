@@ -28,7 +28,7 @@ const objectKey = (tenantId: string, id: string): string => `tenants/${tenantId}
 /** 10 MB. Larger than any policy PDF, smaller than anything that should stream. */
 export const MAX_BYTES = 10 * 1024 * 1024
 
-export type OwnerType = 'employee' | 'ticket' | 'conversation' | 'tenant'
+export type OwnerType = 'employee' | 'ticket' | 'conversation' | 'tenant' | 'mail'
 
 export class DocumentError extends Error {
   readonly code: string

@@ -34,7 +34,7 @@ class FakeIdle {
       listFolders: async () => [],
       select: async () => ({ exists: 0, uidValidity: 1, uidNext: 1 }),
       fetchSince: async () => [],
-      fetchBody: async () => ({ html: null, text: null }),
+      fetchBody: async () => ({ source: null }),
       setFlag: async () => {},
       moveTo: async () => {},
       close: async () => { this.closes++; this.pending.splice(0).forEach((r) => r('closed')) },
