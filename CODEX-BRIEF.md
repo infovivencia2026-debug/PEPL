@@ -1331,6 +1331,144 @@ Build:
 
 ---
 
+## 2.42 Six things the user saw missing — five are UI, two are new API
+
+The user opened the product and listed what is not there. Backend status per
+item, then what to build. **Do these before anything further down Part 3.**
+
+### 1. Punch in / punch out — API exists, no UI
+
+```
+POST /api/v1/attendance/punch   { direction: 'in'|'out', localDate: 'YYYY-MM-DD', clientPunchId, geo?: { lat, lng } }
+GET  /api/v1/attendance?from=&to=&employeeId=
+```
+
+- A **big Punch In / Punch Out button** on the employee dashboard and on the
+  Attendance screen, showing today's state (last punch direction + time) and
+  running hours since punch-in. `clientPunchId` = a UUID generated per tap and
+  kept until the server answers, so a retry never double-punches.
+- Ask for `navigator.geolocation` on tap; send `geo` when granted. The response
+  carries `geofence: { withinGeofence: true|false|null, siteName? }` — show
+  "At <site>" / "Outside every site" / nothing when unfenced.
+- Codes: `422 LOCATION_REQUIRED` (company requires location, browser
+  denied it — say so and how to enable), `422 OUTSIDE_GEOFENCE` (enforced and
+  outside — show the distance and the nearest site from `details`).
+
+### 2. Geofencing — API exists, no UI
+
+```
+GET/POST   /api/v1/geofences                       { code, name, lat, lng, radiusM, appliesToAll, locationCode? }
+PATCH      /api/v1/geofences/:id
+POST       /api/v1/geofences/:id/retire | /reinstate
+GET/PATCH  /api/v1/employees/:id/geofences         { siteIds: [] }
+Settings:  attendance.geofence_required, attendance.geofence_enforce
+```
+
+- Settings → Attendance → **Sites**: a table (name, code, radius, applies to
+  all, members, status) with a map picker (Leaflet + OSM tiles is fine) to drop
+  the pin and drag the radius. Retire/reinstate, never delete.
+- On the employee profile → Attendance tab: which sites apply (chips), editable
+  for `attendance.manage`.
+- The two settings render from the generated settings screen already; link to
+  them from the Sites page header.
+
+### 3. Announcements — NEW API, and they now live in Team chat
+
+There was no way to create one; that is why the screen was empty. Now:
+
+```
+GET    /api/v1/announcements                 -> { channelId?, announcements: [{ id, title, body_html, publish_at, expires_at,
+                                                  requires_acknowledgement, acknowledged_at, viewed_at, in_audience,
+                                                  delivered, acknowledged, message_id, conversation_id }] }
+POST   /api/v1/announcements                 { title, bodyHtml, requiresAcknowledgement?, expiresAt?, audienceUserIds? }  (announcement.create)
+GET    /api/v1/announcements/:id             marks viewed
+POST   /api/v1/announcements/:id/acknowledge
+POST   /api/v1/announcements/:id/withdraw    { reason }
+GET    /api/v1/announcements/:id/pending     -> who has not acknowledged (announcement.create)
+```
+
+Every company has one read-only conversation `kind: 'announcement'`, title
+"Announcements", everyone in it. Posting writes a message there with
+`content_type: 'announcement'` and `hrms_ref: { announcementId, title,
+requiresAcknowledgement }`. Sending a normal message into it returns
+`409 CONVERSATION_READONLY`.
+
+- **Remove the separate Announcements nav item and screen.** In Team chat, pin
+  the announcement channel at the top of the conversation list with a megaphone
+  icon; render `content_type === 'announcement'` messages as a card (title,
+  body from `GET /announcements/:id` — `body_html` in a sandboxed iframe or
+  sanitised div — author, time) with an **Acknowledge** button when
+  `requiresAcknowledgement` and not yet acknowledged, and a "✓ Acknowledged
+  <time>" state after.
+- The composer in that channel, for `announcement.create` holders only, becomes
+  a "New announcement" form: title, rich-text body (reuse the mail editor),
+  "Requires acknowledgement" toggle, optional expiry, audience (everyone /
+  pick people). Others see "Only HR can post here".
+- Author view: on their own card, "<acknowledged>/<delivered> acknowledged" and
+  a link that opens the pending list; Withdraw (reason required) in the ⋯ menu.
+- Dashboard tile: keep, but link into the chat channel, not the old screen.
+  Live: `announcement.published` / `announcement.withdrawn` / `chat.message`.
+
+### 4. Employee portal shows options that are not theirs — UI
+
+Nav items already carry `permission` and `module`; the leak is items with
+neither, and items that are correct in permission but irrelevant to a
+self-scope user. Rule: **an employee sees only what they can act on.**
+
+- Hide for `scope === 'self'` unless the permission says otherwise: Organisation,
+  Import employees, Bank files, Declarations queue, Reports, Activity, Settings.
+- Rename for employees: "People" → "My profile" (their own record only),
+  "Attendance" → "My attendance", "Leave" → "My leave", "Payroll" → "My pay".
+- Order for employees: Overview, Punch (or make it a dashboard hero), My
+  attendance, My leave, My pay, My tax declaration, Documents, Team chat,
+  Mailbox, Approvals (only if they have any), Tasks, Notification/Account
+  settings.
+- `GET /api/v1/me` returns `permissions` and `scope`; drive the nav from those,
+  never from the role name.
+
+### 5. Payroll — API complete, UI has only a list
+
+The full run lifecycle exists (§2.5 and later): create run → freeze inputs →
+calculate → validation → approve → lock → revise → distribute; payslips,
+lines, PDF; delta between a run and its revision; loans; arrears; Form 16;
+reports. The Payroll screen must be a **run workbench**:
+
+- Runs table (period, status, employees, gross, net, processed by). "New run"
+  picks a period.
+- Run page: a stepper Freeze → Calculate → Validate → Approve → Lock → Sent,
+  each step a button enabled only when the previous is done, disabled with the
+  reason otherwise (`409` codes tell you). Validation shows the variance list
+  and blocks Approve while red. **Separation of duty**: the processor's Approve
+  and Lock buttons are disabled with "Another approver must do this".
+- Payslip list per run with Sent tick, employee drill-down to lines, PDF
+  download, "Send payslips now" (§2.38). Revise creates a new run linked back;
+  show the delta table (§2.5).
+- Employee side ("My pay"): payslips by month with PDF, YTD summary, Form 16,
+  loans and their schedule, tax declaration link.
+
+### 6. Documents are one flat list — NEW API: categories
+
+```
+GET  /api/v1/documents/categories   -> { categories: { employee: [{ key, label, group, confidential?, selfUpload? }], tenant: [...], ... } }
+GET  /api/v1/documents?ownerType=&ownerId=&category=   -> { documents, counts: { <category>: n } }
+POST /api/v1/documents  { ..., category }  -> 422 INVALID_CATEGORY for anything outside the vocabulary
+```
+
+- Employee documents screen = **folders**: a left rail of `group` headings
+  (Personal, Background, Employment, Pay & tax, Leave & wellbeing, Conduct,
+  Exit, Other) with the category labels under them and `counts` badges; the
+  right pane lists that category. Upload dialog's category select is grouped
+  the same way and, for a self-scope user, shows only `selfUpload` categories
+  (the server answers `403` for the rest — "issued by HR").
+- Confidential categories are stored confidential whatever the checkbox says;
+  show a lock on them and hide the checkbox when the category forces it.
+- Company documents (`ownerType: 'tenant'`) get the same treatment with their
+  own groups (Policies, Templates, Compliance, Company); employees see them
+  read-only under "Company".
+- Payslips and Form 16 land in Pay & tax automatically — link from "My pay".
+
+---
+
 # Part 3 — What to build, in order
 
 1. **Chat UI.** The largest visible hole. Conversation list, thread, composer,
@@ -1392,6 +1530,10 @@ Build:
     result, and a Sent tick on the payslip list (§2.38).
 27. **Mailbox switcher, From selector, Add/Manage mailboxes** (§2.41) — do this
     right after §2.40; it is the same screen.
+28. **§2.42, all six, in order: Punch button · Geofence sites · Announcements in
+    chat · Employee-portal nav · Payroll workbench · Document folders.** These
+    are what the user saw missing on first use; they go before anything else
+    that is still open above.
 
 ## Running it
 

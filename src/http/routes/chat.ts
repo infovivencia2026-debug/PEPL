@@ -16,6 +16,11 @@ export function register(router: Router): void {
     { summary: 'Conversations this person is in, newest first', tag: 'chat' },
     authed(null, async (ctx) => {
       requireModule(ctx, 'chat.enabled')
+      // Someone who joined after the last announcement is added to the channel on their first look.
+      await ctx.tx.query(
+        `INSERT INTO conversation_participants (tenant_id, conversation_id, user_id)
+         SELECT c.tenant_id, c.id, $1 FROM conversations c WHERE c.kind = 'announcement' AND c.status = 'active'
+         ON CONFLICT DO NOTHING`, [ctx.session.userId])
       return ok({ conversations: await listConversations(ctx.tx, ctx.session.userId) })
     }))
 
@@ -75,6 +80,15 @@ export function register(router: Router): void {
       const conversationId = asUuid(ctx.req.params.id, 'id')
       const b = requireBody<{ clientMessageId: string; body: string; documentIds?: string[] }>(
         ctx.req, ['clientMessageId', 'body'])
+
+      // The Announcements channel is read-only: use POST /announcements, which
+      // records the audience and acknowledgements a plain message cannot.
+      const { rows: conv } = await ctx.tx.query<{ is_readonly: boolean }>(
+        `SELECT is_readonly FROM conversations WHERE id = $1`, [conversationId])
+      if (conv[0]?.is_readonly) {
+        throw new HttpError(409, 'CONVERSATION_READONLY',
+          'this channel is read-only; post an announcement instead', { announcements: '/api/v1/announcements' })
+      }
 
       const result = await sendMessage(ctx.tx, {
         conversationId,

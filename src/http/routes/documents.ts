@@ -1,5 +1,6 @@
 /** Documents — upload, list, download, delete. */
 import type { Router } from '../router.ts'
+import { CATEGORIES, resolveCategory } from '../../documents/categories.ts'
 import {
   HttpError, authed, ok, created, noContent, requireBody, requireModule, asUuid,
   assertScope, emit,
@@ -29,13 +30,21 @@ export function register(router: Router): void {
       // An employee folder is the employee's record: the same scope rule that
       // governs the profile governs the paperwork stapled to it.
       if (type === 'employee' && owner) assertScope(ctx.auth, owner)
-      return ok({
-        documents: await listDocuments(ctx.tx, {
-          ownerType: type ? ownerType(type) : undefined,
-          ownerId: owner ?? undefined,
-        }),
+      const documents = await listDocuments(ctx.tx, {
+        ownerType: type ? ownerType(type) : undefined,
+        ownerId: owner ?? undefined,
+        category: ctx.req.query.get('category') ?? undefined,
       })
+      // Counts per category so the UI can draw the folder rail without a second call.
+      const counts: Record<string, number> = {}
+      for (const d of documents) counts[d.category ?? 'other'] = (counts[d.category ?? 'other'] ?? 0) + 1
+      return ok({ documents, counts })
     }))
+
+  router.get('/api/v1/documents/categories',
+    { summary: 'The category vocabulary per owner type, grouped, with confidentiality and self-upload flags', tag: 'documents',
+      permission: 'document.read' },
+    authed('document.read', async () => ok({ categories: CATEGORIES })))
 
   router.post('/api/v1/documents',
     { summary: 'Upload a document (base64, up to the company file-size limit)', tag: 'documents',
@@ -54,9 +63,15 @@ export function register(router: Router): void {
 
       const type = ownerType(b.ownerType)
       const owner = b.ownerId ? asUuid(b.ownerId, 'ownerId') : null
+      const category = resolveCategory(type, b.category)
       if (type === 'employee') {
         if (!owner) throw new HttpError(422, 'VALIDATION_FAILED', 'ownerId is required for an employee document')
         assertScope(ctx.auth, owner)
+        // A person may add their own proofs and bills; letters about them come from HR.
+        if (ctx.auth.scope === 'self' && !category.selfUpload) {
+          throw new HttpError(403, 'PERMISSION_DENIED',
+            `"${category.label}" is issued by HR, not uploaded by the employee`, { category: category.key })
+        }
       }
       // A company-wide document (policies, handbooks) is not something a person
       // with self-scope publishes, whatever else document.write lets them upload.
@@ -88,8 +103,8 @@ export function register(router: Router): void {
         fileName: b.fileName,
         contentType: b.contentType,
         bytes,
-        category: b.category ?? null,
-        isConfidential: b.isConfidential ?? false,
+        category: category.key,
+        isConfidential: (b.isConfidential ?? false) || category.confidential === true,
         uploadedByUserId: ctx.session.userId,
       })
       await emit(ctx.tx, {

@@ -97,6 +97,8 @@ export const ACTIONS: Readonly<Record<string, ActionDef>> = Object.freeze({
   'data.document.deleted': { category: 'data', severity: 'warning', requiresReason: true },
 
   'comms.message.sent': { category: 'comms', severity: 'info' },
+  'comms.announcement.posted': { category: 'comms', severity: 'notice' },
+  'comms.announcement.withdrawn': { category: 'comms', severity: 'notice', requiresReason: true },
   'comms.conversation.created': { category: 'comms', severity: 'info' },
   'mail.message.sent': { category: 'comms', severity: 'notice' },
 })

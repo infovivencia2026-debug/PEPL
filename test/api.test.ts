@@ -265,6 +265,39 @@ describe('the manager/salary boundary holds over HTTP', () => {
     const company = await api('POST', '/api/v1/documents', { token, body: { ...doc, ownerType: 'tenant' } })
     expect(company.status).toBe(403)
   })
+
+  it('documents are categorised: a closed vocabulary, HR-issued letters refused from self-scope, confidential by category', async () => {
+    const token = await loginAs(ids.employee!)
+    const hr = await loginAs(ids.hr!)
+    const doc = { fileName: 'x.txt', contentType: 'text/plain', contentBase64: Buffer.from('x').toString('base64'), ownerType: 'employee', ownerId: ids.employeeEmp }
+
+    const vocab = await api<{ categories: Record<string, { key: string; group: string }[]> }>('GET', '/api/v1/documents/categories', { token })
+    expect(vocab.status).toBe(200)
+    expect(vocab.body.categories.employee!.map((c) => c.key)).toContain('offer_letter')
+    expect(vocab.body.categories.tenant!.map((c) => c.key)).toContain('policy')
+
+    const bad = await api('POST', '/api/v1/documents', { token, body: { ...doc, category: 'random' } })
+    expect(bad.status).toBe(422)
+    expect(bad.body.error?.code).toBe('INVALID_CATEGORY')
+
+    // an employee may add a tax proof, but not issue themselves an offer letter
+    const proof = await api<{ category: string; is_confidential: boolean }>('POST', '/api/v1/documents', { token, body: { ...doc, category: 'tax_proof' } })
+    expect(proof.status).toBe(201)
+    expect(proof.body).toMatchObject({ category: 'tax_proof', is_confidential: true })   // confidential by category, not by request
+    const letter = await api('POST', '/api/v1/documents', { token, body: { ...doc, category: 'offer_letter' } })
+    expect(letter.status).toBe(403)
+    const issued = await api<{ category: string }>('POST', '/api/v1/documents', { token: hr, body: { ...doc, category: 'offer_letter' } })
+    expect(issued.status).toBe(201)
+
+    // list filters by category and returns counts for the folder rail
+    const all = await api<{ documents: { category: string }[]; counts: Record<string, number> }>(
+      'GET', `/api/v1/documents?ownerType=employee&ownerId=${ids.employeeEmp}`, { token })
+    expect(all.body.counts.tax_proof).toBe(1)
+    expect(all.body.counts.offer_letter).toBe(1)
+    const only = await api<{ documents: { category: string }[] }>(
+      'GET', `/api/v1/documents?ownerType=employee&ownerId=${ids.employeeEmp}&category=offer_letter`, { token })
+    expect(only.body.documents.map((d) => d.category)).toEqual(['offer_letter'])
+  })
 })
 
 describe('validation and domain errors surface properly', () => {
@@ -644,5 +677,63 @@ describe('an employee regularises their own day', () => {
     expect(day).toBe('present')
     const done = await api<{ requests: { status: string }[] }>('GET', '/api/v1/attendance/regularisations?status=applied', { token: emp })
     expect(done.body.requests).toHaveLength(1)
+  })
+})
+
+describe('announcements live in the chat channel', () => {
+  it('posting creates the read-only Announcements channel, a message in it, receipts, and acknowledgement works from either side', async () => {
+    await withTenant(tenantId, (tx) => setSetting(tx, { key: 'chat.enabled', value: true, reason: 'test' }))
+    const hr = await loginAs(ids.hr!)
+    const emp = await loginAs(ids.employee!)
+
+    // an employee cannot post; HR can, and it publishes at once
+    const denied = await api('POST', '/api/v1/announcements', { token: emp, body: { title: 'x', bodyHtml: '<p>y</p>' } })
+    expect(denied.status).toBe(403)
+    const posted = await api<{ id: string; conversation_id: string; message_id: number; delivered: number; requires_acknowledgement: boolean; body_html: string }>(
+      'POST', '/api/v1/announcements', { token: hr, body: { title: 'Diwali holiday', bodyHtml: '<p>Office closed on 20 Oct.<script>x()</script></p>', requiresAcknowledgement: true } })
+    expect(posted.status).toBe(201)
+    expect(posted.body.delivered).toBeGreaterThanOrEqual(5)          // every active user
+    expect(posted.body.body_html).toBe('<p>Office closed on 20 Oct.</p>')
+    expect(posted.body.conversation_id).toBeTruthy()
+
+    // the employee sees the channel in chat, read-only, with the announcement as a message
+    const convs = await api<{ conversations: { id: string; kind: string; title: string; is_readonly: boolean; unread: number }[] }>('GET', '/api/v1/chat/conversations', { token: emp })
+    const channel = convs.body.conversations.find((c) => c.kind === 'announcement')!
+    expect(channel).toMatchObject({ id: posted.body.conversation_id, title: 'Announcements', is_readonly: true })
+    expect(channel.unread).toBe(1)
+    const msgs = await api<{ messages: { id: number; content_type: string; body: string; hrms_ref: { announcementId: string; requiresAcknowledgement: boolean } }[] }>(
+      'GET', `/api/v1/chat/conversations/${channel.id}/messages`, { token: emp })
+    const m = msgs.body.messages.find((x) => x.hrms_ref?.announcementId === posted.body.id)!
+    expect(m.content_type).toBe('announcement')
+    expect(m.body).toContain('Diwali holiday')
+    expect(m.hrms_ref.requiresAcknowledgement).toBe(true)
+
+    // nobody chats in the channel, not even HR
+    const reply = await api('POST', `/api/v1/chat/conversations/${channel.id}/messages`, { token: hr, body: { clientMessageId: 'r1', body: 'hi' } })
+    expect(reply.status).toBe(409)
+    expect(reply.body.error?.code).toBe('CONVERSATION_READONLY')
+
+    // the list shows the receipt; opening marks viewed; acknowledging is recorded and visible to HR
+    const mine = await api<{ announcements: { id: string; acknowledged_at: string | null; in_audience: boolean }[] }>('GET', '/api/v1/announcements', { token: emp })
+    expect(mine.body.announcements.find((a) => a.id === posted.body.id)).toMatchObject({ acknowledged_at: null, in_audience: true })
+    const opened = await api<{ viewed_at: string | null }>('GET', `/api/v1/announcements/${posted.body.id}`, { token: emp })
+    expect(opened.body.viewed_at).toBeTruthy()
+    const pendingBefore = await api<{ pending: { email: string }[] }>('GET', `/api/v1/announcements/${posted.body.id}/pending`, { token: hr })
+    expect(pendingBefore.body.pending.map((p) => p.email)).toContain(ids.employee)
+    expect((await api('POST', `/api/v1/announcements/${posted.body.id}/acknowledge`, { token: emp })).status).toBeLessThan(300)
+    const pendingAfter = await api<{ pending: { email: string }[] }>('GET', `/api/v1/announcements/${posted.body.id}/pending`, { token: hr })
+    expect(pendingAfter.body.pending.map((p) => p.email)).not.toContain(ids.employee)
+    const stats = await api<{ acknowledged: number; delivered: number }>('GET', `/api/v1/announcements/${posted.body.id}`, { token: hr })
+    expect(stats.body.acknowledged).toBe(1)
+
+    // withdrawing needs a reason and removes the chat message
+    expect((await api('POST', `/api/v1/announcements/${posted.body.id}/withdraw`, { token: hr, body: {} })).status).toBe(422)
+    expect((await api('POST', `/api/v1/announcements/${posted.body.id}/withdraw`, { token: hr, body: { reason: 'dates changed' } })).status).toBe(204)
+    const after = await api<{ announcements: { id: string }[] }>('GET', '/api/v1/announcements', { token: emp })
+    expect(after.body.announcements.find((a) => a.id === posted.body.id)).toBeUndefined()
+    const msgsAfter = await api<{ messages: { hrms_ref: { announcementId: string } | null; deleted_at: string | null }[] }>(
+      'GET', `/api/v1/chat/conversations/${channel.id}/messages`, { token: emp })
+    const gone = msgsAfter.body.messages.find((x) => x.hrms_ref?.announcementId === posted.body.id)
+    expect(gone === undefined || gone.deleted_at !== null).toBe(true)
   })
 })

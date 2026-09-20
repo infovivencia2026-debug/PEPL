@@ -12,6 +12,7 @@ import { MailError, findAccountByEmail, provisionFolders } from '../mail/account
 
 export { CommsError, tenantId } from './base.ts'
 export * from './chat.ts'
+export * from './announcements.ts'
 
 // ---------------------------------------------------------------------------
 // Announcements

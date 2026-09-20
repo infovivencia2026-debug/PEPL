@@ -188,6 +188,7 @@ const STATUS_BY_CODE: Record<string, number> = {
   // documents
   FILE_TOO_LARGE: 413,
   EMPTY_FILE: 422,
+  INVALID_CATEGORY: 422,
   INVALID_FILE_NAME: 422,
   CONTENT_MISSING: 500,
   // chat
