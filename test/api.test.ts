@@ -858,3 +858,20 @@ describe('task templates: onboarding and offboarding checklists a company define
     expect((await api('POST', '/api/v1/task-templates', { token: await loginAs(ids.employee!), body: { name: 'n', trigger: 'manual', items: [{ title: 'a', assigneeRule: 'hr' }] } })).status).toBe(403)
   })
 })
+
+describe('lists page instead of dumping history', () => {
+  it('leave requests and payslips take limit/offset and report hasMore; scope still narrows', async () => {
+    const hr = await loginAs(ids.hr!)
+    const emp = await loginAs(ids.employee!)
+    const all = await api<{ requests: { employee_id: string; status: string }[]; hasMore: boolean }>('GET', '/api/v1/leave/requests?limit=2', { token: hr })
+    expect(all.status).toBe(200)
+    expect(all.body.requests.length).toBeLessThanOrEqual(2)
+    const mine = await api<{ requests: { employee_id: string }[] }>('GET', '/api/v1/leave/requests?limit=50', { token: emp })
+    expect(mine.body.requests.every((r) => r.employee_id === ids.employeeEmp)).toBe(true)
+    expect((await api('GET', `/api/v1/leave/requests?employeeId=${ids.otherEmp}`, { token: emp })).status).toBe(404)
+    const slips = await api<{ payslips: unknown[]; hasMore: boolean }>('GET', '/api/v1/payslips?limit=1&offset=0', { token: emp })
+    expect(slips.status).toBe(200)
+    expect(slips.body.payslips.length).toBeLessThanOrEqual(1)
+    expect(typeof slips.body.hasMore).toBe('boolean')
+  })
+})

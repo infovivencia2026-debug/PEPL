@@ -9,6 +9,7 @@ import {
   requireBody,
   requireModule,
   asUuid,
+  asInt,
   assertScope,
   approve,
   calculate,
@@ -259,16 +260,18 @@ export function register(router: Router): void {
     authed('payroll.read', async (ctx) => {
       const employeeId = ctx.req.query.get('employeeId') ?? ctx.auth.employeeId
       assertScope(ctx.auth, employeeId ?? undefined)
+      const limit = asInt(ctx.req.query.get('limit') ?? 24, 'limit', { min: 1, max: 200 })
+      const offset = asInt(ctx.req.query.get('offset') ?? 0, 'offset', { min: 0, max: 100_000 })
       const { rows } = await ctx.tx.query(
-        `SELECT p.id, p.run_id, p.gross_paise::text, p.deductions_paise::text, p.net_paise::text,
-                pp.label AS period
+        `SELECT p.id, p.run_id, p.gross_paise::text, p.deductions_paise::text, p.net_paise::text, p.distributed_at::text,
+                pp.label AS period, pp.pay_date::text
            FROM payslips p
            JOIN payroll_runs r ON (r.tenant_id, r.id) = (p.tenant_id, p.run_id)
            JOIN payroll_periods pp ON (pp.tenant_id, pp.id) = (r.tenant_id, r.period_id)
           WHERE p.employee_id = $1 AND r.status = 'locked'
-          ORDER BY pp.period_start DESC`,
-        [employeeId])
-      return ok({ payslips: rows })
+          ORDER BY pp.period_start DESC LIMIT $2 OFFSET $3`,
+        [employeeId, limit + 1, offset])
+      return ok({ payslips: rows.slice(0, limit), hasMore: rows.length > limit })
     }))
 
   router.get('/api/v1/payslips/:id/lines',

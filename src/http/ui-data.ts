@@ -64,7 +64,9 @@ export async function workspaceData(c: Ctx, date?: string) {
       ? await read(
           `SELECT l.id,l.employee_id,l.leave_type_id,l.start_date::text,l.end_date::text,l.total_days,l.reason,l.status,l.applied_at,e.first_name,e.last_name,t.name AS leave_name
  FROM leave_requests l JOIN employees e ON e.id=l.employee_id AND e.tenant_id=l.tenant_id JOIN leave_types t ON t.id=l.leave_type_id AND t.tenant_id=l.tenant_id
- WHERE ($1::uuid[] IS NULL OR l.employee_id=ANY($1)) ORDER BY l.applied_at DESC`,
+ WHERE ($1::uuid[] IS NULL OR l.employee_id=ANY($1))
+   AND (l.status = 'pending' OR l.applied_at > now() - interval '12 months')
+ ORDER BY l.applied_at DESC LIMIT 500`,
           [ids],
         )
       : []
@@ -73,15 +75,11 @@ export async function workspaceData(c: Ctx, date?: string) {
     (Number(today.slice(5, 7)) < c.config.get<number>('leave.cycle_start_month')
       ? 1
       : 0)
-  const balances =
-    c.auth.employeeId && leaveTypes.length
-      ? await Promise.all(
-          leaveTypes.map(async (t) => ({
-            ...t,
-            ...(await balance(c.tx, c.auth.employeeId!, t.id, cycle, today)),
-          })),
-        )
-      : []
+  // One PoolClient runs one query at a time; sequential, not Promise.all.
+  const balances: (typeof leaveTypes[number] & Awaited<ReturnType<typeof balance>>)[] = []
+  if (c.auth.employeeId) {
+    for (const t of leaveTypes) balances.push({ ...t, ...(await balance(c.tx, c.auth.employeeId, t.id, cycle, today)) })
+  }
   const approvals = can(c.auth, 'approval.act')
     ? (await inbox(c.tx, c.auth.userId)).filter((a) =>
         a.entity_type === 'leave'
@@ -92,12 +90,12 @@ export async function workspaceData(c: Ctx, date?: string) {
   const payroll =
     modules.payroll && can(c.auth, 'payroll.read') && c.auth.scope === 'all'
       ? await read(`SELECT r.id,r.status,r.revision,r.employee_count,r.gross_paise::text,r.deductions_paise::text,r.net_paise::text,r.processed_by_user_id,p.label,p.period_start::text,p.period_end::text,p.pay_date::text
- FROM payroll_runs r JOIN payroll_periods p ON p.id=r.period_id AND p.tenant_id=r.tenant_id ORDER BY p.period_start DESC,r.revision DESC`)
+ FROM payroll_runs r JOIN payroll_periods p ON p.id=r.period_id AND p.tenant_id=r.tenant_id ORDER BY p.period_start DESC,r.revision DESC LIMIT 36`)
       : []
   const periods =
     modules.payroll && can(c.auth, 'payroll.process') && c.auth.scope === 'all'
       ? await read(
-          'SELECT id,label,period_start::text,period_end::text,pay_date::text FROM payroll_periods ORDER BY period_start DESC',
+          'SELECT id,label,period_start::text,period_end::text,pay_date::text FROM payroll_periods ORDER BY period_start DESC LIMIT 36',
         )
       : []
   const payslips =
@@ -105,7 +103,9 @@ export async function workspaceData(c: Ctx, date?: string) {
       ? await read(
           `SELECT s.id,s.run_id,s.employee_id,s.gross_paise::text,s.deductions_paise::text,s.net_paise::text,s.distributed_at,p.label,e.first_name,e.last_name
  FROM payslips s JOIN payroll_runs r ON r.id=s.run_id AND r.tenant_id=s.tenant_id JOIN payroll_periods p ON p.id=r.period_id AND p.tenant_id=r.tenant_id JOIN employees e ON e.id=s.employee_id AND e.tenant_id=s.tenant_id
- WHERE ($1::uuid[] IS NULL OR s.employee_id=ANY($1)) AND ($1::uuid[] IS NULL OR (s.published_at IS NOT NULL AND r.status='locked')) ORDER BY p.period_start DESC`,
+ WHERE ($1::uuid[] IS NULL OR s.employee_id=ANY($1)) AND ($1::uuid[] IS NULL OR (s.published_at IS NOT NULL AND r.status='locked'))
+   AND p.period_start > CURRENT_DATE - interval '13 months'
+ ORDER BY p.period_start DESC LIMIT 2000`,
           [ids],
         )
       : []

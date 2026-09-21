@@ -1469,6 +1469,57 @@ POST /api/v1/documents  { ..., category }  -> 422 INVALID_CATEGORY for anything 
 
 ---
 
+## 2.43 The audit: a fresh company must be able to run payroll — what the API now has, and every screen that is missing
+
+A 360° audit found that a company signing up today could not run a single
+payroll (periods, statutory data, bank accounts, logins, managers and
+checklists existed only in the demo seed) and that roughly half the API had
+no screen. The backend half is done. **This section is the UI half; it goes
+before Part 3 items 26–28 wherever they overlap.**
+
+### A. New endpoints, and the screen each needs
+
+| Endpoint | Screen |
+|---|---|
+| `GET/POST /payroll/periods`, `PATCH /payroll/periods/:id` `{ payDate }`, `DELETE` `{ reason }` | **Payroll → Periods**: month picker (YYYY-MM) + pay date, list with run status per period, edit pay date, delete when unused. "New run" picks from this list; when the list is empty, offer "Create this month". |
+| `GET /plans` (public), `POST /signup` (public) | **Sign-up page** (/signup): company name, your name, work email, password, state. Success → token → straight into the product. Link from the login page. |
+| `GET/PATCH /billing`, `POST /billing/plan`, `GET /billing/invoices` | **Settings → Billing** (settings.write): plan card with status pill (trialing / active / past_due / suspended), trial end, headcount vs limit, next-invoice estimate (₹ from paise, GST separate), GSTIN/address/email form, plan picker (`409 OVER_PLAN_LIMIT` message verbatim), invoice table with status and due date. Show a **banner app-wide** when status is past_due ("Your invoice of ₹… was due on …") and a full-screen notice when suspended. |
+| `GET/POST /support-access`, `POST /support-access/:id/revoke` | Under Billing: "Support sessions" list with Active badge, "Approve a support session" (agent id, reason, hours), Revoke. |
+| `GET/POST /employees/:id/bank-accounts` (`?history=true`) | Employee profile → **Bank** tab: masked account, IFSC, bank; "Replace account" form (beneficiary, account, IFSC, bank name); history toggle. |
+| `GET /employees/:id/login`, `POST /employees/:id/invite` `{ email, roles? }` | Employee profile → **Login** tab: "No login yet — Invite" with email prefilled from work email; after invite show the link with a copy button ("valid 30 minutes; also emailed if a mailbox is set up"), roles chips (roles picker only for roles.write). "Re-send link" when a login exists. |
+| `PATCH /employees/:id` (all personal / employment fields, `customFields`) | Employee profile → **Overview becomes editable**: personal (DOB, gender, personal email, work email, phone, address, emergency contact), employment (type, probation end, confirmed on, notice period, cost centre), statutory (PF applicable, ESI applicable toggles), custom fields section. Employees editing themselves see only personal email / phone / address / emergency contact enabled. Also fixes "a typo in a name cannot be corrected". |
+| `GET/POST /employee-fields`, `POST /employee-fields/:key/retire` | **Settings → Employee fields**: table of custom fields (key, label, kind, options, required, self-editable), add/retire. |
+| `POST /employees/:id/assignments` now takes `managerEmployeeId`, `locationCode`, `gradeCode` | Assignment form gains **Manager** (employee picker), **Location** and **Grade** (from org masters). `422 MANAGER_CYCLE` / `MANAGER_IS_SELF` messages verbatim. Profile header shows manager, location, grade. |
+| `GET/POST/PATCH /task-templates`, `POST /task-templates/:id/retire`, `POST /tasks/instantiate` | **Settings → Checklists**: list by trigger (onboarding / offboarding / manual); editor with ordered items (title, who: manager / HR / IT / finance / employee / named user, due offset days, blocks exit, needs attachment). On the employee profile: "Start onboarding checklist" / "Start offboarding checklist" buttons that call instantiate (assignees resolve automatically). |
+| Import commit now returns `invites[]` and `inviteErrors[]` | Import result screen: a table of set-password links per imported person with copy buttons, and the errors list. |
+| `POST /leave/requests` returns `totalDays` + `skipped[]` | Leave form: **preview the counted days** before submit — call with the dates and show "3 working days (Sun 18 skipped)". Half-days via `dayParts`. Remove the "calendar days" copy. |
+| `payroll.ot_pay` setting; OT appears as an `OT` payslip line | Freeze screen: OT minutes column editable per row (already in overrides); payslip lines show OT. |
+| `NO_TAX_SLABS` validation blocker | Payroll validation panel: render blockers with `employeeId: '*'` as run-level banners, not per-row. |
+
+### B. Screens for endpoints that already existed but had no UI (from the audit's §5)
+
+Build these as tabs/pages; every one is permission-gated on the server already.
+
+- **Settings → Shifts** (`/shifts`, retire), **Holidays** (`/holidays`), **Leave types & policies** (writes), **Approval policies & delegations** (`/approvals/policies|delegations|chains|preview`), **Roles & users** (`/roles`, `/users/:id/roles`, `/users/:id/password-reset-link`), **Salary components & structures** (writes), **Helpdesk categories**, **Incentive plans**.
+- **Employee profile → Roster** (`/employees/:id/roster`), **Leave** (balances + history + HR "adjust" with reason), **Attendance history** (month grid), **Profile at date** (`/employees/:id/profile-at`), **Documents** (already), **Bank**, **Login** (above).
+- **Attendance**: month/period grid, **regularisation queue** (`/attendance/regularisations`), **period close/reopen** (`/attendance/periods/:id/status`).
+- **Leave**: cancel button (`/leave/requests/:id/cancel`), HR apply-on-behalf (`employeeId` in body), half-day.
+- **Approvals**: non-leave decisions now work through the console route; show the held salary revision / correction details on the card.
+- **Payroll**: manual freeze with ad-hoc lines (bonus, incentive, reimbursement) (`/payroll/runs/:id/freeze`), unfreeze, salary structure editor, register with all lines.
+- **Helpdesk**: tickets list / create / thread / status (`/tickets`).
+- **Reports**: replace the three client-side CSV dumps with the four server reports (`/reports/*`) — date range, table, CSV.
+- **Incentives**: plans, periods, targets, sales entry, calculate / approve / push, clawback.
+- **Imports**: the four dataset tabs (§2.36) are still missing.
+- **Chat**: message edit/delete, attachments.
+
+### C. Architecture asks (audit §7) that change how the console fetches
+
+- **Stop loading the whole workspace on every navigation.** `GET /api/ui/workspace` returns every employee, every leave request and every payslip ever. Fetch per screen, paginate lists (`?limit=&before=`), and refetch only what an action changed.
+- **Pickers must not cap at 200.** Use the search endpoints with a query string (`/employees?q=`, `/mail/recipients?q=`) as the user types.
+- Prefer `/api/v1` routes; the `/api/ui` ones that remain now delegate to the same functions, but new screens should use the domain routes directly.
+
+---
+
 # Part 3 — What to build, in order
 
 1. **Chat UI.** The largest visible hole. Conversation list, thread, composer,
@@ -1534,6 +1585,10 @@ POST /api/v1/documents  { ..., category }  -> 422 INVALID_CATEGORY for anything 
     chat · Employee-portal nav · Payroll workbench · Document folders.** These
     are what the user saw missing on first use; they go before anything else
     that is still open above.
+29. **§2.43 — the audit.** A first: Periods page, Sign-up page, Billing page,
+    Bank + Login + editable Overview tabs, Checklists, leave day preview.
+    Then B: every settings master and profile tab listed. Then C: per-screen
+    fetching and search-driven pickers.
 
 ## Running it
 

@@ -1,6 +1,7 @@
 /** Leave. */
 import type { Router } from '../router.ts'
 import { applyLeave } from '../../leave/apply.ts'
+import { scopeIds } from '../ui-data.ts'
 import {
   HttpError,
   authed,
@@ -10,6 +11,7 @@ import {
   requireModule,
   asDate,
   asUuid,
+  asInt,
   assertScope,
   can,
   balance,
@@ -19,6 +21,33 @@ import {
 } from './deps.ts'
 
 export function register(router: Router): void {
+  router.get('/api/v1/leave/requests',
+    { summary: 'Leave requests you may see (own, your reports, or everyone), newest first, paged', tag: 'leave',
+      permission: 'leave.read' },
+    authed('leave.read', async (ctx) => {
+      requireModule(ctx, 'leave.enabled')
+      const ids = scopeIds(ctx)
+      const status = ctx.req.query.get('status')
+      const employeeId = ctx.req.query.get('employeeId')
+      if (employeeId) assertScope(ctx.auth, asUuid(employeeId, 'employeeId'))
+      const limit = asInt(ctx.req.query.get('limit') ?? 50, 'limit', { min: 1, max: 200 })
+      const offset = asInt(ctx.req.query.get('offset') ?? 0, 'offset', { min: 0, max: 100_000 })
+      const { rows } = await ctx.tx.query(
+        `SELECT l.id, l.employee_id, e.employee_number, concat_ws(' ', e.first_name, e.last_name) AS employee_name,
+                l.leave_type_id, t.code AS leave_code, t.name AS leave_name,
+                l.start_date::text, l.end_date::text, l.total_days::text, l.day_parts, l.reason, l.status,
+                l.applied_at::text, l.decided_at::text
+           FROM leave_requests l
+           JOIN employees e ON (e.tenant_id, e.id) = (l.tenant_id, l.employee_id)
+           JOIN leave_types t ON (t.tenant_id, t.id) = (l.tenant_id, l.leave_type_id)
+          WHERE ($1::uuid[] IS NULL OR l.employee_id = ANY($1))
+            AND ($2::text IS NULL OR l.status = $2)
+            AND ($3::uuid IS NULL OR l.employee_id = $3)
+          ORDER BY l.applied_at DESC LIMIT $4 OFFSET $5`,
+        [ids, status ?? null, employeeId ?? null, limit + 1, offset])
+      return ok({ requests: rows.slice(0, limit), hasMore: rows.length > limit })
+    }))
+
   router.get('/api/v1/leave/balances',
     { summary: 'Leave balances, explained', tag: 'leave', permission: 'leave.read' },
     authed('leave.read', async (ctx) => {
