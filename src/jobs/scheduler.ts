@@ -56,6 +56,7 @@ export const SCHEDULE: Schedule[] = [
   { job: 'data.retention', everyMs: HOUR, due: (now) => now.getHours() === 2 },
   // This month's and next month's periods always exist.
   { job: 'payroll.periods', everyMs: HOUR, due: (now) => now.getHours() === 3 },
+  { job: 'leave.comp_off', everyMs: HOUR, due: (now) => now.getHours() === 1 },
   // Leave carry-forward and lapse. Checked on the 1st of every month: the job
   // itself is idempotent per (employee, type, cycle) and each tenant's cycle
   // start month decides whether anything happens.
