@@ -183,6 +183,10 @@ export async function settlementForFreeze(
     [args.employeeId, args.periodStart, args.periodEnd])
   const sep = rows[0]
   if (!sep) return null
+  // Clearance gates the money: while any area is pending, the person is paid
+  // a normal month and the settlement waits for the next run.
+  const pending = await tx.query(`SELECT 1 FROM exit_clearances WHERE separation_id = $1 AND status = 'pending' LIMIT 1`, [sep.id])
+  if (pending.rowCount) return null
   const settlement = await computeSettlement(tx, sep, args.opts)
   await tx.query(
     `UPDATE employee_separations

@@ -1623,6 +1623,42 @@ Build:
 
 ---
 
+## 2.47 The exit workflow — 11 endpoints around the F&F that already existed
+
+```
+POST /api/v1/resignations                    { requestedLastDay, reason, reasonCategory? }   (the employee, own record)
+GET  /api/v1/resignations?status=
+POST /api/v1/resignations/:id/withdraw       (the employee, while HR has not acted)
+POST /api/v1/resignations/:id/accept         { lastWorkingDay?, noticeWaived?, note? }        (employee.write) → separation + 5 clearances + offboarding checklist
+POST /api/v1/resignations/:id/decline        { note }
+GET  /api/v1/employees/:id/exit              -> { resignation, separation, clearances[], interview (HR only), blockingTasks }
+GET  /api/v1/separations/:id/clearances
+POST /api/v1/separations/:id/clearances/:area   area = manager|it|finance|admin|hr   { status: 'cleared'|'recovery', recoveryPaise?, note? }
+GET/POST /api/v1/separations/:id/interview   (HR only)  { wouldRejoin, wouldRecommend, ratings{1-5}, primaryReason, feedback }
+POST /api/v1/separations/:id/relieving-letter   { signatory? }  -> the PDF document (after F&F is paid)
+```
+
+Rules the UI shows: a resignation's `earliest_last_day` is submitted_on +
+notice; requesting earlier is allowed and HR decides "waive notice" on
+accept. HR clears LAST (`409 CLEARANCE_PENDING` otherwise). **Payroll will not
+settle a person while any clearance is pending** — show that on the exit page
+("Settlement waits for: IT, Admin"). Recoveries recorded at clearance appear
+in the F&F preview.
+
+Build:
+- **My exit** (employee): "Resign" form (last day picker showing the earliest
+  notice-complete date, reason, category), status, withdraw.
+- **Exit page** (HR / manager, on the profile): timeline — resignation →
+  accepted → clearances (5 tiles with cleared / recovery / pending, sign-off
+  buttons for the caller's area) → settlement (existing preview) → letter.
+  Manager sees everything except the interview.
+- **Exit interview** form (HR): five 1–5 sliders, would-rejoin, would-recommend,
+  free text. **Attrition report**: reason categories and ratings across
+  separations (`GET /reports/attrition` — coming with the reports slice).
+- Nav: employee "My exit" only once a resignation exists or under Account.
+
+---
+
 # Part 3 — What to build, in order
 
 1. **Chat UI.** The largest visible hole. Conversation list, thread, composer,
@@ -1696,6 +1732,7 @@ Build:
     categories editor, payslip line linkage.
 31. **Comp-off card and HR grant** (§2.45).
 32. **Timesheets, work log, projects, hours report** (§2.46).
+33. **Exit workflow** (§2.47): resign form, exit timeline with clearances, interview, letter.
 
 ## Running it
 
