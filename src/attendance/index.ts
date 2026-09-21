@@ -50,6 +50,7 @@ export async function recordPunch(
     geo?: { lat: number; lng: number }
     /** The SERVER's verdict from geofence.ts — never a flag the device sent. */
     geofence?: { withinGeofence: boolean | null; siteId: string | null; distanceM: number | null }
+    via?: string
   },
 ): Promise<boolean> {
   const tid = await tenantId(tx)
@@ -66,13 +67,13 @@ export async function recordPunch(
   const { rowCount } = await tx.query(
     `INSERT INTO attendance_punches
        (tenant_id, employee_id, punched_at, local_date, direction, source,
-        geo_lat, geo_lng, within_geofence, client_punch_id, site_id, distance_m)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
+        geo_lat, geo_lng, within_geofence, client_punch_id, site_id, distance_m, via)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
      ON CONFLICT (tenant_id, employee_id, client_punch_id)
        WHERE client_punch_id IS NOT NULL DO NOTHING`,
     [tid, p.employeeId, p.punchedAt, p.localDate, p.direction, p.source,
      p.geo?.lat ?? null, p.geo?.lng ?? null, p.geofence?.withinGeofence ?? null, p.clientPunchId ?? null,
-     p.geofence?.siteId ?? null, p.geofence?.distanceM ?? null],
+     p.geofence?.siteId ?? null, p.geofence?.distanceM ?? null, p.via ?? null],
   )
   return rowCount === 1
 }
@@ -115,6 +116,8 @@ export interface DayPolicy {
   remoteIsPaid?: boolean
   /** The company's IANA zone. Decides which day a shift's clock times fall on. */
   timezone?: string
+  /** When false, recorded breaks are informational and do not reduce worked minutes. */
+  breaksDeducted?: boolean
 }
 
 /**
@@ -235,6 +238,11 @@ export async function recomputeDay(
   let worked = firstIn && lastOut
     ? Math.max(0, Math.round((Date.parse(lastOut) - Date.parse(firstIn)) / 60000))
     : 0
+  const gross = worked
+  // Breaks the person actually recorded beat a shift's fixed break allowance.
+  const recordedBreaks = policy.breaksDeducted === false ? 0 : Number((await tx.query<{ m: string }>(
+    `SELECT coalesce(sum(floor(extract(epoch FROM (ended_at - started_at)) / 60)), 0)::text AS m
+       FROM attendance_breaks WHERE employee_id = $1 AND work_date = $2 AND ended_at IS NOT NULL`, [employeeId, workDate])).rows[0]!.m)
 
   // A rostered person is judged by their SHIFT: its weekly offs, its grace,
   // its hours for a full or half day, its overtime. Everyone else falls back to
@@ -262,6 +270,7 @@ export async function recomputeDay(
     earlyMinutes = day.earlyMinutes
     otMinutes = day.otMinutes
     worked = day.netWorkedMinutes || worked
+    if (recordedBreaks > 0) worked = Math.max(0, gross - recordedBreaks)
     if (status === 'present' && fractionSource === 'system' && lastOut) {
       dayFraction = day.dayFraction
       fractionSource = 'shift'
@@ -286,6 +295,8 @@ export async function recomputeDay(
     dayFraction = 0
     fractionSource = 'remote_unpaid'
   }
+
+  if (!shift && recordedBreaks > 0) worked = Math.max(0, gross - recordedBreaks)
 
   await tx.query(
     `INSERT INTO daily_attendance

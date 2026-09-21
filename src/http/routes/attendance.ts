@@ -24,6 +24,9 @@ import {
 import { evaluatePunch } from '../../attendance/geofence.ts'
 import { remoteModeOn, markModeOnDay, listRemoteRequests, requestRemote, cancelRemote, getRemoteRequest, startVisit, endVisit, listVisits } from '../../attendance/remote.ts'
 import { scopeIds } from '../ui-data.ts'
+import { musterRoll } from '../../attendance/muster.ts'
+import { startBreak, endBreak, breaksOn, setLateReason, controlRoom, qrCode, verifyQr, rotateQrSecret } from '../../attendance/ops.ts'
+import { summaryPolicy } from './shifts.ts'
 import { hold, listPending } from '../../approvals/pending.ts'
 import { today as localToday } from '../../lib/timezone.ts'
 
@@ -42,6 +45,7 @@ function dayPolicy(ctx: Ctx) {
     timezone: ctx.config.get<string>('attendance.timezone'),
     remoteIsPaid: ctx.config.get<boolean>('attendance.remote_is_paid'),
     remoteEnabled: ctx.config.get<boolean>('attendance.remote_enabled'),
+    breaksDeducted: ctx.config.get<boolean>('attendance.breaks_deducted'),
     correctionWindowDays: ctx.config.get<number>('attendance.correction_window_days'),
   }
 }
@@ -54,7 +58,7 @@ export function register(router: Router): void {
     authed('attendance.read', async (ctx) => {
       requireModule(ctx, 'attendance.enabled')
       // `withinGeofence` from the client is ignored on purpose: the server decides.
-      const b = requireBody<{ direction: 'in' | 'out'; localDate: string; clientPunchId?: string; geo?: { lat: number; lng: number }; employeeId?: string }>(
+      const b = requireBody<{ direction: 'in' | 'out'; localDate: string; clientPunchId?: string; geo?: { lat: number; lng: number }; employeeId?: string; qr?: string }>(
         ctx.req, ['direction', 'localDate'])
       if (b.geo && (typeof b.geo.lat !== 'number' || typeof b.geo.lng !== 'number')) {
         throw new HttpError(422, 'VALIDATION_FAILED', 'geo needs numeric lat and lng')
@@ -67,10 +71,18 @@ export function register(router: Router): void {
       // An approved work-from-home or field day is not fenced: the punch is
       // recorded with whatever location it has and the day carries the mode.
       const mode = await remoteModeOn(ctx.tx, employeeId, localDate)
-      const verdict = await evaluatePunch(ctx.tx, employeeId, b.geo)
+      // A scanned kiosk code IS the location: the punch is at that site.
+      let qrSite: string | null = null
+      if (b.qr) {
+        if (!ctx.config.get<boolean>('attendance.qr_punch_enabled')) throw new HttpError(422, 'QR_INVALID', 'QR punch is switched off for this company')
+        qrSite = (await verifyQr(ctx.tx, b.qr)).siteId
+      }
+      const verdict = qrSite
+        ? { status: 'inside' as const, siteId: qrSite, siteCode: null, siteName: null, distanceM: 0 }
+        : await evaluatePunch(ctx.tx, employeeId, b.geo)
       // A fenced person without a fix is outside by definition; an unfenced
       // one is only asked for a fix when the company insists on one.
-      if (!mode && !b.geo && (verdict.status === 'outside' || ctx.config.get<boolean>('attendance.geofence_required'))) {
+      if (!mode && !qrSite && !b.geo && (verdict.status === 'outside' || ctx.config.get<boolean>('attendance.geofence_required'))) {
         throw new HttpError(422, 'LOCATION_REQUIRED',
           'this company requires a location fix on every mobile punch')
       }
@@ -83,7 +95,7 @@ export function register(router: Router): void {
       const createdPunch = await recordPunch(ctx.tx, {
         employeeId, punchedAt: new Date().toISOString(),
         localDate: asDate(b.localDate, 'localDate'), direction: b.direction, source: 'mobile',
-        clientPunchId: b.clientPunchId, geo: b.geo,
+        clientPunchId: b.clientPunchId, geo: b.geo, via: qrSite ? 'qr' : undefined,
         geofence: {
           withinGeofence: verdict.status === 'unfenced' ? null : verdict.status === 'inside',
           siteId: verdict.siteId, distanceM: verdict.distanceM,
@@ -91,7 +103,81 @@ export function register(router: Router): void {
       })
       await recomputeDay(ctx.tx, employeeId, localDate, dayPolicy(ctx))
       if (mode && createdPunch) await markModeOnDay(ctx.tx, { employeeId, workDate: localDate, mode, actorUserId: ctx.auth.userId, policy: dayPolicy(ctx) })
-      return ok({ recorded: createdPunch, duplicate: !createdPunch, geofence: verdict, mode })
+      const day = (await ctx.tx.query<{ late_minutes: number; late_reason: string | null }>(`SELECT late_minutes, late_reason FROM daily_attendance WHERE employee_id = $1 AND work_date = $2`, [employeeId, localDate])).rows[0]
+      const lateMinutes = day?.late_minutes ?? 0
+      return ok({ recorded: createdPunch, duplicate: !createdPunch, geofence: verdict, mode, lateMinutes,
+        reasonRequired: b.direction === 'in' && lateMinutes > 0 && !day?.late_reason && ctx.config.get<boolean>('attendance.late_reason_required') })
+    }))
+
+  router.post('/api/v1/attendance/break/start',
+    { summary: 'Start a break (after punch-in); one at a time', tag: 'attendance', permission: 'attendance.read', requestExample: { kind: 'lunch' } },
+    authed('attendance.read', async (ctx) => {
+      if (!ctx.auth.employeeId) throw new HttpError(422, 'NO_EMPLOYEE_RECORD', 'this user has no employee record')
+      const b = requireBody<{ kind?: string; localDate?: string }>(ctx.req, [])
+      const workDate = b.localDate ? asDate(b.localDate, 'localDate') : localToday(ctx.config.get<string>('attendance.timezone'))
+      return created(await startBreak(ctx.tx, { employeeId: ctx.auth.employeeId, workDate, kind: b.kind }))
+    }))
+
+  router.post('/api/v1/attendance/break/end',
+    { summary: 'End the running break; the day\'s worked time is recomputed', tag: 'attendance', permission: 'attendance.read' },
+    authed('attendance.read', async (ctx) => {
+      if (!ctx.auth.employeeId) throw new HttpError(422, 'NO_EMPLOYEE_RECORD', 'this user has no employee record')
+      return ok(await endBreak(ctx.tx, { employeeId: ctx.auth.employeeId, policy: dayPolicy(ctx) }))
+    }))
+
+  router.get('/api/v1/attendance/breaks',
+    { summary: 'Breaks on a day (?date=, ?employeeId= for someone in scope)', tag: 'attendance', permission: 'attendance.read' },
+    authed('attendance.read', async (ctx) => {
+      const employeeId = ctx.req.query.get('employeeId') ? asUuid(ctx.req.query.get('employeeId'), 'employeeId') : ctx.auth.employeeId
+      if (!employeeId) throw new HttpError(422, 'NO_EMPLOYEE_RECORD', 'this user has no employee record')
+      assertScope(ctx.auth, employeeId)
+      const date = ctx.req.query.get('date') ? asDate(ctx.req.query.get('date'), 'date') : localToday(ctx.config.get<string>('attendance.timezone'))
+      return ok({ breaks: await breaksOn(ctx.tx, employeeId, date) })
+    }))
+
+  router.post('/api/v1/attendance/late-reason',
+    { summary: 'Explain a late punch (shown to the manager)', tag: 'attendance', permission: 'attendance.read', requestExample: { localDate: '2026-10-05', reason: 'Metro breakdown' } },
+    authed('attendance.read', async (ctx) => {
+      if (!ctx.auth.employeeId) throw new HttpError(422, 'NO_EMPLOYEE_RECORD', 'this user has no employee record')
+      const b = requireBody<{ localDate: string; reason: string }>(ctx.req, ['localDate', 'reason'])
+      return ok(await setLateReason(ctx.tx, { employeeId: ctx.auth.employeeId, workDate: asDate(b.localDate, 'localDate'), reason: b.reason }))
+    }))
+
+  router.get('/api/v1/attendance/control-room',
+    { summary: 'Live today (or ?date=) for your scope: expected / in / late / on break / missing / on leave / remote / field, by location', tag: 'attendance', permission: 'attendance.read' },
+    authed('attendance.read', async (ctx) => {
+      requireModule(ctx, 'attendance.enabled')
+      if (ctx.auth.scope === 'self') throw new HttpError(403, 'PERMISSION_DENIED', 'the control room is for managers and HR')
+      const date = ctx.req.query.get('date') ? asDate(ctx.req.query.get('date'), 'date') : localToday(ctx.config.get<string>('attendance.timezone'))
+      return ok(await controlRoom(ctx.tx, { date, employeeIds: scopeIds(ctx), timezone: ctx.config.get<string>('attendance.timezone'), weekPattern: ctx.config.get<string>('attendance.week_pattern') }))
+    }))
+
+  router.get('/api/v1/attendance/qr',
+    { summary: 'The kiosk code for a site right now (?siteId=); changes every minute, valid for two', tag: 'attendance', permission: 'attendance.kiosk' },
+    authed('attendance.kiosk', async (ctx) => {
+      if (!ctx.config.get<boolean>('attendance.qr_punch_enabled')) throw new HttpError(422, 'QR_INVALID', 'QR punch is switched off for this company')
+      return ok(await qrCode(ctx.tx, asUuid(ctx.req.query.get('siteId'), 'siteId')))
+    }))
+
+  router.post('/api/v1/attendance/qr/rotate',
+    { summary: 'Invalidate every kiosk code at once (new secret)', tag: 'attendance', permission: 'attendance.correct' },
+    authed('attendance.correct', async (ctx) => {
+      await rotateQrSecret(ctx.tx)
+      await emit(ctx.tx, { action: 'attendance.qr.rotated', entityType: 'attendance', actorUserId: ctx.auth.userId })
+      return noContent()
+    }))
+
+  router.get('/api/v1/attendance/calendar',
+    { summary: 'My month as the muster sees it (?month=YYYY-MM, ?employeeId= for someone in scope): one cell per day with code, payable, in/out', tag: 'attendance', permission: 'attendance.read' },
+    authed('attendance.read', async (ctx) => {
+      const month = ctx.req.query.get('month') ?? localToday(ctx.config.get<string>('attendance.timezone')).slice(0, 7)
+      if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(month)) throw new HttpError(422, 'VALIDATION_FAILED', 'month is YYYY-MM')
+      const employeeId = ctx.req.query.get('employeeId') ? asUuid(ctx.req.query.get('employeeId'), 'employeeId') : ctx.auth.employeeId
+      if (!employeeId) throw new HttpError(422, 'NO_EMPLOYEE_RECORD', 'this user has no employee record')
+      assertScope(ctx.auth, employeeId)
+      const m = await musterRoll(ctx.tx, { month, policy: summaryPolicy(ctx), employeeIds: [employeeId] })
+      const row = m.rows[0]
+      return ok({ month, employeeId, days: row?.days ?? [], totals: row?.totals ?? null, legend: m.legend })
     }))
 
   // ── work from home / field duty ──

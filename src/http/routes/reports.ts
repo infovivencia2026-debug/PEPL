@@ -8,6 +8,10 @@ import type { Router } from '../router.ts'
 import { HttpError, authed, ok, asDate, emit } from './deps.ts'
 import { headcount, attrition, leaveBalances, salaryRegister, statutorySummary, type Report } from '../../reports/index.ts'
 import type { Ctx } from '../context.ts'
+import { musterRoll, musterCsv } from '../../attendance/muster.ts'
+import { summaryPolicy } from './shifts.ts'
+import { scopeIds } from '../ui-data.ts'
+import { asUuid, assertScope } from './deps.ts'
 
 function range(ctx: Ctx): { from: string; to: string } {
   const from = asDate(ctx.req.query.get('from'), 'from'), to = asDate(ctx.req.query.get('to'), 'to')
@@ -52,6 +56,22 @@ export function register(router: Router): void {
     authed('report.read', async (ctx) => {
       const r = range(ctx)
       return deliver(ctx, `headcount-${r.from}-${r.to}`, await headcount(ctx.tx, r))
+    }))
+
+  router.get('/api/v1/reports/muster',
+    { summary: 'Muster roll for a month: one code per employee-day (P ½ A L LH LWP WO H OD WFH NJ –) with totals; ?month=YYYY-MM&department=&location=&employeeId=; ?format=csv is Form-25 shaped', tag: 'reports', permission: 'attendance.read' },
+    authed('attendance.read', async (ctx) => {
+      const month = ctx.req.query.get('month') ?? new Date().toISOString().slice(0, 7)
+      if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(month)) throw new HttpError(422, 'VALIDATION_FAILED', 'month is YYYY-MM')
+      const employeeId = ctx.req.query.get('employeeId') ? asUuid(ctx.req.query.get('employeeId'), 'employeeId') : null
+      if (employeeId) assertScope(ctx.auth, employeeId)
+      const ids = employeeId ? [employeeId] : scopeIds(ctx)
+      const m = await musterRoll(ctx.tx, { month, policy: summaryPolicy(ctx), employeeIds: ids, department: ctx.req.query.get('department'), location: ctx.req.query.get('location') })
+      if (ctx.req.query.get('format') === 'csv') {
+        await emit(ctx.tx, { action: 'data.export.completed', entityType: 'report', actorUserId: ctx.auth.userId, metadata: { report: 'muster', month, rows: m.rows.length } })
+        return ok({ fileName: `muster-${month}.csv`, contentType: 'text/csv; charset=utf-8', rows: m.rows.length, contentBase64: Buffer.from(musterCsv(m)).toString('base64') })
+      }
+      return ok(m)
     }))
 
   router.get('/api/v1/reports/attrition',

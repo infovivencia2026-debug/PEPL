@@ -16,7 +16,7 @@ import { scopeFor } from '../../people/profile.ts'
 import type { Scope } from '../../config/resolver.ts'
 
 /** Settings resolved against each person's department / location / grade — the scoped overrides finally apply. */
-function summaryPolicy(ctx: Ctx): (employeeId: string) => Promise<SummaryPolicy> {
+export function summaryPolicy(ctx: Ctx): (employeeId: string) => Promise<SummaryPolicy> {
   return async (employeeId) => {
     const scope = await scopeFor(ctx.tx, employeeId)
     return {

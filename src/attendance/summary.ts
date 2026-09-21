@@ -37,8 +37,30 @@ export interface SummaryPolicy {
  */
 export type PolicyFor = SummaryPolicy | ((employeeId: string) => Promise<SummaryPolicy>)
 
+/**
+ * One calendar day as the muster shows it. The code is what goes in the cell;
+ * payable/lop are the same numbers summarisePeriod sums, so the register and
+ * the payslip can never disagree.
+ *   P present · ½ half day · A absent · L paid leave · LH half leave · LWP unpaid leave
+ *   WO weekly off · H holiday · OD on duty (field) · WFH remote · NJ not joined / left · – no record
+ */
+export interface MusterCell {
+  date: string
+  code: 'P' | '½' | 'A' | 'L' | 'LH' | 'LWP' | 'WO' | 'H' | 'OD' | 'WFH' | 'NJ' | '–'
+  payable: number
+  lop: number
+  late: boolean
+  otMinutes: number
+  firstIn: string | null
+  lastOut: string | null
+  workedMinutes: number
+}
+
 export interface EmployeeSummary {
   employeeId: string
+  department: string | null
+  designation: string | null
+  days: MusterCell[]
   employeeNumber: string
   name: string
   calendarDays: number
@@ -105,8 +127,9 @@ export async function summarisePeriod(
     const stateCode = (await stateOfLocation(tx, posting?.location_code ?? null)) ?? policy.defaultStateCode
     const { rows: days } = await tx.query<{
       work_date: string; status: string; day_fraction: string; late_minutes: number; ot_minutes: number; shift_id: string | null
+      is_remote: boolean; is_field_duty: boolean; first_in: string | null; last_out: string | null; worked_minutes: number
     }>(
-      `SELECT work_date::text, status, day_fraction::text, late_minutes, ot_minutes, shift_id
+      `SELECT work_date::text, status, day_fraction::text, late_minutes, ot_minutes, shift_id, is_remote, is_field_duty, first_in::text, last_out::text, worked_minutes
          FROM daily_attendance WHERE employee_id = $1 AND work_date BETWEEN $2::date AND $3::date`,
       [e.id, args.periodStart, args.periodEnd])
     const byDate = new Map(days.map((d) => [d.work_date, d]))
@@ -119,32 +142,41 @@ export async function summarisePeriod(
     const shiftOffs = roster[0]?.weekly_off_days ?? null
 
     let payable = 0, lop = 0, paidLeave = 0, unmarked = 0, lateMarks = 0, ot = 0
+    const cells: MusterCell[] = []
     const warnings: string[] = []
     const joinedMid = e.date_of_joining > args.periodStart
     const exitedMid = !!e.date_of_exit && e.date_of_exit < args.periodEnd
 
+    const blank = { late: false, otMinutes: 0, firstIn: null, lastOut: null, workedMinutes: 0 }
     for (let i = 0; i < calendarDays; i++) {
       const date = iso(new Date(start.getTime() + i * DAY))
-      if (date < e.date_of_joining || (e.date_of_exit && date > e.date_of_exit)) continue
+      if (date < e.date_of_joining || (e.date_of_exit && date > e.date_of_exit)) { cells.push({ date, code: 'NJ', payable: 0, lop: 0, ...blank }); continue }
       const d = byDate.get(date)
       const off = shiftOffs ? shiftOffs.includes(new Date(date + 'T00:00:00Z').getUTCDay()) : isWeeklyOff(date, policy.weekPattern)
       if (!d) {
-        if (off || holidaySet.has(date)) { payable += 1; continue }
+        if (off) { payable += 1; cells.push({ date, code: 'WO', payable: 1, lop: 0, ...blank }); continue }
+        if (holidaySet.has(date)) { payable += 1; cells.push({ date, code: 'H', payable: 1, lop: 0, ...blank }); continue }
         unmarked++
-        if (policy.unmarkedDayIsLop) lop += 1; else payable += 1
+        if (policy.unmarkedDayIsLop) { lop += 1; cells.push({ date, code: '–', payable: 0, lop: 1, ...blank }) }
+        else { payable += 1; cells.push({ date, code: '–', payable: 1, lop: 0, ...blank }) }
         continue
       }
       const fraction = Number(d.day_fraction)
       lateMarks += d.late_minutes > 0 ? 1 : 0
       ot += d.ot_minutes
+      const detail = { late: d.late_minutes > 0, otMinutes: d.ot_minutes, firstIn: d.first_in, lastOut: d.last_out, workedMinutes: d.worked_minutes }
+      let code: MusterCell['code'] = 'P', cp = 0, cl = 0
       switch (d.status) {
-        case 'weekly_off': case 'holiday': payable += 1; break
-        case 'on_leave': payable += fraction; paidLeave += fraction; lop += 1 - fraction; break
-        case 'present': case 'on_duty': payable += fraction; lop += 1 - fraction; break
-        case 'absent': lop += 1; break
-        case 'not_joined': break
-        default: payable += fraction; lop += 1 - fraction
+        case 'weekly_off': code = 'WO'; cp = 1; break
+        case 'holiday': code = 'H'; cp = 1; break
+        case 'on_leave': cp = fraction; paidLeave += fraction; cl = 1 - fraction; code = fraction === 0 ? 'LWP' : fraction < 1 ? 'LH' : 'L'; break
+        case 'present': case 'on_duty': cp = fraction; cl = 1 - fraction; code = d.is_field_duty || d.status === 'on_duty' ? 'OD' : d.is_remote ? 'WFH' : fraction < 1 ? '½' : 'P'; break
+        case 'absent': code = 'A'; cl = 1; break
+        case 'not_joined': code = 'NJ'; break
+        default: cp = fraction; cl = 1 - fraction
       }
+      payable += cp; lop += cl
+      cells.push({ date, code, payable: cp, lop: cl, ...detail })
     }
 
     let lateHalfDays = 0
@@ -167,6 +199,7 @@ export async function summarisePeriod(
     const round2 = (n: number): number => Math.round(n * 100) / 100
     out.push({
       employeeId: e.id, employeeNumber: e.employee_number, name: [e.first_name, e.last_name].filter(Boolean).join(' '),
+      department: posting?.department ?? null, designation: posting?.designation ?? null, days: cells,
       calendarDays, payableDays: round2(payable), lopDays: round2(lop), paidLeaveDays: round2(paidLeave),
       unmarkedDays: unmarked, lateMarks, lateHalfDays, otMinutes: ot,
       joinedMidPeriod: joinedMid, exitedMidPeriod: exitedMid, warnings,
