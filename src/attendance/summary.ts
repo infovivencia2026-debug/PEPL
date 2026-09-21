@@ -19,6 +19,7 @@
  * Then the late rule: every N late marks cost half a day.
  */
 import type { PoolClient } from 'pg'
+import { currentPosting, stateOfLocation } from '../people/profile.ts'
 import type { FreezeRow } from '../payroll/run.ts'
 
 export interface SummaryPolicy {
@@ -28,6 +29,13 @@ export interface SummaryPolicy {
   weekPattern: 'five_day' | 'six_day' | 'alternate_saturday' | 'roster'
   defaultStateCode: string
 }
+
+/**
+ * The policy for ONE person: the tenant's settings resolved against their
+ * department / location / grade, so an override for "Hyderabad" reaches the
+ * people posted there. Given a plain policy, every employee gets the same.
+ */
+export type PolicyFor = SummaryPolicy | ((employeeId: string) => Promise<SummaryPolicy>)
 
 export interface EmployeeSummary {
   employeeId: string
@@ -62,16 +70,19 @@ function isWeeklyOff(date: string, pattern: SummaryPolicy['weekPattern']): boole
 
 export async function summarisePeriod(
   tx: PoolClient,
-  args: { periodStart: string; periodEnd: string; policy: SummaryPolicy; employeeIds?: string[] },
+  args: { periodStart: string; periodEnd: string; policy: PolicyFor; employeeIds?: string[] },
 ): Promise<EmployeeSummary[]> {
+  const policyFor = typeof args.policy === 'function' ? args.policy : async () => args.policy as SummaryPolicy
   const start = new Date(args.periodStart + 'T00:00:00Z'), end = new Date(args.periodEnd + 'T00:00:00Z')
   const calendarDays = Math.round((end.getTime() - start.getTime()) / DAY) + 1
 
   const { rows: employees } = await tx.query<{
     id: string; employee_number: string; first_name: string; last_name: string | null
     date_of_joining: string; date_of_exit: string | null; status: string
+    pf_applicable: boolean; esi_applicable: boolean
   }>(
-    `SELECT id, employee_number, first_name, last_name, date_of_joining::text, date_of_exit::text, status
+    `SELECT id, employee_number, first_name, last_name, date_of_joining::text, date_of_exit::text, status,
+            pf_applicable, esi_applicable
        FROM employees
       WHERE date_of_joining <= $2::date
         AND (date_of_exit IS NULL OR date_of_exit >= $1::date)
@@ -87,6 +98,11 @@ export async function summarisePeriod(
 
   const out: EmployeeSummary[] = []
   for (const e of employees) {
+    const policy = await policyFor(e.id)
+    // Professional tax follows the office the person is posted at; the
+    // tenant-wide setting is the fallback for a company with one office.
+    const posting = await currentPosting(tx, e.id, args.periodEnd)
+    const stateCode = (await stateOfLocation(tx, posting?.location_code ?? null)) ?? policy.defaultStateCode
     const { rows: days } = await tx.query<{
       work_date: string; status: string; day_fraction: string; late_minutes: number; ot_minutes: number; shift_id: string | null
     }>(
@@ -111,11 +127,11 @@ export async function summarisePeriod(
       const date = iso(new Date(start.getTime() + i * DAY))
       if (date < e.date_of_joining || (e.date_of_exit && date > e.date_of_exit)) continue
       const d = byDate.get(date)
-      const off = shiftOffs ? shiftOffs.includes(new Date(date + 'T00:00:00Z').getUTCDay()) : isWeeklyOff(date, args.policy.weekPattern)
+      const off = shiftOffs ? shiftOffs.includes(new Date(date + 'T00:00:00Z').getUTCDay()) : isWeeklyOff(date, policy.weekPattern)
       if (!d) {
         if (off || holidaySet.has(date)) { payable += 1; continue }
         unmarked++
-        if (args.policy.unmarkedDayIsLop) lop += 1; else payable += 1
+        if (policy.unmarkedDayIsLop) lop += 1; else payable += 1
         continue
       }
       const fraction = Number(d.day_fraction)
@@ -132,13 +148,13 @@ export async function summarisePeriod(
     }
 
     let lateHalfDays = 0
-    if (args.policy.lateMarksPerHalfDay > 0 && lateMarks >= args.policy.lateMarksPerHalfDay) {
-      lateHalfDays = Math.floor(lateMarks / args.policy.lateMarksPerHalfDay) * 0.5
+    if (policy.lateMarksPerHalfDay > 0 && lateMarks >= policy.lateMarksPerHalfDay) {
+      lateHalfDays = Math.floor(lateMarks / policy.lateMarksPerHalfDay) * 0.5
       const take = Math.min(lateHalfDays, payable)
       payable -= take
       lop += take
     }
-    if (unmarked > 0) warnings.push(`${unmarked} day(s) with no attendance record, treated as ${args.policy.unmarkedDayIsLop ? 'LOP' : 'paid'}`)
+    if (unmarked > 0) warnings.push(`${unmarked} day(s) with no attendance record, treated as ${policy.unmarkedDayIsLop ? 'LOP' : 'paid'}`)
 
     const { rows: comp } = await tx.query<{ components: Record<string, number>; annual_ctc_paise: string }>(
       `SELECT components, annual_ctc_paise::text FROM compensation_records
@@ -146,7 +162,7 @@ export async function summarisePeriod(
           AND effective_from <= $2::date AND (effective_to IS NULL OR effective_to >= $2::date)
         ORDER BY effective_from DESC LIMIT 1`, [e.id, args.periodEnd])
     if (!comp[0]) warnings.push('no salary structure in force; the row cannot be frozen')
-    if (!args.policy.defaultStateCode) warnings.push('no professional-tax state set (payroll.pt_state_code)')
+    if (!stateCode) warnings.push('no professional-tax state: set the location\'s state or payroll.pt_state_code')
 
     const round2 = (n: number): number => Math.round(n * 100) / 100
     out.push({
@@ -157,7 +173,7 @@ export async function summarisePeriod(
       row: comp[0] ? {
         employeeId: e.id, calendarDays, payableDays: round2(payable), lopDays: round2(lop), paidLeaveDays: round2(paidLeave),
         otMinutes: ot, monthlyComponents: comp[0].components, annualCtcPaise: BigInt(comp[0].annual_ctc_paise),
-        stateCode: args.policy.defaultStateCode || 'NA', pfApplicable: true, esiApplicable: true,
+        stateCode: stateCode || 'NA', pfApplicable: e.pf_applicable, esiApplicable: e.esi_applicable,
         joinedMidPeriod: joinedMid, exitedMidPeriod: exitedMid,
       } : null,
     })

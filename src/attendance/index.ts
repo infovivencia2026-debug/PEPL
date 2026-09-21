@@ -53,6 +53,16 @@ export async function recordPunch(
   },
 ): Promise<boolean> {
   const tid = await tenantId(tx)
+  // A retry without a client id — a double tap, a flaky network — must not
+  // become two punches. Same person, same direction, within a minute: one.
+  const recent = await tx.query(
+    `SELECT 1 FROM attendance_punches
+      WHERE employee_id = $1 AND direction = $2
+        AND punched_at BETWEEN $3::timestamptz - interval '60 seconds' AND $3::timestamptz + interval '60 seconds'
+        AND ($4::text IS NULL OR client_punch_id IS DISTINCT FROM $4)
+      LIMIT 1`,
+    [p.employeeId, p.direction, p.punchedAt, p.clientPunchId ?? null])
+  if (recent.rowCount) return false
   const { rowCount } = await tx.query(
     `INSERT INTO attendance_punches
        (tenant_id, employee_id, punched_at, local_date, direction, source,

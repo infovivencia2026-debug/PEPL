@@ -22,6 +22,7 @@ import { normaliseComponents, resolveForEmployee, structureByCode } from '../../
 import { loadStatutory } from '../../payroll/statutory.ts'
 import { hold } from '../../approvals/pending.ts'
 import { listBankAccounts, setBankAccount, loginFor, inviteEmployee } from '../../people/onboard.ts'
+import { updateEmployee, listFieldDefinitions, defineField, retireField, SELF_EDITABLE, type EmployeePatch } from '../../people/profile.ts'
 import { notify } from '../../comms/index.ts'
 
 function publicUrl(req: { headers: Record<string, string | string[] | undefined> }): string {
@@ -125,11 +126,12 @@ export function register(router: Router): void {
     authed('employee.write', async (ctx) => {
       const id = asUuid(ctx.req.params.id, 'id')
       assertScope(ctx.auth, id)
-      const b = requireBody<{ department: string; designation: string; managerEmployeeId?: string | null; effectiveFrom: string; reason?: string }>(
+      const b = requireBody<{ department: string; designation: string; managerEmployeeId?: string | null; locationCode?: string | null; gradeCode?: string | null; effectiveFrom: string; reason?: string }>(
         ctx.req, ['department', 'designation', 'effectiveFrom'])
       const recordId = await changeAssignment(ctx.tx, {
         employeeId: id, department: b.department, designation: b.designation,
         managerEmployeeId: b.managerEmployeeId === undefined ? undefined : (b.managerEmployeeId ? asUuid(b.managerEmployeeId, 'managerEmployeeId') : null),
+        locationCode: b.locationCode, gradeCode: b.gradeCode,
         effectiveFrom: asDate(b.effectiveFrom, 'effectiveFrom'),
         reason: b.reason, actorUserId: ctx.auth.userId,
       })
@@ -140,6 +142,52 @@ export function register(router: Router): void {
         reason: b.reason,
       })
       return created({ id: recordId })
+    }))
+
+  router.patch('/api/v1/employees/:id',
+    { summary: 'Correct or complete the employee record (personal, employment, statutory flags, custom fields)', tag: 'people',
+      permission: 'employee.read',
+      requestExample: { dateOfBirth: '1994-06-12', workEmail: 'priya@acme.com', phone: '+91 98765 43210', employmentType: 'permanent', pfApplicable: true, customFields: { tshirt_size: 'M' } } },
+    authed('employee.read', async (ctx) => {
+      const id = asUuid(ctx.req.params.id, 'id')
+      assertScope(ctx.auth, id)
+      const b = requireBody<Record<string, unknown>>(ctx.req, []) as EmployeePatch
+      // An employee may fix their own contact details; everything else is HR (employee.write).
+      if (!can(ctx.auth, 'employee.write')) {
+        const disallowed = Object.keys(b).filter((k) => !SELF_EDITABLE.includes(k as keyof EmployeePatch))
+        if (disallowed.length) throw new HttpError(403, 'PERMISSION_DENIED', `only HR can change: ${disallowed.join(', ')}`)
+        if (ctx.auth.employeeId !== id) throw new HttpError(403, 'PERMISSION_DENIED', 'you can only edit your own contact details')
+      }
+      const { changed } = await updateEmployee(ctx.tx, id, b)
+      if (Object.keys(changed).length) {
+        await emit(ctx.tx, { action: 'people.employee.updated', entityType: 'employee', entityId: id, subjectEmployeeId: id,
+          actorUserId: ctx.auth.userId, before: Object.fromEntries(Object.entries(changed).map(([k, v]) => [k, v.before])),
+          after: Object.fromEntries(Object.entries(changed).map(([k, v]) => [k, v.after])) })
+      }
+      return ok({ changed: Object.keys(changed) })
+    }))
+
+  router.get('/api/v1/employee-fields',
+    { summary: 'The company\'s custom employee fields', tag: 'people', permission: 'employee.read' },
+    authed('employee.read', async (ctx) => ok({ fields: await listFieldDefinitions(ctx.tx, ctx.req.query.get('includeRetired') === 'true') })))
+
+  router.post('/api/v1/employee-fields',
+    { summary: 'Define (or redefine) a custom employee field', tag: 'people', permission: 'settings.write',
+      requestExample: { key: 'tshirt_size', label: 'T-shirt size', kind: 'select', options: ['S', 'M', 'L', 'XL'], selfEditable: true } },
+    authed('settings.write', async (ctx) => {
+      const b = requireBody<{ key: string; label: string; kind: 'text' | 'number' | 'date' | 'boolean' | 'select'; options?: string[]; required?: boolean; selfEditable?: boolean; sortOrder?: number }>(
+        ctx.req, ['key', 'label', 'kind'])
+      const f = await defineField(ctx.tx, b)
+      await emit(ctx.tx, { action: 'people.field.defined', entityType: 'employee_field', entityId: f.id, actorUserId: ctx.auth.userId, after: { key: f.key, kind: f.kind } })
+      return created(f)
+    }))
+
+  router.post('/api/v1/employee-fields/:key/retire',
+    { summary: 'Retire a custom field; stored values are kept', tag: 'people', permission: 'settings.write' },
+    authed('settings.write', async (ctx) => {
+      await retireField(ctx.tx, String(ctx.req.params.key))
+      await emit(ctx.tx, { action: 'people.field.retired', entityType: 'employee_field', actorUserId: ctx.auth.userId, metadata: { key: ctx.req.params.key } })
+      return ok({ retired: true })
     }))
 
   router.get('/api/v1/employees/:id/bank-accounts',

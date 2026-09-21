@@ -16,6 +16,8 @@ type TestResponse = Workspace & Profile & {
   status: string
   changed: boolean
   error: { code: string }
+  totalDays: number
+  skipped: { date: string; reason: string; charged: boolean }[]
 }
 
 let server: Server,

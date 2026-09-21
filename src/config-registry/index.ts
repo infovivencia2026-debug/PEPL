@@ -201,6 +201,14 @@ const payroll = defineConfig('payroll', {
   // The employer's own registration numbers. Not behaviour — identity on a
   // return — but they belong with the company's other payroll settings rather
   // than in a table of four strings.
+  ot_pay: enumOf(['none', 'single', 'double'] as const, {
+    default: 'none',
+    label: 'Overtime pay',
+    help: 'none: overtime minutes are recorded on the muster and not paid. single: paid at the ordinary hourly rate (basic ÷ 208 hours). double: at twice the ordinary rate, as the Factories Act requires for covered establishments. Frozen as an OT line on the payslip.',
+    risk: 'high',
+    affects: ['payroll'],
+    scopable: ['location', 'department', 'grade'],
+  }),
   pay_day: int({
     default: 1,
     min: 0,

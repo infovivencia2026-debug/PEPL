@@ -122,13 +122,19 @@ export async function runLeaveAccrual(period?: string): Promise<JobResult> {
  * resetting a counter, so the year end is visible and a failure is detectable
  * instead of silently carrying stale balances into January.
  */
-export async function runLeaveRollover(fromCycle: number): Promise<JobResult> {
+export async function runLeaveRollover(fromCycle: number, opts: { now?: Date; force?: boolean } = {}): Promise<JobResult> {
   return perTenant('leave.rollover', async (tenantId) =>
     withTenant(tenantId, async (tx) => {
       const cfg = await resolveConfig(tx, tenantId)
       if (!cfg.isEnabled('leave.enabled')) return 0
 
       const startMonth = cfg.get<number>('leave.cycle_start_month')
+      // Only on the first day of THIS company's leave year: a January-cycle
+      // tenant must not be rolled on 1 April, nor an April-cycle tenant on 1 January.
+      if (!opts.force) {
+        const now = opts.now ?? new Date()
+        if (now.getMonth() + 1 !== startMonth || now.getDate() !== 1) return 0
+      }
       const cycleEnd = startMonth === 1
         ? `${fromCycle}-12-31`
         : `${fromCycle + 1}-${String(startMonth - 1).padStart(2, '0')}-28`
@@ -446,6 +452,8 @@ export const JOBS = {
   'notifications.push': runNotificationPush,
   'payroll.payslips': runPayslipDistribution,
   'payroll.periods': () => runPeriodRollForward(),
+  // The cycle that just ended: on 1 April the leave year to roll is last year's.
+  'leave.rollover': () => runLeaveRollover(new Date().getFullYear() - 1),   // gated inside to each tenant's cycle start
   'billing.invoice': () => runBillingInvoices(),
   'billing.dunning': () => runBillingDunning(),
   'push.keygen': runPushKeygen,

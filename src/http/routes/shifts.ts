@@ -12,14 +12,35 @@ import { summarisePeriod, type SummaryPolicy } from '../../attendance/summary.ts
 import { getRun } from '../../payroll/run.ts'
 import type { Ctx } from '../context.ts'
 import { today as localToday } from '../../lib/timezone.ts'
+import { scopeFor } from '../../people/profile.ts'
+import type { Scope } from '../../config/resolver.ts'
 
-function summaryPolicy(ctx: Ctx): SummaryPolicy {
-  return {
-    unmarkedDayIsLop: ctx.config.get<boolean>('attendance.unmarked_day_is_lop'),
-    lateMarksPerHalfDay: ctx.config.get<number>('attendance.late_marks_per_half_day'),
-    weekPattern: ctx.config.get<SummaryPolicy['weekPattern']>('attendance.week_pattern'),
-    defaultStateCode: ctx.config.get<string>('payroll.pt_state_code'),
+/** Settings resolved against each person's department / location / grade — the scoped overrides finally apply. */
+function summaryPolicy(ctx: Ctx): (employeeId: string) => Promise<SummaryPolicy> {
+  return async (employeeId) => {
+    const scope = await scopeFor(ctx.tx, employeeId)
+    return {
+      unmarkedDayIsLop: ctx.config.get<boolean>('attendance.unmarked_day_is_lop', scope),
+      lateMarksPerHalfDay: ctx.config.get<number>('attendance.late_marks_per_half_day', scope),
+      weekPattern: ctx.config.get<SummaryPolicy['weekPattern']>('attendance.week_pattern', scope),
+      defaultStateCode: ctx.config.get<string>('payroll.pt_state_code'),
+    }
   }
+}
+
+/**
+ * Overtime pay, frozen as a VALUE on the row like everything else the engine
+ * reads. Hourly rate is basic over 208 hours (26 days × 8); the multiplier is
+ * the company's setting. None: the minutes are recorded and nothing is paid.
+ */
+function otAdhoc(ctx: Ctx, row: { otMinutes?: number; monthlyComponents: Record<string, number> }, scope: Scope): { code: string; amountPaise: number }[] {
+  const mode = ctx.config.get<'none' | 'single' | 'double'>('payroll.ot_pay', scope)
+  const minutes = row.otMinutes ?? 0
+  if (mode === 'none' || minutes <= 0) return []
+  const basic = row.monthlyComponents.BASIC ?? row.monthlyComponents.basic ?? 0
+  const hourly = basic / 208
+  const amount = Math.round(hourly * (minutes / 60) * (mode === 'double' ? 2 : 1))
+  return amount > 0 ? [{ code: 'OT', amountPaise: amount }] : []
 }
 
 async function periodOf(ctx: Ctx, periodId: string): Promise<{ period_start: string; period_end: string }> {
@@ -119,17 +140,21 @@ export function register(router: Router): void {
         throw new HttpError(422, 'NO_COMPENSATION', `${missing.length} employee(s) have no salary structure in force`,
           { employees: missing.map((m) => ({ employeeId: m.employeeId, employeeNumber: m.employeeNumber })) })
       }
-      const rows = summary.filter((s) => s.row && !skip.has(s.employeeId)).map((s) => {
+      const rows: (typeof summary[number]['row'] & { adhoc?: { code: string; amountPaise: number }[] })[] = []
+      for (const s of summary) {
+        if (!s.row || skip.has(s.employeeId)) continue
         const o = over.get(s.employeeId)
-        const row = { ...s.row! }
+        const row = { ...s.row }
         if (o?.payableDays !== undefined) row.payableDays = o.payableDays
         if (o?.lopDays !== undefined) row.lopDays = o.lopDays
         if (o?.otMinutes !== undefined) row.otMinutes = o.otMinutes
         if (row.payableDays + row.lopDays > row.calendarDays + 0.001) {
           throw new HttpError(422, 'VALIDATION_FAILED', `${s.employeeNumber}: payable plus LOP exceeds the calendar days`)
         }
-        return row
-      })
+        // Overtime is paid as a frozen line, from the minutes attendance recorded.
+        const ot = otAdhoc(ctx, row, await scopeFor(ctx.tx, s.employeeId))
+        rows.push(ot.length ? { ...row, adhoc: ot } : row)
+      }
       const statutory = await loadStatutory(ctx.tx, p.period_end)
       const divisor = ctx.config.get<number>('payroll.exit_day_divisor')
       const frozen = await freezeInputs(ctx.tx, runId, rows, {

@@ -31,6 +31,9 @@ export interface AssignmentInput {
   designation: string
   /** undefined = keep the current manager; null = no manager (a CEO, a founder). */
   managerEmployeeId?: string | null
+  /** undefined = keep; null = clear. Codes from the location / grade masters once they exist. */
+  locationCode?: string | null
+  gradeCode?: string | null
   effectiveFrom: string
   reason?: string
   actorUserId?: string
@@ -64,8 +67,8 @@ export async function changeAssignment(tx: PoolClient, input: AssignmentInput): 
     designation: await resolveUnitCode(tx, 'designation', input.designation),
   }
 
-  const open = await tx.query<{ id: string; effective_from: string; manager_employee_id: string | null }>(
-    `SELECT id, effective_from::text, manager_employee_id
+  const open = await tx.query<{ id: string; effective_from: string; manager_employee_id: string | null; location_code: string | null; grade_code: string | null }>(
+    `SELECT id, effective_from::text, manager_employee_id, location_code, grade_code
        FROM employee_assignments
       WHERE employee_id = $1 AND superseded_at IS NULL
         AND (effective_to IS NULL OR effective_to > $2)
@@ -77,6 +80,10 @@ export async function changeAssignment(tx: PoolClient, input: AssignmentInput): 
   const prior = open.rows[0]
   const manager = input.managerEmployeeId === undefined ? (prior?.manager_employee_id ?? null) : input.managerEmployeeId
   await assertManager(tx, input.employeeId, manager)
+  const location = input.locationCode === undefined ? (prior?.location_code ?? null)
+    : input.locationCode ? await resolveUnitCode(tx, 'location', input.locationCode) : null
+  const grade = input.gradeCode === undefined ? (prior?.grade_code ?? null)
+    : input.gradeCode ? await resolveUnitCode(tx, 'grade', input.gradeCode) : null
   if (prior) {
     if (prior.effective_from >= input.effectiveFrom) {
       throw new HistoryError(
@@ -92,10 +99,10 @@ export async function changeAssignment(tx: PoolClient, input: AssignmentInput): 
 
   const { rows } = await tx.query<{ id: string }>(
     `INSERT INTO employee_assignments
-       (tenant_id, employee_id, department, designation, manager_employee_id, effective_from, changed_by_user_id, change_reason)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+       (tenant_id, employee_id, department, designation, manager_employee_id, location_code, grade_code, effective_from, changed_by_user_id, change_reason)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
      RETURNING id`,
-    [tid, input.employeeId, input.department, input.designation, manager, input.effectiveFrom,
+    [tid, input.employeeId, input.department, input.designation, manager, location, grade, input.effectiveFrom,
      input.actorUserId ?? null, input.reason ?? null],
   )
   return rows[0]!.id
@@ -129,7 +136,7 @@ async function assertManager(tx: PoolClient, employeeId: string, managerId: stri
 export async function correctAssignment(
   tx: PoolClient,
   recordId: string,
-  patch: { department?: string; designation?: string; managerEmployeeId?: string | null; reason: string; actorUserId?: string },
+  patch: { department?: string; designation?: string; managerEmployeeId?: string | null; locationCode?: string | null; gradeCode?: string | null; reason: string; actorUserId?: string },
 ): Promise<string> {
   const tid = await tenantId(tx)
   if (!patch.reason?.trim()) {
@@ -152,16 +159,18 @@ export async function correctAssignment(
 
   const manager = patch.managerEmployeeId === undefined ? old.manager_employee_id : patch.managerEmployeeId
   await assertManager(tx, old.employee_id, manager)
+  const location = patch.locationCode === undefined ? old.location_code : patch.locationCode
+  const grade = patch.gradeCode === undefined ? old.grade_code : patch.gradeCode
   const { rows } = await tx.query<{ id: string }>(
     `INSERT INTO employee_assignments
-       (tenant_id, employee_id, department, designation, manager_employee_id, effective_from, effective_to,
+       (tenant_id, employee_id, department, designation, manager_employee_id, location_code, grade_code, effective_from, effective_to,
         changed_by_user_id, change_reason)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
      RETURNING id`,
     [tid, old.employee_id,
      patch.department ?? old.department,
      patch.designation ?? old.designation,
-     manager,
+     manager, location, grade,
      old.effective_from, old.effective_to,
      patch.actorUserId ?? null, patch.reason],
   )
