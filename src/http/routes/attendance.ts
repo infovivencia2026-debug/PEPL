@@ -6,6 +6,8 @@ import {
   authed,
   open,
   ok,
+  created,
+  noContent,
   requireBody,
   requireModule,
   asDate,
@@ -20,6 +22,8 @@ import {
   emit,
 } from './deps.ts'
 import { evaluatePunch } from '../../attendance/geofence.ts'
+import { remoteModeOn, markModeOnDay, listRemoteRequests, requestRemote, cancelRemote, getRemoteRequest, startVisit, endVisit, listVisits } from '../../attendance/remote.ts'
+import { scopeIds } from '../ui-data.ts'
 import { hold, listPending } from '../../approvals/pending.ts'
 import { today as localToday } from '../../lib/timezone.ts'
 
@@ -59,14 +63,18 @@ export function register(router: Router): void {
       if (!employeeId) throw new HttpError(422, 'NO_EMPLOYEE_RECORD', 'this user has no employee record')
       assertScope(ctx.auth, employeeId)
 
+      const localDate = asDate(b.localDate, 'localDate')
+      // An approved work-from-home or field day is not fenced: the punch is
+      // recorded with whatever location it has and the day carries the mode.
+      const mode = await remoteModeOn(ctx.tx, employeeId, localDate)
       const verdict = await evaluatePunch(ctx.tx, employeeId, b.geo)
       // A fenced person without a fix is outside by definition; an unfenced
       // one is only asked for a fix when the company insists on one.
-      if (!b.geo && (verdict.status === 'outside' || ctx.config.get<boolean>('attendance.geofence_required'))) {
+      if (!mode && !b.geo && (verdict.status === 'outside' || ctx.config.get<boolean>('attendance.geofence_required'))) {
         throw new HttpError(422, 'LOCATION_REQUIRED',
           'this company requires a location fix on every mobile punch')
       }
-      if (verdict.status === 'outside' && ctx.config.get<boolean>('attendance.geofence_enforce')) {
+      if (!mode && verdict.status === 'outside' && ctx.config.get<boolean>('attendance.geofence_enforce')) {
         throw new HttpError(422, 'OUTSIDE_GEOFENCE',
           `you are ${verdict.distanceM} m from ${verdict.siteCode}; punch from an allowed site`,
           { siteCode: verdict.siteCode, distanceM: verdict.distanceM })
@@ -81,8 +89,81 @@ export function register(router: Router): void {
           siteId: verdict.siteId, distanceM: verdict.distanceM,
         },
       })
-      await recomputeDay(ctx.tx, employeeId, b.localDate, dayPolicy(ctx))
-      return ok({ recorded: createdPunch, duplicate: !createdPunch, geofence: verdict })
+      await recomputeDay(ctx.tx, employeeId, localDate, dayPolicy(ctx))
+      if (mode && createdPunch) await markModeOnDay(ctx.tx, { employeeId, workDate: localDate, mode, actorUserId: ctx.auth.userId, policy: dayPolicy(ctx) })
+      return ok({ recorded: createdPunch, duplicate: !createdPunch, geofence: verdict, mode })
+    }))
+
+  // ── work from home / field duty ──
+  router.get('/api/v1/attendance/remote-requests',
+    { summary: 'WFH and field-duty requests you may see (?employeeId=&status=&from=&to=)', tag: 'attendance', permission: 'attendance.read' },
+    authed('attendance.read', async (ctx) => {
+      const employeeId = ctx.req.query.get('employeeId')
+      if (employeeId) assertScope(ctx.auth, asUuid(employeeId, 'employeeId'))
+      return ok({ requests: await listRemoteRequests(ctx.tx, { employeeIds: scopeIds(ctx), employeeId: employeeId ?? undefined, status: ctx.req.query.get('status') ?? undefined,
+        from: ctx.req.query.get('from') ?? undefined, to: ctx.req.query.get('to') ?? undefined }) })
+    }))
+
+  router.post('/api/v1/attendance/remote-requests',
+    { summary: 'Request work-from-home or field duty for a date range (approval per settings)', tag: 'attendance', permission: 'attendance.read',
+      requestExample: { kind: 'wfh', startsOn: '2026-10-06', endsOn: '2026-10-07', reason: 'plumber' } },
+    authed('attendance.read', async (ctx) => {
+      requireModule(ctx, 'attendance.enabled')
+      const b = requireBody<{ employeeId?: string; kind: 'wfh' | 'field'; startsOn: string; endsOn: string; place?: string; reason?: string }>(ctx.req, ['kind', 'startsOn', 'endsOn'])
+      const employeeId = b.employeeId ? asUuid(b.employeeId, 'employeeId') : ctx.auth.employeeId
+      if (!employeeId) throw new HttpError(422, 'NO_EMPLOYEE_RECORD', 'this user has no employee record')
+      if (employeeId !== ctx.auth.employeeId && !can(ctx.auth, 'attendance.correct')) throw new HttpError(403, 'PERMISSION_DENIED', 'requesting for someone else needs attendance.correct')
+      assertScope(ctx.auth, employeeId)
+      const r = await requestRemote(ctx.tx, ctx.config, { employeeId, requestedByUserId: ctx.auth.userId, kind: b.kind, startsOn: asDate(b.startsOn, 'startsOn'), endsOn: asDate(b.endsOn, 'endsOn'), place: b.place, reason: b.reason })
+      await emit(ctx.tx, { action: 'attendance.remote.requested', entityType: 'remote_request', entityId: r.request.id, subjectEmployeeId: employeeId, actorUserId: ctx.auth.userId,
+        metadata: { kind: r.request.kind, startsOn: r.request.starts_on, endsOn: r.request.ends_on, status: r.request.status } })
+      return created(r)
+    }))
+
+  router.post('/api/v1/attendance/remote-requests/:id/cancel',
+    { summary: 'Cancel your WFH / field request', tag: 'attendance', permission: 'attendance.read' },
+    authed('attendance.read', async (ctx) => {
+      const id = asUuid(ctx.req.params.id, 'id')
+      const r = await getRemoteRequest(ctx.tx, id)
+      if (!r) throw new HttpError(404, 'NOT_FOUND', 'no such request')
+      assertScope(ctx.auth, r.employee_id)
+      await cancelRemote(ctx.tx, id, r.employee_id)
+      await emit(ctx.tx, { action: 'attendance.remote.cancelled', entityType: 'remote_request', entityId: id, subjectEmployeeId: r.employee_id, actorUserId: ctx.auth.userId })
+      return noContent()
+    }))
+
+  router.get('/api/v1/attendance/visits',
+    { summary: 'Field visit logs (?employeeId=&from=&to=)', tag: 'attendance', permission: 'attendance.read' },
+    authed('attendance.read', async (ctx) => {
+      const employeeId = ctx.req.query.get('employeeId')
+      if (employeeId) assertScope(ctx.auth, asUuid(employeeId, 'employeeId'))
+      const to = ctx.req.query.get('to') ?? localToday(ctx.config.get<string>('attendance.timezone'))
+      const from = ctx.req.query.get('from') ?? new Date(Date.now() - 30 * 86_400_000).toISOString().slice(0, 10)
+      return ok({ visits: await listVisits(ctx.tx, { employeeIds: scopeIds(ctx), employeeId: employeeId ?? undefined, from: asDate(from, 'from'), to: asDate(to, 'to') }) })
+    }))
+
+  router.post('/api/v1/attendance/visits',
+    { summary: 'Start a field visit (place, contact, purpose, your location); the day is marked on duty', tag: 'attendance', permission: 'attendance.read',
+      requestExample: { place: 'DAV School, Kondapur', contact: 'Principal', purpose: 'Demo of the LMS', geo: { lat: 17.46, lng: 78.36 } } },
+    authed('attendance.read', async (ctx) => {
+      requireModule(ctx, 'attendance.enabled')
+      if (!ctx.auth.employeeId) throw new HttpError(422, 'NO_EMPLOYEE_RECORD', 'this user has no employee record')
+      const b = requireBody<{ place: string; contact?: string; purpose: string; geo?: { lat: number; lng: number }; projectId?: string; localDate?: string }>(ctx.req, ['place', 'purpose'])
+      const workDate = b.localDate ? asDate(b.localDate, 'localDate') : localToday(ctx.config.get<string>('attendance.timezone'))
+      const v = await startVisit(ctx.tx, { employeeId: ctx.auth.employeeId, workDate, place: b.place, contact: b.contact, purpose: b.purpose, geo: b.geo, projectId: b.projectId ? asUuid(b.projectId, 'projectId') : null })
+      await markModeOnDay(ctx.tx, { employeeId: ctx.auth.employeeId, workDate, mode: 'field', actorUserId: ctx.auth.userId, policy: dayPolicy(ctx) })
+      await emit(ctx.tx, { action: 'attendance.visit.logged', entityType: 'field_visit', entityId: v.id, subjectEmployeeId: ctx.auth.employeeId, actorUserId: ctx.auth.userId, metadata: { place: v.place } })
+      return created(v)
+    }))
+
+  router.post('/api/v1/attendance/visits/:id/end',
+    { summary: 'End the visit with the outcome and next step', tag: 'attendance', permission: 'attendance.read',
+      requestExample: { outcome: 'Agreed to a pilot with 2 sections', nextStep: 'Send proposal by Friday', geo: { lat: 17.46, lng: 78.36 } } },
+    authed('attendance.read', async (ctx) => {
+      if (!ctx.auth.employeeId) throw new HttpError(422, 'NO_EMPLOYEE_RECORD', 'this user has no employee record')
+      const b = requireBody<{ outcome: string; nextStep?: string; geo?: { lat: number; lng: number }; photoDocumentIds?: string[] }>(ctx.req, ['outcome'])
+      return ok(await endVisit(ctx.tx, { visitId: asUuid(ctx.req.params.id, 'id'), employeeId: ctx.auth.employeeId, outcome: b.outcome, nextStep: b.nextStep, geo: b.geo,
+        photoDocumentIds: b.photoDocumentIds?.map((d) => asUuid(d, 'photoDocumentIds')) }))
     }))
 
   router.get('/api/v1/attendance',

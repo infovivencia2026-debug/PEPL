@@ -3,6 +3,9 @@ import type { Router } from '../router.ts'
 import { settle } from '../../approvals/pending.ts'
 import { settleLeaveDecision } from '../../leave/apply.ts'
 import { settleClaimDecision, settleTravelDecision } from '../../work/expenses.ts'
+import { settleTimesheetDecision } from '../../work/timesheets.ts'
+import { settleRequisitionDecision, settleOfferDecision } from '../../people/recruitment.ts'
+import { settleRemoteDecision } from '../../attendance/remote.ts'
 import {
   listTemplates, getTemplate, createTemplate, updateTemplate, retireTemplate, resolveAssignees,
   type TemplateItemInput, type Trigger,
@@ -67,6 +70,13 @@ export function register(router: Router): void {
           }
         }
         if (r?.entity_type === 'travel') await settleTravelDecision(ctx.tx, { tripId: r.entity_id, status: result.status })
+        if (r?.entity_type === 'requisition') await settleRequisitionDecision(ctx.tx, { approvalRequestId: ctx.req.params.id, status: result.status })
+        if (r?.entity_type === 'remote') await settleRemoteDecision(ctx.tx, { approvalRequestId: ctx.req.params.id!, status: result.status })
+        if (r?.entity_type === 'offer') await settleOfferDecision(ctx.tx, { approvalRequestId: ctx.req.params.id, status: result.status })
+        if (r?.entity_type === 'timesheet') {
+          const s = await settleTimesheetDecision(ctx.tx, { approvalRequestId: ctx.req.params.id, status: result.status, actorUserId: ctx.auth.userId, comment: b.comment })
+          if (s.changed) await emit(ctx.tx, { action: result.status === 'approved' ? 'timesheet.approved' : 'timesheet.rejected', entityType: 'timesheet', entityId: s.timesheetId, subjectEmployeeId: r.subject_employee_id, actorUserId: ctx.auth.userId })
+        }
         if (r?.entity_type === 'leave') {
           // balance, request status, attendance marking and the applicant's notice — once, in leave/apply.ts
           const settled = await settleLeaveDecision(ctx.tx, ctx.config, {

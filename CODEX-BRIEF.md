@@ -1654,8 +1654,150 @@ Build:
   Manager sees everything except the interview.
 - **Exit interview** form (HR): five 1–5 sliders, would-rejoin, would-recommend,
   free text. **Attrition report**: reason categories and ratings across
-  separations (`GET /reports/attrition` — coming with the reports slice).
+  separations (`GET /reports/attrition?from=&to=` — shipped, see §2.50).
 - Nav: employee "My exit" only once a resignation exists or under Account.
+
+---
+
+## 2.48 Recruitment — 18 endpoints, `recruitment.enabled`
+
+Requisition (approved) → open → candidates through stages → interviews →
+offer (approved, within the band) → sent → accepted → **convert**: one call
+creates the employee with assignment, salary, login invite and the
+onboarding checklist. Permissions: `recruit.read` (HR, admin, managers as
+interviewers), `recruit.write` (HR, admin); convert needs `employee.write`.
+
+```
+GET/POST /api/v1/requisitions            POST /api/v1/requisitions/:id/status { open|on_hold|cancelled }
+GET      /api/v1/requisitions/:id        -> { …, candidates, hired }
+GET/POST /api/v1/candidates              ?requisitionId=&stage=&q=     POST { requisitionId, firstName, lastName?, email, phone?, source?, referredByEmployeeId?, resumeDocumentId?, currentCtcPaise?, expectedCtcPaise?, noticeDays? }
+GET      /api/v1/candidates/:id          -> { …, interviews[], offers[] }
+POST     /api/v1/candidates/:id/stage    { stage, reason? }   409 BAD_STAGE_MOVE (no skipping); rejection needs reason
+GET/POST /api/v1/interviews              ?candidateId= | ?mine=true&upcoming=true    POST { candidateId, round, scheduledAt, durationMin?, mode, location?, interviewerUserIds[] }
+POST     /api/v1/interviews/:id/outcome  { status: completed|cancelled|no_show, score 1-5, recommendation, feedback }   403 NOT_INTERVIEWER
+POST     /api/v1/offers                  { candidateId, designation, annualCtcPaise, components{}, structureCode?, joiningDate, validUntil, probationMonths, noticePeriodDays, … }   422 OVER_BAND
+GET      /api/v1/offers/:id              POST /offers/:id/send { letterDocumentId? } · /respond { accepted|declined } · /withdraw
+POST     /api/v1/offers/:id/convert      { employeeNumber? }  -> { employeeId, employeeNumber, inviteLink, tasks, requisitionFilled }
+```
+
+Stages: applied → screening → interview → offer → offered → accepted → joined
+(plus rejected / withdrawn). Requisitions and offers arrive in the normal
+approval inbox (`entity_type` 'requisition' | 'offer').
+
+Build:
+- **Hiring** (HR): requisitions list with pipeline counts and a "Raise
+  requisition" form (band, headcount, hiring manager); a requisition page
+  with a **kanban of stages** (drag = `/stage`), candidate cards (source,
+  expected CTC, last interview score), "Add candidate" with resume upload
+  (`POST /documents ownerType tenant category other` until a `candidate`
+  owner exists — or skip the upload for now).
+- **Candidate page**: details, interviews timeline with scores, offers;
+  "Schedule interview" (interviewer picker from `/employees?q=` → their
+  user ids), "Make offer" (CTC + components editor reusing the compensation
+  form), Send / Respond / Withdraw, and **Convert to employee** which shows
+  the invite link with a copy button.
+- **My interviews** (managers): `/interviews?mine=true&upcoming=true` on the
+  dashboard; an outcome form (score slider, recommendation, feedback).
+- Offer letter: generate from the offer fields client-side (print to PDF) and
+  upload as a document; pass its id on `/send`. A server-side letter comes
+  later.
+
+---
+
+## 2.49 Work from home & field duty — attendance MODES
+
+An approved remote request turns the geofence OFF for those dates and the
+punch marks the day: WFH → `is_remote`, field → `status on_duty` +
+`is_field_duty`. The punch response now carries `mode: 'wfh' | 'field' | null`.
+Field days can carry **visit logs** (where, whom, purpose, outcome, next step,
+geo at start and end). Settings: `attendance.wfh_requires_approval` (default
+on; field duty ALWAYS needs approval), `attendance.wfh_max_days_per_month`
+(0 = no cap), `attendance.remote_approval_chain` (default manager).
+`attendance.remote_enabled` off → WFH refused (403 REMOTE_NOT_ALLOWED).
+
+```
+GET  /api/v1/attendance/remote-requests           ?employeeId=&status=&from=&to=   -> { requests[] }  (scope-limited)
+POST /api/v1/attendance/remote-requests           { kind: wfh|field, startsOn, endsOn, place?, reason?, employeeId? }
+                                                  -> 201 { request, approvalRequestId }   409 REMOTE_OVERLAP · 422 WFH_CAP
+                                                  field needs place (422 VALIDATION_FAILED). employeeId for others needs attendance.correct.
+POST /api/v1/attendance/remote-requests/:id/cancel  -> 204 (pending or approved; withdraws the approval)
+GET  /api/v1/attendance/visits                    ?employeeId=&from=&to=  (default last 30 days) -> { visits[] }
+POST /api/v1/attendance/visits                    { place, contact?, purpose, geo?, projectId?, localDate? } -> 201 visit  409 VISIT_OPEN
+POST /api/v1/attendance/visits/:id/end            { outcome, nextStep?, geo?, photoDocumentIds?[] } -> visit
+```
+
+Approvals arrive in the normal inbox with `entity_type: 'remote'`.
+
+Build:
+- **Attendance (employee)**: a "Work from home / field duty" button next to
+  punch → date range, kind, place (required for field), reason. A list of my
+  requests with status chips and Cancel. On the day itself the punch card
+  says "Working from home today — no location check" / "On field duty".
+- **Field visits** (mobile-first): "Start visit" (place, contact, purpose;
+  geo captured silently) → a live card with elapsed time → "End visit"
+  (outcome, next step, photos via `POST /documents` then ids). A visits
+  timeline for the day and the last 30 days.
+- **Manager**: team remote calendar (who is WFH/field on which day — from
+  `/remote-requests?status=approved&from=&to=`) and the team's visit logs.
+- Muster/day view: show the remote/field attribute on the day cell (icon +
+  text, not colour alone).
+
+---
+
+## 2.50 Performance — goals, review cycles, appraisals, PIPs (`performance.enabled`)
+
+Permissions: `performance.read` (everyone: own goals and appraisal),
+`performance.review` (managers: team goals, manager review, PIPs),
+`performance.manage` (HR: cycles, calibration, distribution).
+
+```
+GET/POST /api/v1/performance/cycles                 POST { name, periodStart, periodEnd, selfReviewDue?, managerReviewDue?, ratingScale? (3-10, default 5) }
+POST     /api/v1/performance/cycles/:id/open        -> { appraisals: n, cycle }   one appraisal per active employee, reviewer = manager of record
+POST     /api/v1/performance/cycles/:id/status      { status: calibration | closed }   409 RATINGS_PENDING when a final rating is missing
+GET      /api/v1/performance/cycles/:id/distribution -> { total, pending, byRating: {"1": n…}, byDepartment: [{ department, avg, n }] }
+
+GET/POST /api/v1/performance/goals                  ?employeeId=&cycleId=&status=   POST { id? (update), employeeId?, cycleId?, title, description?, kpi?, target?, weightPct?, dueOn? }
+                                                    422 WEIGHT_OVER when a cycle's active goals would exceed 100%
+GET      /api/v1/performance/goals/:id/checkins     -> { goal, checkins[] }
+POST     /api/v1/performance/goals/:id/checkin      { progressPct, note }   100 completes the goal
+POST     /api/v1/performance/goals/:id/status       { status: completed | cancelled }
+
+GET      /api/v1/performance/appraisals             ?cycleId=&employeeId=&status= | ?mine=true | ?toReview=true
+GET      /api/v1/performance/appraisals/:id
+POST     /api/v1/performance/appraisals/:id/self         { rating, comments }      employee only        403 NOT_YOURS
+POST     /api/v1/performance/appraisals/:id/review       { rating, comments }      reviewer or HR       403 NOT_REVIEWER (an absent self review does not block it)
+POST     /api/v1/performance/appraisals/:id/calibrate    { finalRating?, note? }   HR; note REQUIRED when the rating changes
+POST     /api/v1/performance/appraisals/:id/acknowledge  { comments? }             employee
+
+GET/POST /api/v1/performance/pips                   POST { employeeId, reason, objectives: [{ title, measure?, dueOn? }], startsOn, reviewOn, endsOn }   409 PIP_OPEN
+POST     /api/v1/performance/pips/:id/review        { verdict: continue | extend | close_success | close_exit, note, extendTo?, nextReviewOn? }
+```
+
+Appraisal status: `self_pending → manager_pending → calibration → acknowledgement → closed`.
+**Until `acknowledgement`, the employee's own appraisal comes back with
+`manager_rating`, `manager_comments`, `final_rating`, `calibration_note` as
+null** — render "awaiting release", never a blank score. A PIP is visible only
+to the subject, their current manager, whoever opened it and HR (row policy):
+an unrelated manager's list is simply empty.
+
+Build:
+- **My performance** (employee): goals as cards with a progress bar + weight
+  chip, "Check in" (slider + note), "Add goal"; my appraisal card by status
+  (self-review form when `self_pending`; "with your manager" / "in
+  calibration" waiting states; released view with ratings side by side and an
+  Acknowledge button).
+- **Team** (manager): team goals grid; "To review" list
+  (`?toReview=true&status=manager_pending`) with the self review shown
+  alongside the review form; PIP open form and review timeline.
+- **HR**: cycles list with a stepper (draft → open → calibration → closed),
+  Open / Move to calibration / Close; a **calibration table** for a cycle
+  (employee, department, self, manager, final editable, note) driving
+  `/calibrate`; the distribution as a bar chart (rating counts) plus
+  department averages.
+
+Also new: `GET /api/v1/reports/attrition?from=&to=` — leavers by department,
+reason and tenure band, with exit-interview reasons; `report.read`,
+company-wide; `?format=csv` like the other reports.
 
 ---
 
@@ -1733,6 +1875,9 @@ Build:
 31. **Comp-off card and HR grant** (§2.45).
 32. **Timesheets, work log, projects, hours report** (§2.46).
 33. **Exit workflow** (§2.47): resign form, exit timeline with clearances, interview, letter.
+34. **Recruitment** (§2.48): requisitions, kanban pipeline, candidate page, interviews, offers, convert.
+35. **WFH & field duty** (§2.49): request + cancel, punch-card mode banner, field visit start/end, team remote calendar.
+36. **Performance** (§2.50): my goals + appraisal, team review queue, HR cycles + calibration table + distribution chart; PIPs.
 
 ## Running it
 

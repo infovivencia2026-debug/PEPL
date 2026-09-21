@@ -19,6 +19,7 @@ import {
   recordExitInterview, issueRelievingLetter, exitOverview,
 } from '../src/people/exit-workflow.ts'
 import { settlementForFreeze, getSeparation } from '../src/payroll/exit.ts'
+import { attrition } from '../src/reports/index.ts'
 import { createRun, freezeInputs, calculate, validate, approve, lock } from '../src/payroll/run.ts'
 import { ensurePeriod } from '../src/payroll/periods.ts'
 import { readDocument } from '../src/documents/index.ts'
@@ -139,6 +140,11 @@ describe('acceptance, clearance, settlement, letter', () => {
       expect(o.separation!.status).toBe('settled')
       expect(o.interview!.primary_reason).toBe('growth')
       expect(o.blockingTasks).toBe(1)                                                  // the laptop task is still open
+
+      // the attrition report sees this leaver with the exit-interview reason; outside the window it is empty
+      const rep = await attrition(tx, { from: '2026-10-01', to: '2026-10-31' })
+      expect(rep.rows).toEqual([expect.objectContaining({ reason: 'resignation', tenure_band: expect.any(String), leavers: 1, voluntary: 1, exit_interview_reasons: 'growth' })])
+      expect((await attrition(tx, { from: '2026-11-01', to: '2026-11-30' })).rows).toEqual([])
     })
   })
 })

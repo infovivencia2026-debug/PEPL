@@ -28,6 +28,8 @@ export const PERMISSIONS = [
   'import.run', 'report.read',
   'expense.read', 'expense.claim', 'expense.write', 'expense.policy.write',
   'timesheet.read', 'timesheet.write', 'project.write',
+  'recruit.read', 'recruit.write',
+  'performance.read', 'performance.review', 'performance.manage',
 ] as const
 
 export type Permission = (typeof PERMISSIONS)[number]
@@ -48,12 +50,16 @@ export const ROLE_PERMISSIONS: Readonly<Record<string, { permissions: Permission
     org_admin: {
       scope: 'all',
       permissions: [
+        'performance.read', 'performance.review', 'performance.manage',
+        'recruit.read', 'recruit.write',
         'timesheet.read', 'timesheet.write', 'project.write',
         'expense.read', 'expense.claim', 'expense.write', 'expense.policy.write',...PERMISSIONS],
     },
     hr_admin: {
       scope: 'all',
       permissions: [
+        'performance.read', 'performance.review', 'performance.manage',
+        'recruit.read', 'recruit.write',
         'timesheet.read', 'timesheet.write', 'project.write',
         'expense.read', 'expense.claim', 'expense.write', 'expense.policy.write',
         'employee.read', 'employee.write',
@@ -97,6 +103,8 @@ export const ROLE_PERMISSIONS: Readonly<Record<string, { permissions: Permission
     manager: {
       scope: 'reports',
       permissions: [
+        'performance.read', 'performance.review',
+        'recruit.read',
         'timesheet.read', 'timesheet.write',
         'expense.read', 'expense.claim',
         'employee.read',
@@ -110,6 +118,7 @@ export const ROLE_PERMISSIONS: Readonly<Record<string, { permissions: Permission
     employee: {
       scope: 'self',
       permissions: [
+        'performance.read',
         'timesheet.read',
         'expense.read', 'expense.claim',
         'employee.read',

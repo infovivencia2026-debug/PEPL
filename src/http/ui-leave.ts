@@ -10,6 +10,9 @@ import { act } from '../approvals/index.ts'
 import { settle } from '../approvals/pending.ts'
 import { applyLeave, settleLeaveDecision } from '../leave/apply.ts'
 import { settleClaimDecision, settleTravelDecision } from '../work/expenses.ts'
+import { settleTimesheetDecision } from '../work/timesheets.ts'
+import { settleRequisitionDecision, settleOfferDecision } from '../people/recruitment.ts'
+import { settleRemoteDecision } from '../attendance/remote.ts'
 import { emit } from '../audit/index.ts'
 import { textField, dateField } from './ui-routes.ts'
 
@@ -78,6 +81,15 @@ export function registerUiLeave(r: Router) {
           }
         } else if (request.entity_type === 'travel') {
           await settleTravelDecision(c.tx, { tripId: request.entity_id, status: result.status })
+        } else if (request.entity_type === 'remote') {
+          await settleRemoteDecision(c.tx, { approvalRequestId: id, status: result.status })
+        } else if (request.entity_type === 'requisition') {
+          await settleRequisitionDecision(c.tx, { approvalRequestId: id, status: result.status })
+        } else if (request.entity_type === 'offer') {
+          await settleOfferDecision(c.tx, { approvalRequestId: id, status: result.status })
+        } else if (request.entity_type === 'timesheet') {
+          const s = await settleTimesheetDecision(c.tx, { approvalRequestId: id, status: result.status, actorUserId: c.auth.userId, comment: b.comment })
+          if (s.changed) await emit(c.tx, { action: result.status === 'approved' ? 'timesheet.approved' : 'timesheet.rejected', entityType: 'timesheet', entityId: s.timesheetId, subjectEmployeeId: request.subject_employee_id, actorUserId: c.auth.userId })
         } else {
           // A held salary revision or attendance correction lands (or is closed
           // out) through the same functions a direct write uses.

@@ -136,6 +136,25 @@ const attendance = defineConfig('attendance', {
     label: 'Who approves an employee\'s own attendance request',
     help: 'A person who forgot to punch, or worked from home without marking it, asks; this chain decides. Always an approval — an employee never edits their own attendance directly. An approval policy for attendance_correction overrides it.',
   }),
+  wfh_requires_approval: bool({
+    default: true,
+    label: 'Work-from-home needs approval',
+    help: 'Off: a WFH request is approved on the spot and the person can punch from anywhere on those days. Field duty always needs approval.',
+    scopable: ['department', 'grade'],
+  }),
+  wfh_max_days_per_month: int({
+    default: 0,
+    min: 0,
+    max: 31,
+    label: 'Work-from-home days allowed per month',
+    help: '0 = no cap. Counted across pending and approved requests in the month.',
+    scopable: ['department', 'grade', 'location'],
+  }),
+  remote_approval_chain: enumOf(['manager', 'manager_then_hr', 'hr_only', 'manager_hr_finance', 'manager_dept_head', 'dept_head_hr'] as const, {
+    default: 'manager',
+    label: 'WFH / field duty approval chain',
+    help: 'Who approves remote and field-duty requests when no approval policy matches.',
+  }),
   correction_window_days: int({
     default: 30,
     min: 0,
@@ -201,6 +220,29 @@ const timesheets = defineConfig('timesheets', {
     default: 'manager',
     label: 'Timesheet approval chain',
     help: 'Who approves a submitted week when no approval policy matches.',
+  }),
+})
+
+const recruitment = defineConfig('recruitment', {
+  enabled: flag({
+    default: true,
+    label: 'Recruitment',
+    help: 'Requisitions, candidate pipeline, interviews, offers, and conversion of an accepted candidate into an employee with the onboarding checklist.',
+    disableEffect: 'soft',
+  }),
+  approval_chain: enumOf(['manager', 'manager_then_hr', 'hr_only', 'manager_hr_finance', 'manager_dept_head', 'dept_head_hr'] as const, {
+    default: 'manager_hr_finance',
+    label: 'Requisition and offer approval chain',
+    help: 'Who approves a hiring requisition and an offer when no approval policy matches. Routed by the hiring manager.',
+  }),
+})
+
+const performance = defineConfig('performance', {
+  enabled: flag({
+    default: true,
+    label: 'Performance',
+    help: 'Goals with weights and check-ins, review cycles (self review, manager review, HR calibration, acknowledgement) and performance improvement plans.',
+    disableEffect: 'soft',
   }),
 })
 
@@ -433,6 +475,8 @@ export const REGISTRY: Readonly<Record<string, Definition>> = Object.freeze({
   ...payroll,
   ...expenses,
   ...timesheets,
+  ...recruitment,
+  ...performance,
   ...helpdesk,
   ...chat,
   ...mail,

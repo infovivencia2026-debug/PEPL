@@ -6,7 +6,7 @@
  */
 import type { Router } from '../router.ts'
 import { HttpError, authed, ok, asDate, emit } from './deps.ts'
-import { headcount, leaveBalances, salaryRegister, statutorySummary, type Report } from '../../reports/index.ts'
+import { headcount, attrition, leaveBalances, salaryRegister, statutorySummary, type Report } from '../../reports/index.ts'
 import type { Ctx } from '../context.ts'
 
 function range(ctx: Ctx): { from: string; to: string } {
@@ -52,6 +52,14 @@ export function register(router: Router): void {
     authed('report.read', async (ctx) => {
       const r = range(ctx)
       return deliver(ctx, `headcount-${r.from}-${r.to}`, await headcount(ctx.tx, r))
+    }))
+
+  router.get('/api/v1/reports/attrition',
+    { summary: 'Leavers by department, reason and tenure band, with exit-interview reasons (?from=&to=)', tag: 'reports', permission: 'report.read' },
+    authed('report.read', async (ctx) => {
+      if (ctx.auth.scope !== 'all') throw new HttpError(403, 'PERMISSION_DENIED', 'this report is company-wide')
+      const r = range(ctx)
+      return deliver(ctx, `attrition-${r.from}-${r.to}`, await attrition(ctx.tx, r))
     }))
 
   router.get('/api/v1/reports/leave-balances',

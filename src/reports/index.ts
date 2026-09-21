@@ -141,3 +141,24 @@ export async function leaveBalances(tx: PoolClient, args: { cycleYear: number; a
   })
   return { columns, rows: out, csv: toCsv(columns, out) }
 }
+
+/** Leavers in a period by separation reason, department and tenure band, with the exit-interview reason where one was held. */
+export async function attrition(tx: PoolClient, args: { from: string; to: string }): Promise<Report> {
+  const { rows } = await tx.query<{ reason: string; department: string | null; tenure_band: string; n: string; regret: string; exit_reasons: string | null }>(
+    `SELECT s.reason,
+            (SELECT a.department FROM employee_assignments a WHERE a.employee_id = s.employee_id ORDER BY a.effective_from DESC LIMIT 1) AS department,
+            CASE WHEN s.last_working_day - e.date_of_joining < 365 THEN '< 1 yr'
+                 WHEN s.last_working_day - e.date_of_joining < 3 * 365 THEN '1-3 yrs'
+                 WHEN s.last_working_day - e.date_of_joining < 5 * 365 THEN '3-5 yrs' ELSE '5+ yrs' END AS tenure_band,
+            count(*)::text AS n,
+            count(*) FILTER (WHERE s.reason = 'resignation')::text AS regret,
+            string_agg(DISTINCT x.primary_reason, '; ') AS exit_reasons
+       FROM employee_separations s
+       JOIN employees e ON e.tenant_id = s.tenant_id AND e.id = s.employee_id
+       LEFT JOIN exit_interviews x ON x.tenant_id = s.tenant_id AND x.separation_id = s.id
+      WHERE s.status <> 'cancelled' AND s.last_working_day BETWEEN $1::date AND $2::date
+      GROUP BY 1, 2, 3 ORDER BY 2 NULLS LAST, 1, 3`, [args.from, args.to])
+  const columns = ['department', 'reason', 'tenure_band', 'leavers', 'voluntary', 'exit_interview_reasons']
+  const out = rows.map((r) => ({ department: r.department, reason: r.reason, tenure_band: r.tenure_band, leavers: Number(r.n), voluntary: Number(r.regret), exit_interview_reasons: r.exit_reasons }))
+  return { columns, rows: out, csv: toCsv(columns, out) }
+}
