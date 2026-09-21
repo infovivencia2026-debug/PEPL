@@ -1,5 +1,6 @@
 import type { Workspace } from '../types'
 import type { FormSpec } from '../forms'
+import { useEffect, useState } from 'react'
 import {
   ArrowDownToLine,
   Clock3,
@@ -8,6 +9,7 @@ import {
   CalendarDays,
 } from 'lucide-react'
 import { dateLabel, exportCsv, fullName, pretty } from '../api'
+import { decodeBase64, domainApi, downloadFile } from '../domainApi'
 import {
   Button,
   Card,
@@ -22,6 +24,15 @@ type Props = {
 }
 
 export function ReportsPage({ data }: Props) {
+  const [from, setFrom] = useState(`${data.today.slice(0, 4)}-01-01`)
+  const [to, setTo] = useState(data.today)
+  const [attrition, setAttrition] = useState<Record<string, string | number | null>[]>([])
+  const [attritionError, setAttritionError] = useState('')
+  useEffect(() => {
+    if (data.user.scope !== 'all') return
+    void domainApi<{ rows: Record<string, string | number | null>[] }>(`/reports/attrition?from=${from}&to=${to}`).then(result => { setAttrition(result.rows); setAttritionError('') }).catch(caught => setAttritionError(caught instanceof Error ? caught.message : 'Unable to load attrition'))
+  }, [data.user.scope, from, to])
+  const downloadAttrition = async () => { const result = await domainApi<{ fileName: string; contentType: string; contentBase64: string }>(`/reports/attrition?from=${from}&to=${to}&format=csv`); downloadFile(result.fileName, result.contentType, decodeBase64(result.contentBase64)) }
   const departments = Object.entries(
     data.employees.reduce<Record<string, number>>((o, e) => {
       o[e.department ?? 'Unassigned'] =
@@ -29,6 +40,8 @@ export function ReportsPage({ data }: Props) {
       return o
     }, {}),
   ).map(([label, value]) => ({ label, value }))
+  const attritionDepartments = Object.entries(attrition.reduce<Record<string, number>>((result, row) => { const department = String(row.department || 'Unassigned'); result[department] = (result[department] ?? 0) + Number(row.leavers || 0); return result }, {}))
+  const maxAttrition = Math.max(1, ...attritionDepartments.map(([, count]) => count))
   const reports = [
     {
       name: 'People directory',
@@ -139,6 +152,7 @@ export function ReportsPage({ data }: Props) {
           </div>
         </Card>
       </div>
+      {data.user.scope === 'all' && <Card className="attrition-report" title="Attrition & exit insights" subtitle="Leavers by department, reason and tenure"><div className="report-range"><label>From<input type="date" value={from} onChange={event => setFrom(event.target.value)} /></label><label>To<input type="date" value={to} onChange={event => setTo(event.target.value)} /></label><Button variant="secondary" disabled={!attrition.length} onClick={() => void downloadAttrition()}><ArrowDownToLine size={16} />Export CSV</Button></div>{attritionError && <p className="form-error" role="alert">{attritionError}</p>}{attrition.length ? <><div className="attrition-bars">{attritionDepartments.map(([department, count]) => <div key={department}><span>{department}</span><i><b style={{ width: `${Math.max(8, count / maxAttrition * 100)}%` }} /></i><strong>{count}</strong></div>)}</div><div className="table-scroll"><table><thead><tr><th>Department</th><th>Reason</th><th>Tenure</th><th>Leavers</th><th>Voluntary</th><th>Exit interview themes</th></tr></thead><tbody>{attrition.map((row, index) => <tr key={`${row.department}-${row.reason}-${row.tenure_band}-${index}`}><td>{row.department || 'Unassigned'}</td><td>{pretty(String(row.reason))}</td><td>{row.tenure_band}</td><td>{row.leavers}</td><td>{row.voluntary}</td><td>{row.exit_interview_reasons || '—'}</td></tr>)}</tbody></table></div></> : <Empty title="No separations in this range" text="Choose a wider date range to review attrition patterns." />}</Card>}
     </>
   )
 }

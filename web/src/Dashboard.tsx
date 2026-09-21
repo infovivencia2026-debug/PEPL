@@ -24,6 +24,7 @@ import {
   tasksTile,
 } from './dashboard/ListTiles'
 import { PunchControl } from './PunchControl'
+import { InterviewsWidget } from './Recruitment'
 
 export function Dashboard({
   data,
@@ -67,6 +68,7 @@ export function Dashboard({
       <WidgetBoard key={data.user.id} account={data.user.id}>
         {welcomeTile({ data, can })}
         {data.user.employeeId && data.modules.attendance && can('attendance.read') && <Widget id="punch" title="Punch in or out" width={2}><PunchControl data={data} compact /></Widget>}
+        {data.modules.recruitment && can('recruit.read') && <Widget id="my-interviews" title="My upcoming interviews" width={2}><InterviewsWidget /></Widget>}
         {statTiles({ data, metrics, can })}
         {chartTiles({ data, metrics, can })}
         {approvalsTile({ data, can })}

@@ -9,11 +9,13 @@ import {
   Clock3,
   Download,
   House,
+  MapPinned,
   Plus,
   Users,
 } from 'lucide-react'
 import { fullName, dateLabel, exportCsv, pretty } from '../api'
 import { PunchControl } from '../PunchControl'
+import { RemoteWorkPanel } from '../RemoteWork'
 import {
   Avatar,
   Badge,
@@ -132,6 +134,7 @@ export function AttendancePage({
         )}
       </PageHeader>
       {data.user.employeeId && <PunchControl data={data} />}
+      <RemoteWorkPanel data={data} />
       <div className="stats-row">
         <Stat
           label="Present"
@@ -260,10 +263,10 @@ export function AttendancePage({
                     </td>
                     <td>
                       {a.is_remote
-                        ? 'Remote'
+                        ? <span className="work-mode"><House size={14} />Remote</span>
                         : a.is_field_duty
-                          ? 'Field duty'
-                          : 'On site'}
+                          ? <span className="work-mode"><MapPinned size={14} />Field duty</span>
+                          : <span className="work-mode"><Users size={14} />On site</span>}
                       {a.is_regularized && (
                         <small className="inline-note">Regularized</small>
                       )}

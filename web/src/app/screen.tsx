@@ -24,6 +24,8 @@ import { MyTaxDeclaration, TaxDeclarationsQueue } from '../TaxDeclarations'
 import { PushSettings } from '../PushSettings'
 import { AccountSettings } from '../Account'
 import { Organisation } from '../Organisation'
+import { RecruitmentPage } from '../Recruitment'
+import { PerformancePage } from '../Performance'
 import type { Workspace } from '../types'
 import type { FormSpec } from '../forms'
 
@@ -71,6 +73,8 @@ export function screenFor({
   else if (section === 'notification-settings') page = <PushSettings />
   else if (section === 'account') page = <AccountSettings data={data} />
   else if (section === 'organisation') page = <Organisation data={data} />
+  else if (section === 'hiring') page = <RecruitmentPage data={data} route={route} />
+  else if (section === 'performance') page = <PerformancePage data={data} />
   else if (section === 'people')
     page = route.split('/')[1] ? (
       <EmployeeProfile

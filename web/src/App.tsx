@@ -183,7 +183,7 @@ export function App() {
   const selfScope = data?.user.scope === 'self'
   const selfHidden = new Set(['organisation', 'import', 'bank-files', 'tax-declarations', 'reports', 'activity', 'settings'])
   const selfLabels: Record<string, string> = { people: 'My profile', attendance: 'My attendance', leave: 'My leave', payroll: 'My pay' }
-  const selfOrder = ['dashboard', 'people', 'attendance', 'leave', 'payroll', 'my-tax', 'documents', 'chat', 'mail', 'approvals', 'tasks', 'notification-settings', 'account']
+  const selfOrder = ['dashboard', 'people', 'attendance', 'leave', 'payroll', 'performance', 'my-tax', 'documents', 'chat', 'mail', 'approvals', 'tasks', 'notification-settings', 'account']
   const employeeItems = [...NAV, ...MORE].filter(allowed).filter(n => !selfHidden.has(n.id) && (n.id !== 'approvals' || Boolean(data?.approvals.length))).map(n => ({ ...n, label: selfLabels[n.id] ?? n.label })).sort((a, b) => selfOrder.indexOf(a.id) - selfOrder.indexOf(b.id))
   const nav = selfScope ? employeeItems.slice(0, 6) : NAV.filter(allowed),
     extras = selfScope ? employeeItems.slice(6) : MORE.filter(allowed).filter(

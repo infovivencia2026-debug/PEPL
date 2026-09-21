@@ -3,8 +3,9 @@ import { Clock3, LocateFixed, LogIn, LogOut } from 'lucide-react'
 import { ApiError } from './api'
 import { domainApi } from './domainApi'
 import type { Attendance, Workspace } from './types'
+import type { RemoteRequest } from './RemoteWork'
 
-type PunchResult = { recorded: boolean; duplicate?: boolean; geofence: { status: 'inside' | 'outside' | 'unfenced'; siteName?: string; siteCode?: string; distanceM?: number } }
+type PunchResult = { recorded: boolean; duplicate?: boolean; mode?: 'wfh' | 'field' | null; geofence: { status: 'inside' | 'outside' | 'unfenced'; siteName?: string; siteCode?: string; distanceM?: number } }
 
 const elapsedLabel = (start: string | null, minutes: number, now: number) => {
   const total = start ? Math.max(minutes, Math.floor((now - new Date(start).getTime()) / 60_000)) : minutes
@@ -18,9 +19,14 @@ export function PunchControl({ data, compact = false }: { data: Workspace; compa
   const [busy, setBusy] = useState(false)
   const [message, setMessage] = useState('')
   const [error, setError] = useState('')
+  const [mode, setMode] = useState<'wfh' | 'field' | null>(null)
   const pendingId = useRef<string | null>(null)
   const punchedIn = Boolean(day?.first_in && !day.last_out)
   useEffect(() => { if (!punchedIn) return; const timer = window.setInterval(() => setNow(Date.now()), 30_000); return () => window.clearInterval(timer) }, [punchedIn])
+  useEffect(() => {
+    if (!data.user.employeeId) return
+    void domainApi<{ requests: RemoteRequest[] }>(`/attendance/remote-requests?employeeId=${data.user.employeeId}&status=approved&from=${data.today}&to=${data.today}`).then(result => setMode(result.requests[0]?.kind ?? null)).catch(() => undefined)
+  }, [data.today, data.user.employeeId])
 
   const locate = () => new Promise<{ lat: number; lng: number } | undefined>(resolve => {
     if (!navigator.geolocation) { resolve(undefined); return }
@@ -38,6 +44,7 @@ export function PunchControl({ data, compact = false }: { data: Workspace; compa
       const geo = await locate()
       setMessage('Recording your punch…')
       const result = await domainApi<PunchResult>('/attendance/punch', { direction, localDate: data.today, clientPunchId: pendingId.current, ...(geo ? { geo } : {}) })
+      if (result.mode !== undefined) setMode(result.mode)
       const stamp = new Date().toISOString()
       setDay(current => ({
         ...(current ?? { employee_id: data.user.employeeId!, first_name: data.user.full_name, last_name: '', employee_number: '', work_date: data.today, first_in: null, last_out: null, worked_minutes: 0, status: 'present', is_remote: false, is_field_duty: false, is_regularized: false, day_fraction: '1' }),
@@ -56,6 +63,7 @@ export function PunchControl({ data, compact = false }: { data: Workspace; compa
   }
   if (!data.user.employeeId || !data.permissions.includes('attendance.read') || !data.modules.attendance) return null
   return <section className={`punch-control ${compact ? 'compact' : ''}`}>
+    {mode && <div className={`punch-mode ${mode}`}><LocateFixed size={15} /><span>{mode === 'wfh' ? 'Working from home today — no location check' : 'On field duty today'}</span></div>}
     <div className="punch-state"><span><Clock3 size={18} /></span><div><small>TODAY</small><strong>{punchedIn ? 'You’re working' : day?.last_out ? 'Day complete' : 'Ready to start'}</strong><p>{day?.first_in ? `${new Date(day.first_in).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}${punchedIn ? ` · ${elapsedLabel(day.first_in, day.worked_minutes, now)}` : day.last_out ? ` – ${new Date(day.last_out).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}` : ''}` : 'No punch recorded yet'}</p></div></div>
     <button className={punchedIn ? 'punch-button out' : 'punch-button'} disabled={busy} onClick={() => void punch()}>{punchedIn ? <LogOut size={22} /> : <LogIn size={22} />}<span>{busy ? 'Please wait…' : punchedIn ? 'Punch Out' : 'Punch In'}</span><LocateFixed size={15} /></button>
     {(message || error) && <p className={error ? 'punch-message error' : 'punch-message'} role={error ? 'alert' : 'status'} aria-live="polite">{error || message}</p>}

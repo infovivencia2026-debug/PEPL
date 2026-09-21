@@ -123,6 +123,8 @@ export function register(router: Router): void {
       const employeeId = q.get('employeeId') ? asUuid(q.get('employeeId'), 'employeeId') : undefined
       if (employeeId) assertScope(ctx.auth, employeeId)
       const mine = q.get('mine') === 'true'; const toReview = q.get('toReview') === 'true'
+      // a user with no employee record (typical HR/admin login) has nothing of their own and nothing to review
+      if ((mine || toReview) && !ctx.auth.employeeId) return ok({ appraisals: [] })
       const rows = await listAppraisals(ctx.tx, {
         cycleId: q.get('cycleId') ? asUuid(q.get('cycleId'), 'cycleId') : undefined, status: q.get('status') ?? undefined,
         employeeId: mine ? self(ctx) : employeeId, reviewerEmployeeId: toReview ? self(ctx) : undefined, employeeIds: mine || toReview ? null : scopeIds(ctx),

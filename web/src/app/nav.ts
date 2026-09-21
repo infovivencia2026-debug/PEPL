@@ -23,6 +23,8 @@ import {
   Landmark,
   ReceiptIndianRupee,
   BellRing,
+  BriefcaseBusiness,
+  Target,
 } from 'lucide-react'
 
 export interface NavItem {
@@ -66,6 +68,8 @@ export const NAV: NavItem[] = [
   },
 ]
 export const MORE: NavItem[] = [
+  { id: 'performance', label: 'Performance', icon: Target, permission: 'performance.read', module: 'performance' },
+  { id: 'hiring', label: 'Hiring', icon: BriefcaseBusiness, permission: 'recruit.read', module: 'recruitment' },
   { id: 'organisation', label: 'Organisation', icon: Users, permission: 'settings.write' },
   { id: 'chat', label: 'Team chat', icon: MessageCircle },
   { id: 'mail', label: 'Mailbox', icon: Mail },
