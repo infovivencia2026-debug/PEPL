@@ -1520,6 +1520,57 @@ Build these as tabs/pages; every one is permission-gated on the server already.
 
 ---
 
+## 2.44 Expenses & travel — 11 endpoints, `expenses.enabled`
+
+Money the company owes a person for something they paid for. A claim is
+checked against its category's policy at submission, goes through the
+approval engine, and is paid on the next payroll run as a `REIMBURSEMENT`
+line (non-taxable unless the category is). Travel is a request with an
+optional advance (paid the same way once approved); claims are filed against
+the trip, and settling it recovers an unspent advance on the next run.
+
+```
+GET    /api/v1/expenses/categories                 -> { categories: [{ id, code, name, per_claim_limit_paise, monthly_limit_paise, receipt_required_above_paise, mileage_rate_paise_per_km, taxable }] }
+POST   /api/v1/expenses/categories                 (expense.policy.write) upsert by code
+POST   /api/v1/expenses/categories/:id/retire
+GET    /api/v1/expenses/claims                     ?employeeId=&status=&from=&to=&limit=&offset=  -> { claims, hasMore }
+GET    /api/v1/expenses/claims/:id
+POST   /api/v1/expenses/claims                     { categoryId, incurredOn, amountPaise | distanceKm, description, merchant?, receiptDocumentId?, travelRequestId?, costCentre?, notADuplicate?, employeeId? }
+POST   /api/v1/expenses/claims/:id/cancel
+GET    /api/v1/travel                              ?employeeId=&status=   -> { trips: [{ …, claimed_paise, balance_paise }] }
+POST   /api/v1/travel                              { purpose, destination, startsOn, endsOn, estimatedPaise?, advancePaise?, employeeId? }
+POST   /api/v1/travel/:id/settle
+Decisions: the normal approval inbox (entity_type 'expense' | 'travel'); the console route handles them too.
+```
+
+Codes to show verbatim: `OVER_CLAIM_LIMIT`, `OVER_MONTHLY_LIMIT`, `RECEIPT_REQUIRED`,
+`CLAIM_TOO_OLD` (90 days), `DUPLICATE_CLAIM` (409 — offer "This is a different
+expense" which re-submits with `notADuplicate: true`), `TRAVEL_NOT_APPROVED`,
+`TRIP_HAS_OPEN_CLAIMS`. Receipt upload = `POST /documents` with
+`ownerType: 'employee', category: 'reimbursement'`, then pass its id.
+
+Build:
+- **My expenses** (employee): claims list with status chips (submitted /
+  approved / in payroll / reimbursed / rejected), "New claim" form — category
+  select shows the policy under it ("up to ₹2,000 per claim · receipt above
+  ₹500"); mileage categories swap the amount field for km and show the
+  computed amount; receipt upload; optional trip picker. Cancel on
+  submitted/approved. Trips tab: list with advance / claimed / balance, "New
+  trip", "Settle trip".
+- **Approvals**: the card for an expense shows category, amount, date,
+  merchant, description, receipt thumbnail/link; for a trip, itinerary and
+  advance.
+- **Finance / HR**: all claims with filters, export CSV; Settings →
+  **Expense categories** editor (limits, receipt threshold, mileage rate,
+  taxable).
+- **Payslip**: REIMBURSEMENT / TRAVEL_ADVANCE / TRAVEL_ADVANCE_RECOVERY lines
+  render like any other line; link the reimbursement line to the claims it paid
+  (`GET /expenses/claims?status=reimbursed&employeeId=`, match
+  `reimbursement_run_id`).
+- Nav: "Expenses" for everyone with `expense.read` (all roles), under My pay.
+
+---
+
 # Part 3 — What to build, in order
 
 1. **Chat UI.** The largest visible hole. Conversation list, thread, composer,
@@ -1589,6 +1640,8 @@ Build these as tabs/pages; every one is permission-gated on the server already.
     Bank + Login + editable Overview tabs, Checklists, leave day preview.
     Then B: every settings master and profile tab listed. Then C: per-screen
     fetching and search-driven pickers.
+30. **Expenses & travel** (§2.44) — My expenses, trips, approval cards,
+    categories editor, payslip line linkage.
 
 ## Running it
 

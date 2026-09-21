@@ -9,6 +9,7 @@ import { assertScope, assertPermission } from '../authz/permissions.ts'
 import { act } from '../approvals/index.ts'
 import { settle } from '../approvals/pending.ts'
 import { applyLeave, settleLeaveDecision } from '../leave/apply.ts'
+import { settleClaimDecision, settleTravelDecision } from '../work/expenses.ts'
 import { emit } from '../audit/index.ts'
 import { textField, dateField } from './ui-routes.ts'
 
@@ -69,6 +70,14 @@ export function registerUiLeave(r: Router) {
             entityType: 'leave_request', entityId: request.entity_id,
             subjectEmployeeId: request.subject_employee_id, actorUserId: c.auth.userId,
           })
+        } else if (request.entity_type === 'expense') {
+          const s = await settleClaimDecision(c.tx, { claimId: request.entity_id, status: result.status, actorUserId: c.auth.userId })
+          if (s.changed) {
+            await emit(c.tx, { action: result.status === 'approved' ? 'expense.claim.approved' : 'expense.claim.rejected',
+              entityType: 'expense_claim', entityId: request.entity_id, subjectEmployeeId: request.subject_employee_id, actorUserId: c.auth.userId })
+          }
+        } else if (request.entity_type === 'travel') {
+          await settleTravelDecision(c.tx, { tripId: request.entity_id, status: result.status })
         } else {
           // A held salary revision or attendance correction lands (or is closed
           // out) through the same functions a direct write uses.

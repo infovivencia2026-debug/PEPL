@@ -17,6 +17,18 @@ const leave = defineConfig('leave', {
     help: 'Leave types, policies, balances and approvals.',
     disableEffect: 'soft',
   }),
+  comp_off_enabled: bool({
+    default: true,
+    label: 'Compensatory off for work on off days',
+    help: 'A present day on a weekly off or holiday credits the CO leave type: a full day at or above the half-day hours, half a day below. Granted nightly from the muster; HR can grant a missed one.',
+  }),
+  comp_off_expiry_days: int({
+    default: 90,
+    min: 7,
+    max: 365,
+    label: 'Comp-off expires after (days)',
+    help: 'An unused comp-off lapses this many days after the day it was earned.',
+  }),
   cycle_start_month: int({
     default: 4,
     min: 1,
@@ -159,6 +171,21 @@ const attendance = defineConfig('attendance', {
     label: 'Reject punches outside the geofence',
     help: 'Off: a punch from outside an allowed site is recorded and flagged for the manager. On: it is refused. Applies only to people who have a site; exempt people are never refused.',
     scopable: ['location', 'department'],
+  }),
+})
+
+const expenses = defineConfig('expenses', {
+  enabled: flag({
+    default: true,
+    label: 'Expenses & travel',
+    help: 'Expense claims against categories with limits, travel requests with advances, reimbursed through payroll.',
+    dependsOn: ['payroll.enabled'],
+    disableEffect: 'soft',
+  }),
+  approval_chain: enumOf(['manager', 'manager_then_hr', 'hr_only', 'manager_hr_finance', 'manager_dept_head', 'dept_head_hr'] as const, {
+    default: 'manager_hr_finance',
+    label: 'Expense approval chain',
+    help: 'Who approves claims and trips when no approval policy matches. Finance last is the usual shape: the manager confirms the spend happened, finance confirms it is payable.',
   }),
 })
 
@@ -389,6 +416,7 @@ export const REGISTRY: Readonly<Record<string, Definition>> = Object.freeze({
   ...leave,
   ...attendance,
   ...payroll,
+  ...expenses,
   ...helpdesk,
   ...chat,
   ...mail,

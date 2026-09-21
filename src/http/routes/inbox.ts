@@ -2,6 +2,7 @@
 import type { Router } from '../router.ts'
 import { settle } from '../../approvals/pending.ts'
 import { settleLeaveDecision } from '../../leave/apply.ts'
+import { settleClaimDecision, settleTravelDecision } from '../../work/expenses.ts'
 import {
   listTemplates, getTemplate, createTemplate, updateTemplate, retireTemplate, resolveAssignees,
   type TemplateItemInput, type Trigger,
@@ -58,6 +59,14 @@ export function register(router: Router): void {
           `SELECT entity_type, entity_id, subject_employee_id, requested_by_user_id FROM approval_requests WHERE id = $1`,
           [ctx.req.params.id])
         const r = rows[0]
+        if (r?.entity_type === 'expense') {
+          const s = await settleClaimDecision(ctx.tx, { claimId: r.entity_id, status: result.status, actorUserId: ctx.auth.userId })
+          if (s.changed) {
+            await emit(ctx.tx, { action: result.status === 'approved' ? 'expense.claim.approved' : 'expense.claim.rejected',
+              entityType: 'expense_claim', entityId: r.entity_id, subjectEmployeeId: r.subject_employee_id, actorUserId: ctx.auth.userId })
+          }
+        }
+        if (r?.entity_type === 'travel') await settleTravelDecision(ctx.tx, { tripId: r.entity_id, status: result.status })
         if (r?.entity_type === 'leave') {
           // balance, request status, attendance marking and the applicant's notice — once, in leave/apply.ts
           const settled = await settleLeaveDecision(ctx.tx, ctx.config, {

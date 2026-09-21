@@ -11,6 +11,7 @@ import { computePayroll, validateRun, type EngineOptions, type PayrollInput, typ
 import { allowanceFor } from './declarations.ts'
 import { fiscalYearOf, monthsRemainingInFY } from './tds.ts'
 import { finalizeSettlements, releaseSettlements, settlementForFreeze, type SettlementOptions } from './exit.ts'
+import { reimbursementsForFreeze, releaseReimbursements, finalizeReimbursements } from '../work/expenses.ts'
 import { arrearsOwed, recordArrears, releaseArrears } from './arrears.ts'
 import { deductForRun, releaseRun as releaseLoanRun, settleClearedByRun } from './loans.ts'
 
@@ -135,6 +136,10 @@ export async function freezeInputs(
         r = { ...r, adhoc: [...(r.adhoc ?? []), { code: exit ? 'LOAN_SETTLEMENT' : 'LOAN_EMI', amountPaise: emi.amountPaise, type: 'deduction' }] }
       }
     }
+    // Approved expense claims and travel advances are paid with this run,
+    // once; unfreeze releases them, lock marks them reimbursed.
+    const reimb = await reimbursementsForFreeze(tx, { employeeId: r.employeeId, runId })
+    if (reimb.length) r = { ...r, adhoc: [...(r.adhoc ?? []), ...reimb] }
     // A revision dated into months already paid: the difference is owed and
     // paid HERE, once. A caller that supplies its own ARREARS line is trusted.
     if (!(r.adhoc ?? []).some((a) => a.code.toUpperCase() === 'ARREARS')) {
@@ -226,6 +231,7 @@ export async function unfreezeInputs(tx: PoolClient, runId: string): Promise<voi
   }
   await tx.query('DELETE FROM payroll_inputs WHERE tenant_id = $1 AND run_id = $2', [tid, runId])
   await releaseSettlements(tx, runId)
+  await releaseReimbursements(tx, runId)
   await releaseArrears(tx, runId)
   await releaseLoanRun(tx, runId)
   await tx.query(
@@ -355,8 +361,9 @@ export async function lock(
       WHERE tenant_id = $1 AND id = $2`,
     [tid, runId, lockerUserId],
   )
-  // Leavers paid in this run have now left.
+  // Leavers paid in this run have now left; claims paid in it are reimbursed.
   await finalizeSettlements(tx, runId)
+  await finalizeReimbursements(tx, runId)
   await settleClearedByRun(tx, runId)
 }
 

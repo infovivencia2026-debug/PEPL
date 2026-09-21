@@ -49,12 +49,13 @@ import { register as loans } from './routes/loans.ts'
 import { register as reports } from './routes/reports.ts'
 import { register as datasetImports } from './routes/dataset-imports.ts'
 import { register as billing } from './routes/billing.ts'
+import { register as expenses } from './routes/expenses.ts'
 
 export const router = new Router()
 
 for (const register of [
   system, config, people, attendance, leave, inbox,
-  payroll, helpdesk, incentives, comms, activity, roles, documents, chat, mail, imports, payments, holidays, leavePolicy, taxDeclarations, push, filings, exits, account, privacy, org, geofences, shifts, structures, incentiveAdmin, approvalPolicy, loans, reports, datasetImports, billing,
+  payroll, helpdesk, incentives, comms, activity, roles, documents, chat, mail, imports, payments, holidays, leavePolicy, taxDeclarations, push, filings, exits, account, privacy, org, geofences, shifts, structures, incentiveAdmin, approvalPolicy, loans, reports, datasetImports, billing, expenses,
 ]) {
   register(router)
 }
