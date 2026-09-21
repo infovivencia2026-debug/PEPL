@@ -20,6 +20,7 @@ import { DocumentsPanel } from '../DataTools'
 import { CompensationForm } from '../CompensationForm'
 import { LoansPanel } from '../LoansPanel'
 import { ExitPanel, PrivacyPanel, StatutoryIds } from '../EmployeeLifecycle'
+import { EmployeeSites } from '../GeofenceSites'
 
 export function EmployeeProfile({
   id,
@@ -70,6 +71,7 @@ export function EmployeeProfile({
     ...(data.permissions.includes('compensation.read') ? ['Compensation'] : []),
     ...(data.permissions.includes('payroll.read') && data.modules.payroll ? ['Loans'] : []),
     'Timeline',
+    ...(data.permissions.includes('attendance.read') && data.modules.attendance ? ['Attendance'] : []),
     ...(data.permissions.includes('document.read') && data.modules.documents ? ['Documents'] : []),
   ]
   return (
@@ -218,8 +220,10 @@ export function EmployeeProfile({
         </Card>
       ) : tab === 'Loans' ? (
         <LoansPanel key={id} id={id} data={data} />
+      ) : tab === 'Attendance' ? (
+        <EmployeeSites key={id} id={id} data={data} />
       ) : tab === 'Documents' ? (
-        <DocumentsPanel ownerType="employee" ownerId={id} canWrite={data.permissions.includes('document.write')} maxUploadMb={Number(data.settings.find(setting => setting.key === 'documents.max_upload_mb')?.value ?? 10)} />
+        <DocumentsPanel ownerType="employee" ownerId={id} canWrite={data.permissions.includes('document.write')} selfScope={data.user.scope === 'self'} maxUploadMb={Number(data.settings.find(setting => setting.key === 'documents.max_upload_mb')?.value ?? 10)} />
       ) : (
         <Card
           title={

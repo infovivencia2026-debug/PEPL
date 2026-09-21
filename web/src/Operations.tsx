@@ -5,7 +5,6 @@
  * path stable for anything that already reaches for them.
  */
 export { TasksPage } from './operations/TasksPage'
-export { AnnouncementsPage } from './operations/AnnouncementsPage'
 export { SettingsPage } from './operations/SettingsPage'
 export { ReportsPage } from './operations/ReportsPage'
 export { ActivityPage } from './operations/ActivityPage'

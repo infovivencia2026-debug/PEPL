@@ -34,7 +34,8 @@ try {
   const row = page.getByRole('button', { name: new RegExp(title) })
   await row.waitFor()
   await row.click()
-  await page.getByText('Unread watermark verification').waitFor()
+  // Earlier runs leave conversations with the same preview text; the message article is the one that matters.
+  await page.getByRole('article').getByText('Unread watermark verification').waitFor()
   await page.waitForTimeout(250)
   const list = await call(admin, 'GET', '/chat/conversations')
   const unread = list.conversations.find(item => item.id === conversation.id)?.unread

@@ -103,7 +103,7 @@ export async function workspaceData(c: Ctx, date?: string) {
   const payslips =
     modules.payroll && can(c.auth, 'payroll.read')
       ? await read(
-          `SELECT s.id,s.run_id,s.employee_id,s.gross_paise::text,s.deductions_paise::text,s.net_paise::text,p.label,e.first_name,e.last_name
+          `SELECT s.id,s.run_id,s.employee_id,s.gross_paise::text,s.deductions_paise::text,s.net_paise::text,s.distributed_at,p.label,e.first_name,e.last_name
  FROM payslips s JOIN payroll_runs r ON r.id=s.run_id AND r.tenant_id=s.tenant_id JOIN payroll_periods p ON p.id=r.period_id AND p.tenant_id=r.tenant_id JOIN employees e ON e.id=s.employee_id AND e.tenant_id=s.tenant_id
  WHERE ($1::uuid[] IS NULL OR s.employee_id=ANY($1)) AND ($1::uuid[] IS NULL OR (s.published_at IS NOT NULL AND r.status='locked')) ORDER BY p.period_start DESC`,
           [ids],

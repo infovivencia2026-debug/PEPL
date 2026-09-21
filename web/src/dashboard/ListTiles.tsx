@@ -195,13 +195,13 @@ export function announcementsTile({
       <Card
         title="Announcements"
         subtitle="Shared with you" className="reference-announcements"
-        href={can('announcement.read') ? '#/announcements' : undefined}
+        href={can('announcement.read') ? '#/chat/announcements' : undefined}
       >
         <img className="announcement-photo" src="/images/people-together.png" alt="A notebook reading People Thrive Together beside green leaves" />
         {data.announcements.length ? (
           <div className="announcement-mini">
             {data.announcements.slice(0, 3).map((a) => (
-              <a href="#/announcements" key={a.id}>
+              <a href="#/chat/announcements" key={a.id}>
                 <span className="icon-box">
                   <Send size={18} />
                 </span>

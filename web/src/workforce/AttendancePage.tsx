@@ -13,6 +13,7 @@ import {
   Users,
 } from 'lucide-react'
 import { fullName, dateLabel, exportCsv, pretty } from '../api'
+import { PunchControl } from '../PunchControl'
 import {
   Avatar,
   Badge,
@@ -130,6 +131,7 @@ export function AttendancePage({
           </Button>
         )}
       </PageHeader>
+      {data.user.employeeId && <PunchControl data={data} />}
       <div className="stats-row">
         <Stat
           label="Present"

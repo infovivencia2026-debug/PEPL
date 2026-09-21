@@ -117,6 +117,7 @@ export interface Workspace {
     gross_paise: string
     deductions_paise: string
     net_paise: string
+    distributed_at: string | null
   }[]
   tasks: {
     id: string

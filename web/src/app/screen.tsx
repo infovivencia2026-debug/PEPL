@@ -12,7 +12,6 @@ import { People, EmployeeProfile } from '../People'
 import { AttendancePage, ApprovalsPage, LeavePage } from '../Workforce'
 import {
   TasksPage,
-  AnnouncementsPage,
   SettingsPage,
   ReportsPage,
   ActivityPage,
@@ -95,8 +94,6 @@ export function screenFor({
   else if (section === 'payroll')
     page = <PayrollPage {...props} refresh={load} />
   else if (section === 'tasks') page = <TasksPage {...props} />
-  else if (section === 'announcements')
-    page = <AnnouncementsPage {...props} />
   else if (section === 'reports') page = <ReportsPage {...props} />
   else if (section === 'activity') page = <ActivityPage {...props} />
   else if (section === 'settings') page = <SettingsPage {...props} />

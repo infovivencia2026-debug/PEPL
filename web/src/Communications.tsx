@@ -5,6 +5,7 @@ import { domainApi } from './domainApi'
 import { on } from './live'
 import type { Employee, Workspace } from './types'
 import { Mailbox } from './Mailbox'
+import { ChatWorkspace } from './ChatWorkspace'
 
 type Conversation = { id: string; kind: 'dm' | 'group'; title: string | null; last_message_body: string | null; unread: number; is_readonly: boolean }
 type Message = { id: number; body: string | null; sender_user_id: string | null; sent_at: string; edited_at: string | null; deleted_at: string | null }
@@ -19,7 +20,7 @@ const htmlText = (html: string) => new DOMParser().parseFromString(html, 'text/h
 const escapeHtml = (value: string) => value.replace(/[&<>"']/g, character => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[character]!).replace(/\n/g, '<br>')
 
 export function Communications(props: { mode: 'chat' | 'mail'; data: Workspace }) {
-  return props.mode === 'mail' ? <Mailbox data={props.data} /> : <ChatCommunications {...props} />
+  return props.mode === 'mail' ? <Mailbox data={props.data} /> : <ChatWorkspace data={props.data} />
 }
 
 function ChatCommunications({ mode, data }: { mode: 'chat' | 'mail'; data: Workspace }) {

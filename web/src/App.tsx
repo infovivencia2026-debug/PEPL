@@ -47,7 +47,6 @@ import { People, EmployeeProfile } from './People'
 import { AttendancePage, ApprovalsPage, LeavePage } from './Workforce'
 import {
   ActivityPage,
-  AnnouncementsPage,
   ReportsPage,
   SettingsPage,
   TasksPage,
@@ -181,8 +180,13 @@ export function App() {
     ((!n.permission || data.permissions.includes(n.permission)) &&
       (!n.module || data.modules[n.module]) &&
       (!n.employeeRequired || Boolean(data.user.employeeId)))
-  const nav = NAV.filter(allowed),
-    extras = MORE.filter(allowed).filter(
+  const selfScope = data?.user.scope === 'self'
+  const selfHidden = new Set(['organisation', 'import', 'bank-files', 'tax-declarations', 'reports', 'activity', 'settings'])
+  const selfLabels: Record<string, string> = { people: 'My profile', attendance: 'My attendance', leave: 'My leave', payroll: 'My pay' }
+  const selfOrder = ['dashboard', 'people', 'attendance', 'leave', 'payroll', 'my-tax', 'documents', 'chat', 'mail', 'approvals', 'tasks', 'notification-settings', 'account']
+  const employeeItems = [...NAV, ...MORE].filter(allowed).filter(n => !selfHidden.has(n.id) && (n.id !== 'approvals' || Boolean(data?.approvals.length))).map(n => ({ ...n, label: selfLabels[n.id] ?? n.label })).sort((a, b) => selfOrder.indexOf(a.id) - selfOrder.indexOf(b.id))
+  const nav = selfScope ? employeeItems.slice(0, 6) : NAV.filter(allowed),
+    extras = selfScope ? employeeItems.slice(6) : MORE.filter(allowed).filter(
       (n) => n.id !== 'settings' || data?.user.scope === 'all',
     ),
     all = [...nav, ...extras],
@@ -223,7 +227,7 @@ export function App() {
                 {nav.map((n) => (
                   <a
                     key={n.id}
-                    href={`#/${n.id}`}
+                    href={selfScope && n.id === 'people' && data?.user.employeeId ? `#/people/${data.user.employeeId}` : `#/${n.id}`}
                     className={section === n.id ? 'active' : ''}
                     aria-current={section === n.id ? 'page' : undefined}
                   >
@@ -249,7 +253,7 @@ export function App() {
                     {more && (
                       <div className="dropdown more-dropdown">
                         {extras.map((n) => (
-                          <a key={n.id} href={`#/${n.id}`}>
+                          <a key={n.id} href={selfScope && n.id === 'people' && data?.user.employeeId ? `#/people/${data.user.employeeId}` : `#/${n.id}`}>
                             <n.icon size={17} />
                             {n.label}
                             {n.id === 'approvals' &&
@@ -418,7 +422,7 @@ export function App() {
                 .map((n) => (
                   <a
                     key={n.id}
-                    href={`#/${n.id}`}
+                    href={selfScope && n.id === 'people' && data?.user.employeeId ? `#/people/${data.user.employeeId}` : `#/${n.id}`}
                     onClick={() => setSearchOpen(false)}
                   >
                     <n.icon size={18} />

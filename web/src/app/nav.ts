@@ -13,7 +13,6 @@ import {
   CheckCheck,
   LayoutDashboard,
   ListTodo,
-  Megaphone,
   Settings2,
   Users,
   Wallet,
@@ -84,12 +83,6 @@ export const MORE: NavItem[] = [
     permission: 'approval.act',
   },
   { id: 'tasks', label: 'My tasks', icon: ListTodo, permission: 'task.read' },
-  {
-    id: 'announcements',
-    label: 'Announcements',
-    icon: Megaphone,
-    permission: 'announcement.read',
-  },
   {
     id: 'activity',
     label: 'Activity log',
