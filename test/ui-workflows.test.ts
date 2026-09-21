@@ -232,6 +232,48 @@ describe('browser workspace boundary', () => {
       expect(days.rows[0]?.status).toBe('on_leave')
     })
   })
+  it('counts working days like the domain API: Fri–Mon on a six-day week costs 3 (Sunday off), the off day is neither charged nor marked, rejection is recorded', async () => {
+    // 2026-10-16 is a Friday, 2026-10-19 a Monday
+    const result = await request('/leave/requests', 'employee', {
+      leaveTypeId: leaveType, startDate: '2026-10-16', endDate: '2026-10-19', reason: 'Long weekend',
+    })
+    expect(result.status).toBe(201)
+    expect(result.body.totalDays).toBe(3)                     // default week pattern is six_day: only Sunday is off
+    expect(result.body.skipped.map((d: { date: string; reason: string }) => [d.date, d.reason])).toEqual([['2026-10-18', 'weekly_off']])
+    // the client's own count is checked, never trusted
+    const mismatch = await request('/leave/requests', 'employee', {
+      leaveTypeId: leaveType, startDate: '2026-11-06', endDate: '2026-11-09', reason: 'x', totalDays: 4,   // Fri–Mon is 3 here
+    })
+    expect(mismatch.status).toBe(422)
+    expect(mismatch.body.error.code).toBe('LEAVE_DAYS_MISMATCH')
+
+    const workspace = await request('/workspace', 'manager'),
+      approval = workspace.body.approvals.find((a: { entity_id: string }) => a.entity_id === result.body.id)
+    const before = await withTenant(A.id, (tx) => balance(tx, A.employeeId, leaveType, 2026))
+    const action = await request(`/approvals/${approval!.request_id}/actions`, 'manager', { action: 'approve' })
+    expect(action.body.status).toBe('approved')
+    await withTenant(A.id, async (tx) => {
+      expect((await balance(tx, A.employeeId, leaveType, 2026)).available).toBe(before.available - 3)
+      const days = await tx.query<{ work_date: string; status: string }>(
+        "SELECT work_date::text, status FROM daily_attendance WHERE employee_id=$1 AND work_date BETWEEN '2026-10-16' AND '2026-10-19' ORDER BY work_date",
+        [A.employeeId])
+      expect(days.rows).toEqual([{ work_date: '2026-10-16', status: 'on_leave' }, { work_date: '2026-10-17', status: 'on_leave' }, { work_date: '2026-10-19', status: 'on_leave' }])
+    })
+
+    // a rejection is written back to the request, and the balance is untouched
+    const second = await request('/leave/requests', 'employee', {
+      leaveTypeId: leaveType, startDate: '2026-11-02', endDate: '2026-11-02', reason: 'Errand',
+    })
+    const ws2 = await request('/workspace', 'manager'),
+      ap2 = ws2.body.approvals.find((a: { entity_id: string }) => a.entity_id === second.body.id)
+    const rejected = await request(`/approvals/${ap2!.request_id}/actions`, 'manager', { action: 'reject', comment: 'month end' })
+    expect(rejected.body.status).toBe('rejected')
+    await withTenant(A.id, async (tx) => {
+      const r = await tx.query<{ status: string }>('SELECT status FROM leave_requests WHERE id=$1', [second.body.id])
+      expect(r.rows[0]!.status).toBe('rejected')
+      expect((await balance(tx, A.employeeId, leaveType, 2026)).available).toBe(before.available - 3)
+    })
+  })
   it('rejects unsupported approval actions before they can approve anything', async () => {
     const result = await request(
       '/approvals/' + crypto.randomUUID() + '/actions',

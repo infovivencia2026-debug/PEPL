@@ -286,7 +286,11 @@ export async function calculate(
 export async function validate(
   tx: PoolClient,
   runId: string,
-  opts: Omit<EngineOptions, 'statutory'> & { statutory: StatutoryConfig; variancePct: number },
+  opts: Omit<EngineOptions, 'statutory'> & {
+    statutory: StatutoryConfig; variancePct: number
+    /** Which regimes have tables for the run's fiscal year; omitted = not checked (unit tests). */
+    taxTables?: { fiscalYear: string; regimes: Record<'old' | 'new', boolean> }
+  },
 ): Promise<ReturnType<typeof validateRun>> {
   const tid = await tenantId(tx)
   const run = await getRun(tx, runId)
@@ -296,7 +300,7 @@ export async function validate(
 
   const inputs = await readInputs(tx, runId)
   const rows = inputs.map((input) => ({ input, computed: computePayroll(input, opts) }))
-  const result = validateRun(rows, { variancePct: opts.variancePct })
+  const result = validateRun(rows, { variancePct: opts.variancePct, taxTables: opts.taxTables })
 
   if (result.blockers.length === 0) {
     await tx.query(`UPDATE payroll_runs SET status = 'validated' WHERE tenant_id = $1 AND id = $2`, [tid, runId])

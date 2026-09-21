@@ -27,6 +27,7 @@ import {
 } from './deps.ts'
 import { componentFlags } from '../../payroll/structures.ts'
 import { distributeRun } from '../../payroll/distribute.ts'
+import { ensurePeriod, listPayrollPeriods, updatePayDate, deletePeriod } from '../../payroll/periods.ts'
 
 /**
  * Binds the run's snapshotted slab data to the engine's TDS hook. Returns
@@ -61,6 +62,55 @@ function tdsFor(statutory: Awaited<ReturnType<typeof loadStatutory>>) {
 }
 
 export function register(router: Router): void {
+  router.get('/api/v1/payroll/periods',
+    { summary: 'Payroll periods, newest first, with the run in each', tag: 'payroll', permission: 'payroll.read' },
+    authed('payroll.read', async (ctx) => {
+      requireModule(ctx, 'payroll.enabled')
+      return ok({ periods: await listPayrollPeriods(ctx.tx) })
+    }))
+
+  router.post('/api/v1/payroll/periods',
+    { summary: 'Create the payroll and attendance period for a month (idempotent)', tag: 'payroll',
+      permission: 'payroll.process', requestExample: { month: '2026-10', payDate: '2026-11-01' } },
+    authed('payroll.process', async (ctx) => {
+      requireModule(ctx, 'payroll.enabled')
+      const b = requireBody<{ month: string; payDate?: string }>(ctx.req, ['month'])
+      const result = await ensurePeriod(ctx.tx, {
+        month: b.month, payDay: ctx.config.get<number>('payroll.pay_day'), payDate: b.payDate,
+      })
+      if (result.created) {
+        await emit(ctx.tx, { action: 'payroll.period.created', entityType: 'payroll_period', entityId: result.payroll.id,
+          actorUserId: ctx.auth.userId, after: { label: result.payroll.label, payDate: result.payroll.pay_date } })
+      }
+      return (result.created ? created : ok)(result)
+    }))
+
+  router.patch('/api/v1/payroll/periods/:id',
+    { summary: 'Move a period\'s pay date (not possible once its run is locked)', tag: 'payroll',
+      permission: 'payroll.process', requestExample: { payDate: '2026-11-03' } },
+    authed('payroll.process', async (ctx) => {
+      requireModule(ctx, 'payroll.enabled')
+      const id = asUuid(ctx.req.params.id, 'id')
+      const b = requireBody<{ payDate: string }>(ctx.req, ['payDate'])
+      const period = await updatePayDate(ctx.tx, id, b.payDate)
+      await emit(ctx.tx, { action: 'payroll.period.changed', entityType: 'payroll_period', entityId: id,
+        actorUserId: ctx.auth.userId, after: { payDate: b.payDate } })
+      return ok(period)
+    }))
+
+  router.del('/api/v1/payroll/periods/:id',
+    { summary: 'Delete a period that has no run (reason required)', tag: 'payroll',
+      permission: 'payroll.process', requestExample: { reason: 'created for the wrong month' } },
+    authed('payroll.process', async (ctx) => {
+      requireModule(ctx, 'payroll.enabled')
+      const id = asUuid(ctx.req.params.id, 'id')
+      const b = requireBody<{ reason: string }>(ctx.req, ['reason'])
+      await deletePeriod(ctx.tx, id)
+      await emit(ctx.tx, { action: 'payroll.period.deleted', entityType: 'payroll_period', entityId: id,
+        actorUserId: ctx.auth.userId, reason: b.reason })
+      return ok({ deleted: true })
+    }))
+
   router.post('/api/v1/payroll/runs',
     { summary: 'Start a payroll run for a period', tag: 'payroll', permission: 'payroll.process',
       requestExample: { periodId: '…' } },
@@ -120,9 +170,17 @@ export function register(router: Router): void {
   router.get('/api/v1/payroll/runs/:id/validation',
     { summary: 'Blockers and warnings for a calculated run', tag: 'payroll', permission: 'payroll.read' },
     authed('payroll.read', async (ctx) => {
-      const statutory = await loadStatutory(ctx.tx)
-      const result = await validate(ctx.tx, asUuid(ctx.req.params.id, 'id'), {
+      const runId = asUuid(ctx.req.params.id, 'id')
+      // Tables for the PERIOD's fiscal year, not today's: a March run validated in April is FY-1.
+      const period = await ctx.tx.query<{ period_start: string }>(
+        `SELECT pp.period_start::text FROM payroll_runs r JOIN payroll_periods pp ON pp.id = r.period_id WHERE r.id = $1`, [runId])
+      const statutory = await loadStatutory(ctx.tx, period.rows[0]?.period_start)
+      const result = await validate(ctx.tx, runId, {
         statutory: statutory.config,
+        taxTables: { fiscalYear: statutory.fiscalYear, regimes: {
+          new: statutory.taxSlabs.new.length > 0 && !!statutory.taxRules.new,
+          old: statutory.taxSlabs.old.length > 0 && !!statutory.taxRules.old,
+        } },
         components: (await componentFlags(ctx.tx)) ?? undefined,
         ptAmountPaise: (state, gross) => ptFor(statutory.ptSlabs, state, gross),
         pfOnFullWage: ctx.config.get<boolean>('payroll.pf_on_full_wage'),

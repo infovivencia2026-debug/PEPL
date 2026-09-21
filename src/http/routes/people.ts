@@ -21,6 +21,13 @@ import {
 import { normaliseComponents, resolveForEmployee, structureByCode } from '../../payroll/structures.ts'
 import { loadStatutory } from '../../payroll/statutory.ts'
 import { hold } from '../../approvals/pending.ts'
+import { listBankAccounts, setBankAccount, loginFor, inviteEmployee } from '../../people/onboard.ts'
+import { notify } from '../../comms/index.ts'
+
+function publicUrl(req: { headers: Record<string, string | string[] | undefined> }): string {
+  return process.env.PEPL_PUBLIC_URL
+    ?? `${req.headers['x-forwarded-proto'] === 'https' ? 'https' : 'http'}://${String(req.headers.host ?? 'localhost')}`
+}
 
 export function register(router: Router): void {
   router.get('/api/v1/employees',
@@ -118,20 +125,83 @@ export function register(router: Router): void {
     authed('employee.write', async (ctx) => {
       const id = asUuid(ctx.req.params.id, 'id')
       assertScope(ctx.auth, id)
-      const b = requireBody<{ department: string; designation: string; effectiveFrom: string; reason?: string }>(
+      const b = requireBody<{ department: string; designation: string; managerEmployeeId?: string | null; effectiveFrom: string; reason?: string }>(
         ctx.req, ['department', 'designation', 'effectiveFrom'])
       const recordId = await changeAssignment(ctx.tx, {
         employeeId: id, department: b.department, designation: b.designation,
+        managerEmployeeId: b.managerEmployeeId === undefined ? undefined : (b.managerEmployeeId ? asUuid(b.managerEmployeeId, 'managerEmployeeId') : null),
         effectiveFrom: asDate(b.effectiveFrom, 'effectiveFrom'),
         reason: b.reason, actorUserId: ctx.auth.userId,
       })
       await emit(ctx.tx, {
         action: 'people.assignment.changed', entityType: 'employee', entityId: id,
         subjectEmployeeId: id, actorUserId: ctx.auth.userId,
-        after: { department: b.department, designation: b.designation, effectiveFrom: b.effectiveFrom },
+        after: { department: b.department, designation: b.designation, managerEmployeeId: b.managerEmployeeId ?? null, effectiveFrom: b.effectiveFrom },
         reason: b.reason,
       })
       return created({ id: recordId })
+    }))
+
+  router.get('/api/v1/employees/:id/bank-accounts',
+    { summary: 'Bank accounts on file (masked); ?history=true includes superseded ones', tag: 'people', permission: 'employee.read' },
+    authed('employee.read', async (ctx) => {
+      const id = asUuid(ctx.req.params.id, 'id')
+      assertScope(ctx.auth, id)
+      return ok({ accounts: await listBankAccounts(ctx.tx, id, ctx.req.query.get('history') === 'true') })
+    }))
+
+  router.post('/api/v1/employees/:id/bank-accounts',
+    { summary: 'Record the account salary is paid into; the previous one is superseded, never edited', tag: 'people',
+      permission: 'employee.write',
+      requestExample: { beneficiaryName: 'Priya Sharma', accountNumber: '50100123456789', ifsc: 'HDFC0001234', bankName: 'HDFC Bank' } },
+    authed('employee.write', async (ctx) => {
+      const id = asUuid(ctx.req.params.id, 'id')
+      assertScope(ctx.auth, id)
+      const b = requireBody<{ beneficiaryName: string; accountNumber: string; ifsc: string; bankName?: string; effectiveFrom?: string }>(
+        ctx.req, ['beneficiaryName', 'accountNumber', 'ifsc'])
+      const account = await setBankAccount(ctx.tx, {
+        employeeId: id, beneficiaryName: b.beneficiaryName, accountNumber: b.accountNumber, ifsc: b.ifsc,
+        bankName: b.bankName, effectiveFrom: b.effectiveFrom ? asDate(b.effectiveFrom, 'effectiveFrom') : undefined,
+      })
+      await emit(ctx.tx, {
+        action: 'people.bank_account.changed', entityType: 'employee', entityId: id, subjectEmployeeId: id,
+        actorUserId: ctx.auth.userId, after: { account: account.account_masked, ifsc: account.ifsc },
+      })
+      return created(account)
+    }))
+
+  router.get('/api/v1/employees/:id/login',
+    { summary: 'Whether this person has a login, and its roles', tag: 'people', permission: 'employee.read' },
+    authed('employee.read', async (ctx) => {
+      const id = asUuid(ctx.req.params.id, 'id')
+      assertScope(ctx.auth, id)
+      return ok(await loginFor(ctx.tx, id))
+    }))
+
+  router.post('/api/v1/employees/:id/invite',
+    { summary: 'Create the person\'s login (or re-issue their link) and send them a set-password link', tag: 'people',
+      permission: 'employee.write', requestExample: { email: 'priya@acme.com', roles: ['employee'] } },
+    authed('employee.write', async (ctx) => {
+      const id = asUuid(ctx.req.params.id, 'id')
+      assertScope(ctx.auth, id)
+      const b = requireBody<{ email: string; roles?: string[] }>(ctx.req, ['email'])
+      if (b.roles?.length && !can(ctx.auth, 'roles.write')) {
+        throw new HttpError(403, 'PERMISSION_DENIED', 'assigning roles other than employee needs roles.write')
+      }
+      const r = await inviteEmployee(ctx.tx, { employeeId: id, email: b.email, roles: b.roles, issuedByUserId: ctx.auth.userId, ip: ctx.req.ip })
+      const link = `${publicUrl(ctx.req)}/reset-password?token=${r.token}`
+      // Email it when the company has a sender mailbox; the link is returned either way
+      // so HR can hand it over in person when mail is not set up.
+      await notify(ctx.tx, {
+        userId: r.userId, eventType: 'security.login.invited', title: 'Your PEPL login',
+        body: `Set your password here (link valid for 30 minutes): ${link}`, channels: ['email'],
+        dedupeKey: `invite:${r.userId}:${r.token.slice(0, 8)}`,
+      })
+      await emit(ctx.tx, {
+        action: 'people.login.invited', entityType: 'user', entityId: r.userId, subjectEmployeeId: id,
+        actorUserId: ctx.auth.userId, metadata: { email: r.email, created: r.created, roles: b.roles ?? ['employee'] },
+      })
+      return (r.created ? created : ok)({ userId: r.userId, email: r.email, created: r.created, link, expiresAt: r.expiresAt.toISOString() })
     }))
 
   router.post('/api/v1/employees/:id/assignments/:recordId/correct',

@@ -29,6 +29,8 @@ export interface AssignmentInput {
   employeeId: string
   department: string
   designation: string
+  /** undefined = keep the current manager; null = no manager (a CEO, a founder). */
+  managerEmployeeId?: string | null
   effectiveFrom: string
   reason?: string
   actorUserId?: string
@@ -62,8 +64,8 @@ export async function changeAssignment(tx: PoolClient, input: AssignmentInput): 
     designation: await resolveUnitCode(tx, 'designation', input.designation),
   }
 
-  const open = await tx.query<{ id: string; effective_from: string }>(
-    `SELECT id, effective_from::text
+  const open = await tx.query<{ id: string; effective_from: string; manager_employee_id: string | null }>(
+    `SELECT id, effective_from::text, manager_employee_id
        FROM employee_assignments
       WHERE employee_id = $1 AND superseded_at IS NULL
         AND (effective_to IS NULL OR effective_to > $2)
@@ -73,6 +75,8 @@ export async function changeAssignment(tx: PoolClient, input: AssignmentInput): 
   )
 
   const prior = open.rows[0]
+  const manager = input.managerEmployeeId === undefined ? (prior?.manager_employee_id ?? null) : input.managerEmployeeId
+  await assertManager(tx, input.employeeId, manager)
   if (prior) {
     if (prior.effective_from >= input.effectiveFrom) {
       throw new HistoryError(
@@ -88,20 +92,44 @@ export async function changeAssignment(tx: PoolClient, input: AssignmentInput): 
 
   const { rows } = await tx.query<{ id: string }>(
     `INSERT INTO employee_assignments
-       (tenant_id, employee_id, department, designation, effective_from, changed_by_user_id, change_reason)
-     VALUES ($1, $2, $3, $4, $5, $6, $7)
+       (tenant_id, employee_id, department, designation, manager_employee_id, effective_from, changed_by_user_id, change_reason)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
      RETURNING id`,
-    [tid, input.employeeId, input.department, input.designation, input.effectiveFrom,
+    [tid, input.employeeId, input.department, input.designation, manager, input.effectiveFrom,
      input.actorUserId ?? null, input.reason ?? null],
   )
   return rows[0]!.id
+}
+
+/**
+ * A manager must be a current, different employee — and not someone who
+ * reports to this person, or the chain loops and every approval waits forever.
+ */
+async function assertManager(tx: PoolClient, employeeId: string, managerId: string | null): Promise<void> {
+  if (!managerId) return
+  if (managerId === employeeId) throw new HistoryError('MANAGER_IS_SELF', 'a person cannot be their own manager')
+  const { rows } = await tx.query<{ status: string }>(`SELECT status FROM employees WHERE id = $1`, [managerId])
+  if (!rows[0]) throw new HistoryError('MANAGER_NOT_FOUND', 'no such employee to be the manager')
+  if (rows[0].status === 'exited') throw new HistoryError('MANAGER_EXITED', 'an exited employee cannot be a manager')
+  // walk up from the proposed manager; meeting ourselves means a cycle
+  const { rows: cycle } = await tx.query<{ found: boolean }>(
+    `WITH RECURSIVE up AS (
+       SELECT manager_employee_id AS id, 1 AS depth FROM employee_assignments
+        WHERE employee_id = $1 AND superseded_at IS NULL AND (effective_to IS NULL OR effective_to > CURRENT_DATE)
+       UNION ALL
+       SELECT a.manager_employee_id, up.depth + 1 FROM up
+         JOIN employee_assignments a ON a.employee_id = up.id AND a.superseded_at IS NULL
+          AND (a.effective_to IS NULL OR a.effective_to > CURRENT_DATE)
+        WHERE up.id IS NOT NULL AND up.depth < 50)
+     SELECT EXISTS (SELECT 1 FROM up WHERE id = $2) AS found`, [managerId, employeeId])
+  if (cycle[0]?.found) throw new HistoryError('MANAGER_CYCLE', 'that person reports to this employee; the chain would loop')
 }
 
 /** A recording error: supersede the believed row, insert its replacement. */
 export async function correctAssignment(
   tx: PoolClient,
   recordId: string,
-  patch: { department?: string; designation?: string; reason: string; actorUserId?: string },
+  patch: { department?: string; designation?: string; managerEmployeeId?: string | null; reason: string; actorUserId?: string },
 ): Promise<string> {
   const tid = await tenantId(tx)
   if (!patch.reason?.trim()) {
@@ -122,15 +150,18 @@ export async function correctAssignment(
     [tid, recordId],
   )
 
+  const manager = patch.managerEmployeeId === undefined ? old.manager_employee_id : patch.managerEmployeeId
+  await assertManager(tx, old.employee_id, manager)
   const { rows } = await tx.query<{ id: string }>(
     `INSERT INTO employee_assignments
-       (tenant_id, employee_id, department, designation, effective_from, effective_to,
+       (tenant_id, employee_id, department, designation, manager_employee_id, effective_from, effective_to,
         changed_by_user_id, change_reason)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
      RETURNING id`,
     [tid, old.employee_id,
      patch.department ?? old.department,
      patch.designation ?? old.designation,
+     manager,
      old.effective_from, old.effective_to,
      patch.actorUserId ?? null, patch.reason],
   )

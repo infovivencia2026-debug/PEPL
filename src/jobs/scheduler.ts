@@ -54,6 +54,11 @@ export const SCHEDULE: Schedule[] = [
   // Daily work, checked hourly so a restart cannot miss the window.
   { job: 'audit.seal', everyMs: HOUR, due: (now) => now.getHours() === 1 },
   { job: 'data.retention', everyMs: HOUR, due: (now) => now.getHours() === 2 },
+  // This month's and next month's periods always exist.
+  { job: 'payroll.periods', everyMs: HOUR, due: (now) => now.getHours() === 3 },
+  // Money: invoice ended periods, then apply dunning to what is unpaid.
+  { job: 'billing.invoice', everyMs: HOUR, due: (now) => now.getHours() === 4 },
+  { job: 'billing.dunning', everyMs: HOUR, due: (now) => now.getHours() === 5 },
 
   // Leave accrual runs on the last day of the month. The job itself is keyed on
   // (employee, type, cycle, period), so a second run credits nothing twice —

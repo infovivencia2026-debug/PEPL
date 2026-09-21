@@ -1,0 +1,298 @@
+/**
+ * Signup, plans, billing and dunning — the part of the product that lets a
+ * company start without talking to us, and lets us stop serving one that has
+ * stopped paying.
+ *
+ * All of it runs on the control-plane connection: subscriptions and invoices
+ * are ABOUT a tenant, not inside it. The tenant-facing routes pass their own
+ * tenant id explicitly and only ever read their own rows.
+ */
+import { randomBytes } from 'node:crypto'
+import type pg from 'pg'
+import { controlDb, provisionTenant, projectEntitlements, ControlPlaneError } from './index.ts'
+import { hashPassword } from '../auth/index.ts'
+
+export const GST_RATE = 0.18
+export const TRIAL_DAYS = 14
+export const DUE_DAYS = 7
+export const PAST_DUE_AFTER_DAYS = 15
+export const SUSPEND_AFTER_DAYS = 45
+
+export interface Plan {
+  code: string
+  name: string
+  base_price_paise: string
+  per_employee_price_paise: string
+  features: Record<string, boolean>
+  limits: Record<string, number>
+}
+
+export async function listPlans(): Promise<Plan[]> {
+  const { rows } = await controlDb.query<Plan>(
+    `SELECT code, name, base_price_paise::text, per_employee_price_paise::text, features, limits
+       FROM control_plane.plans WHERE status = 'active' ORDER BY base_price_paise, code`)
+  return rows
+}
+
+/**
+ * A new company, from a form. The admin's email must be new to the platform:
+ * login resolves an email across tenants, so a second tenant with the same
+ * admin address would make sign-in ambiguous.
+ */
+export async function signup(args: {
+  legalName: string; displayName?: string; adminEmail: string; adminName: string; password: string
+  stateCode?: string; planCode?: string
+}): Promise<{ tenantId: string; adminUserId: string }> {
+  const email = args.adminEmail.trim().toLowerCase()
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) throw new ControlPlaneError('VALIDATION_FAILED', 'adminEmail must be an address')
+  if (!args.legalName?.trim()) throw new ControlPlaneError('VALIDATION_FAILED', 'legalName is required')
+  if (!args.adminName?.trim()) throw new ControlPlaneError('VALIDATION_FAILED', 'adminName is required')
+  if ((args.password ?? '').length < 10) throw new ControlPlaneError('WEAK_PASSWORD', 'password must be at least 10 characters')
+  const taken = await controlDb.query(`SELECT 1 FROM app_users WHERE lower(email) = $1`, [email])
+  if (taken.rowCount) throw new ControlPlaneError('EMAIL_TAKEN', 'an account with this email already exists; sign in instead')
+
+  const planCode = args.planCode ?? 'trial'
+  const plan = await controlDb.query(`SELECT 1 FROM control_plane.plans WHERE code = $1 AND status = 'active'`, [planCode])
+  if (!plan.rowCount) throw new ControlPlaneError('PLAN_NOT_FOUND', `no such plan: ${planCode}`)
+
+  const { tenantId } = await provisionTenant({
+    legalName: args.legalName.trim(), displayName: (args.displayName ?? args.legalName).trim(),
+    planCode, adminEmail: email, adminName: args.adminName.trim(), stateCode: args.stateCode,
+  })
+  // The provisioner creates the admin without a password; the form gave us one.
+  const hash = await hashPassword(args.password)
+  const { rows } = await controlDb.query<{ id: string }>(
+    `UPDATE app_users SET password_hash = $3, status = 'active' WHERE tenant_id = $1 AND lower(email) = $2 RETURNING id`,
+    [tenantId, email, hash])
+  const adminUserId = rows[0]!.id
+  await controlDb.query(
+    `INSERT INTO user_roles (tenant_id, user_id, role) VALUES ($1,$2,'org_admin') ON CONFLICT DO NOTHING`, [tenantId, adminUserId])
+  await controlDb.query(
+    `UPDATE control_plane.subscriptions SET trial_ends_on = CURRENT_DATE + $2::int, billing_email = $3 WHERE tenant_id = $1`,
+    [tenantId, TRIAL_DAYS, email])
+  await controlDb.query(
+    `INSERT INTO control_plane.platform_audit (action, tenant_id, detail) VALUES ('tenant.signup', $1, $2::jsonb)`,
+    [tenantId, JSON.stringify({ email, planCode })])
+  return { tenantId, adminUserId }
+}
+
+export interface BillingSummary {
+  plan: Plan
+  status: string
+  trial_ends_on: string | null
+  current_period_start: string
+  current_period_end: string
+  active_employees: number
+  employee_limit: number | null
+  billing_gstin: string | null
+  billing_address: string | null
+  billing_email: string | null
+  /** What the next invoice would be at today's headcount. */
+  estimate: { subtotal_paise: string; gst_paise: string; total_paise: string }
+  outstanding: { count: number; total_paise: string; oldest_due_on: string | null }
+}
+
+export function priceFor(plan: Plan, employees: number): { subtotal: bigint; gst: bigint; total: bigint } {
+  const subtotal = BigInt(plan.base_price_paise) + BigInt(plan.per_employee_price_paise) * BigInt(employees)
+  const gst = BigInt(Math.round(Number(subtotal) * GST_RATE))
+  return { subtotal, gst, total: subtotal + gst }
+}
+
+async function activeHeadcount(tenantId: string): Promise<number> {
+  const { rows } = await controlDb.query<{ n: string }>(
+    `SELECT count(*)::text AS n FROM employees WHERE tenant_id = $1 AND status <> 'exited'`, [tenantId])
+  return Number(rows[0]!.n)
+}
+
+export async function billingSummary(tenantId: string): Promise<BillingSummary> {
+  const { rows } = await controlDb.query<{
+    plan_code: string; status: string; trial_ends_on: string | null; current_period_start: string; current_period_end: string
+    billing_gstin: string | null; billing_address: string | null; billing_email: string | null
+  }>(
+    `SELECT plan_code, status, trial_ends_on::text, current_period_start::text, current_period_end::text,
+            billing_gstin, billing_address, billing_email
+       FROM control_plane.subscriptions WHERE tenant_id = $1`, [tenantId])
+  const sub = rows[0]
+  if (!sub) throw new ControlPlaneError('NO_SUBSCRIPTION', 'this company has no subscription record')
+  const plan = (await controlDb.query<Plan>(
+    `SELECT code, name, base_price_paise::text, per_employee_price_paise::text, features, limits FROM control_plane.plans WHERE code = $1`,
+    [sub.plan_code])).rows[0]!
+  const employees = await activeHeadcount(tenantId)
+  const p = priceFor(plan, employees)
+  const out = (await controlDb.query<{ n: string; total: string; oldest: string | null }>(
+    `SELECT count(*)::text AS n, coalesce(sum(total_paise),0)::text AS total, min(due_on)::text AS oldest
+       FROM control_plane.invoices WHERE tenant_id = $1 AND status = 'due'`, [tenantId])).rows[0]!
+  return {
+    plan, status: sub.status, trial_ends_on: sub.trial_ends_on,
+    current_period_start: sub.current_period_start, current_period_end: sub.current_period_end,
+    active_employees: employees, employee_limit: plan.limits.employees ?? null,
+    billing_gstin: sub.billing_gstin, billing_address: sub.billing_address, billing_email: sub.billing_email,
+    estimate: { subtotal_paise: String(p.subtotal), gst_paise: String(p.gst), total_paise: String(p.total) },
+    outstanding: { count: Number(out.n), total_paise: out.total, oldest_due_on: out.oldest },
+  }
+}
+
+export async function updateBillingDetails(
+  tenantId: string, patch: { gstin?: string | null; address?: string | null; email?: string | null },
+): Promise<void> {
+  if (patch.gstin && !/^\d{2}[A-Z]{5}\d{4}[A-Z][1-9A-Z]Z[0-9A-Z]$/.test(patch.gstin.toUpperCase())) {
+    throw new ControlPlaneError('VALIDATION_FAILED', 'that is not a valid GSTIN')
+  }
+  await controlDb.query(
+    `UPDATE control_plane.subscriptions
+        SET billing_gstin = CASE WHEN $2::boolean THEN $3 ELSE billing_gstin END,
+            billing_address = CASE WHEN $4::boolean THEN $5 ELSE billing_address END,
+            billing_email = CASE WHEN $6::boolean THEN $7 ELSE billing_email END
+      WHERE tenant_id = $1`,
+    [tenantId, 'gstin' in patch, patch.gstin?.toUpperCase().trim() || null,
+     'address' in patch, patch.address?.trim() || null, 'email' in patch, patch.email?.trim().toLowerCase() || null])
+}
+
+/**
+ * A plan change. Upgrades take effect now. A downgrade is refused while the
+ * company is over the new plan's headcount limit — the software must never
+ * silently hide employees to fit a cheaper tier.
+ */
+export async function switchPlan(tenantId: string, planCode: string): Promise<BillingSummary> {
+  const plan = (await controlDb.query<Plan>(
+    `SELECT code, name, base_price_paise::text, per_employee_price_paise::text, features, limits FROM control_plane.plans WHERE code = $1 AND status = 'active'`,
+    [planCode])).rows[0]
+  if (!plan) throw new ControlPlaneError('PLAN_NOT_FOUND', `no such plan: ${planCode}`)
+  if (plan.code === 'trial') throw new ControlPlaneError('PLAN_NOT_FOUND', 'a company cannot move back to the trial')
+  const employees = await activeHeadcount(tenantId)
+  if (plan.limits.employees !== undefined && employees > plan.limits.employees) {
+    throw new ControlPlaneError('OVER_PLAN_LIMIT',
+      `${plan.name} allows ${plan.limits.employees} employees; you have ${employees}. Exit or choose a larger plan first.`)
+  }
+  await controlDb.query(
+    `UPDATE control_plane.subscriptions
+        SET plan_code = $2, status = CASE WHEN status = 'trialing' THEN 'active' ELSE status END, trial_ends_on = NULL
+      WHERE tenant_id = $1`, [tenantId, planCode])
+  await projectEntitlements(controlDb, tenantId)
+  await controlDb.query(
+    `INSERT INTO control_plane.platform_audit (action, tenant_id, detail) VALUES ('subscription.plan_changed', $1, $2::jsonb)`,
+    [tenantId, JSON.stringify({ planCode, employees })])
+  return billingSummary(tenantId)
+}
+
+export interface Invoice {
+  id: string; number: string; period_start: string; period_end: string; plan_code: string; employees: number
+  base_paise: string; per_employee_paise: string; subtotal_paise: string; gst_rate: string; gst_paise: string; total_paise: string
+  status: string; due_on: string; paid_at: string | null; payment_reference: string | null
+}
+
+export async function listInvoices(tenantId: string): Promise<Invoice[]> {
+  const { rows } = await controlDb.query<Invoice>(
+    `SELECT id, number, period_start::text, period_end::text, plan_code, employees,
+            base_paise::text, per_employee_paise::text, subtotal_paise::text, gst_rate::text, gst_paise::text, total_paise::text,
+            status, due_on::text, paid_at::text, payment_reference
+       FROM control_plane.invoices WHERE tenant_id = $1 ORDER BY period_start DESC`, [tenantId])
+  return rows
+}
+
+/**
+ * Closes a subscription period that has ended: writes the invoice for it and
+ * opens the next period. Idempotent per (tenant, period_start). A trial that
+ * has ended with no plan chosen is not invoiced; it is suspended by dunning.
+ */
+export async function closePeriods(now = new Date()): Promise<{ invoiced: number; skipped: number }> {
+  const today = now.toISOString().slice(0, 10)
+  const { rows: due } = await controlDb.query<{ tenant_id: string; plan_code: string; current_period_start: string; current_period_end: string; status: string }>(
+    `SELECT tenant_id, plan_code, current_period_start::text, current_period_end::text, status
+       FROM control_plane.subscriptions WHERE current_period_end <= $1 AND status IN ('active','past_due')`, [today])
+  let invoiced = 0; let skipped = 0
+  for (const s of due) {
+    const client = await controlDb.connect()
+    try {
+      await client.query('BEGIN')
+      const plan = (await client.query<Plan>(
+        `SELECT code, name, base_price_paise::text, per_employee_price_paise::text, features, limits FROM control_plane.plans WHERE code = $1`,
+        [s.plan_code])).rows[0]!
+      const employees = Number((await client.query<{ n: string }>(
+        `SELECT count(*)::text AS n FROM employees WHERE tenant_id = $1 AND status <> 'exited'`, [s.tenant_id])).rows[0]!.n)
+      const p = priceFor(plan, employees)
+      const number = await nextInvoiceNumber(client, s.tenant_id, s.current_period_end)
+      const ins = await client.query(
+        `INSERT INTO control_plane.invoices
+           (tenant_id, number, period_start, period_end, plan_code, employees, base_paise, per_employee_paise,
+            subtotal_paise, gst_rate, gst_paise, total_paise, status, due_on)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12::bigint, CASE WHEN $12::bigint = 0 THEN 'paid' ELSE 'due' END, $4::date + $13::int)
+         ON CONFLICT (tenant_id, period_start) DO NOTHING`,
+        [s.tenant_id, number, s.current_period_start, s.current_period_end, plan.code, employees,
+         plan.base_price_paise, plan.per_employee_price_paise, String(p.subtotal), GST_RATE, String(p.gst), String(p.total), DUE_DAYS])
+      // Roll the period forward by a month from its end, whatever today is.
+      await client.query(
+        `UPDATE control_plane.subscriptions
+            SET current_period_start = current_period_end,
+                current_period_end = (current_period_end + interval '1 month')::date
+          WHERE tenant_id = $1`, [s.tenant_id])
+      await projectEntitlements(client, s.tenant_id)
+      await client.query('COMMIT')
+      if (ins.rowCount) invoiced++; else skipped++
+    } catch (err) {
+      await client.query('ROLLBACK').catch(() => {})
+      throw err
+    } finally {
+      client.release()
+    }
+  }
+  return { invoiced, skipped }
+}
+
+async function nextInvoiceNumber(client: pg.PoolClient, tenantId: string, periodEnd: string): Promise<string> {
+  const { rows } = await client.query<{ next: number }>(
+    `INSERT INTO control_plane.invoice_counters (tenant_id, next) VALUES ($1, 2)
+     ON CONFLICT (tenant_id) DO UPDATE SET next = control_plane.invoice_counters.next + 1
+     RETURNING next - 1 AS next`, [tenantId])
+  const short = tenantId.replace(/-/g, '').slice(0, 6).toUpperCase()
+  return `INV-${periodEnd.slice(0, 4)}-${short}-${String(rows[0]!.next).padStart(5, '0')}`
+}
+
+/**
+ * Dunning. Trial over with no plan → suspended. Oldest unpaid invoice 15 days
+ * past due → past_due (a banner, nothing removed); 45 days → suspended, which
+ * the entitlement projection turns into every module off. Payment reverses it.
+ */
+export async function runDunning(now = new Date()): Promise<{ pastDue: number; suspended: number; reactivated: number }> {
+  const today = now.toISOString().slice(0, 10)
+  const r1 = await controlDb.query(
+    `UPDATE control_plane.subscriptions SET status = 'suspended'
+      WHERE status = 'trialing' AND trial_ends_on IS NOT NULL AND trial_ends_on < $1::date RETURNING tenant_id`, [today])
+  const r2 = await controlDb.query(
+    `UPDATE control_plane.subscriptions s SET status = 'past_due'
+      WHERE s.status = 'active' AND EXISTS (
+        SELECT 1 FROM control_plane.invoices i WHERE i.tenant_id = s.tenant_id AND i.status = 'due' AND i.due_on + $2::int < $1::date)
+      RETURNING tenant_id`, [today, PAST_DUE_AFTER_DAYS])
+  const r3 = await controlDb.query(
+    `UPDATE control_plane.subscriptions s SET status = 'suspended'
+      WHERE s.status IN ('active','past_due') AND EXISTS (
+        SELECT 1 FROM control_plane.invoices i WHERE i.tenant_id = s.tenant_id AND i.status = 'due' AND i.due_on + $2::int < $1::date)
+      RETURNING tenant_id`, [today, SUSPEND_AFTER_DAYS])
+  const r4 = await controlDb.query(
+    `UPDATE control_plane.subscriptions s SET status = 'active'
+      WHERE s.status IN ('past_due','suspended') AND s.trial_ends_on IS NULL
+        AND NOT EXISTS (SELECT 1 FROM control_plane.invoices i WHERE i.tenant_id = s.tenant_id AND i.status = 'due')
+      RETURNING tenant_id`)
+  const touched = new Set([...r1.rows, ...r2.rows, ...r3.rows, ...r4.rows].map((r: { tenant_id: string }) => r.tenant_id))
+  for (const t of touched) await projectEntitlements(controlDb, t)
+  return { pastDue: r2.rowCount ?? 0, suspended: (r1.rowCount ?? 0) + (r3.rowCount ?? 0), reactivated: r4.rowCount ?? 0 }
+}
+
+/** Operator action (or a gateway webhook): the invoice is settled. Dunning reactivates on its next pass. */
+export async function markInvoicePaid(invoiceId: string, reference: string): Promise<Invoice> {
+  const { rows } = await controlDb.query<Invoice & { tenant_id: string }>(
+    `UPDATE control_plane.invoices SET status = 'paid', paid_at = now(), payment_reference = $2
+      WHERE id = $1 AND status = 'due'
+      RETURNING tenant_id, id, number, period_start::text, period_end::text, plan_code, employees, base_paise::text, per_employee_paise::text,
+                subtotal_paise::text, gst_rate::text, gst_paise::text, total_paise::text, status, due_on::text, paid_at::text, payment_reference`,
+    [invoiceId, reference.trim().slice(0, 120)])
+  if (!rows[0]) throw new ControlPlaneError('INVOICE_NOT_FOUND', 'no such unpaid invoice')
+  await controlDb.query(
+    `INSERT INTO control_plane.platform_audit (action, tenant_id, detail) VALUES ('invoice.paid', $1, $2::jsonb)`,
+    [rows[0].tenant_id, JSON.stringify({ invoice: rows[0].number, reference })])
+  await runDunning()
+  return rows[0]
+}
+
+/** A verification token for the signup email (stored hashed by the caller if needed). */
+export const signupToken = (): string => randomBytes(24).toString('base64url')

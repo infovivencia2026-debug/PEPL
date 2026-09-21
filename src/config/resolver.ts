@@ -57,7 +57,10 @@ export async function resolveConfig(
        FROM tenant_setting_overrides ORDER BY key, priority ASC, effective_from NULLS FIRST`)
 
   const version = BigInt(verRows[0]?.version ?? '0')
-  const entitlements = entRows[0]?.features ?? {}
+  // A suspended or cancelled subscription sells nothing: every entitled module
+  // reads as off, so the data stays and the product stops. past_due keeps working.
+  const subscriptionLive = !['suspended', 'cancelled'].includes(entRows[0]?.status ?? 'active')
+  const entitlements = subscriptionLive ? (entRows[0]?.features ?? {}) : {}
   const limits = entRows[0]?.limits ?? {}
 
   // Layer 4: latest row whose effective_from has arrived.

@@ -165,6 +165,21 @@ async function main(): Promise<void> {
     missingPt.length === 0,
     missingPt.length ? `no slabs in force for: ${missingPt.join(', ')}` : `${loaded.size} state(s)`,
   )
+  const fyStartYear = new Date().getMonth() >= 3 ? new Date().getFullYear() : new Date().getFullYear() - 1
+  const fyLabel = (y: number): string => `${y}-${String((y + 1) % 100).padStart(2, '0')}`
+  const wanted = [fyLabel(fyStartYear), fyLabel(fyStartYear + 1)]
+  const { rows: fyRows } = await db.query<{ fiscal_year: string; regimes: string }>(
+    `SELECT fiscal_year, count(DISTINCT regime)::text AS regimes FROM tax_slabs WHERE fiscal_year = ANY($1) GROUP BY fiscal_year`, [wanted])
+  const missingFy = wanted.filter((fy) => !fyRows.some((r) => r.fiscal_year === fy && Number(r.regimes) === 2))
+  record(
+    'income-tax tables loaded for this fiscal year and the next (npm run seed:statutory)',
+    missingFy.length === 0,
+    missingFy.length ? `no complete tables for: ${missingFy.join(', ')}` : wanted.join(', '),
+  )
+  const { rows: pfRows } = await db.query<{ n: string }>(
+    `SELECT count(*)::text AS n FROM statutory_configs WHERE effective_from <= CURRENT_DATE AND (effective_to IS NULL OR effective_to > CURRENT_DATE)`)
+  record('PF/ESI statutory configuration in force today', Number(pfRows[0]!.n) > 0, Number(pfRows[0]!.n) > 0 ? 'present' : 'none — every run would fail NO_STATUTORY_CONFIG')
+
   const { rows: tenantStates } = await db.query<{ v: string }>(
     `SELECT DISTINCT trim(both '"' from value::text) AS v FROM tenant_settings WHERE key = 'payroll.pt_state_code' AND value::text <> '""'`)
   const unknownStates = tenantStates.map((r) => r.v).filter((v) => v && !loaded.has(v))

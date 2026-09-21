@@ -1,7 +1,13 @@
 /** Approvals and tasks — the unified inbox. */
 import type { Router } from '../router.ts'
 import { settle } from '../../approvals/pending.ts'
+import { settleLeaveDecision } from '../../leave/apply.ts'
 import {
+  listTemplates, getTemplate, createTemplate, updateTemplate, retireTemplate, resolveAssignees,
+  type TemplateItemInput, type Trigger,
+} from '../../work/templates.ts'
+import {
+  HttpError,
   authed,
   ok,
   created,
@@ -9,7 +15,6 @@ import {
   asDate,
   asUuid,
   can,
-  consume,
   act,
   inbox,
   approve,
@@ -17,7 +22,6 @@ import {
   completeTask,
   instantiateTemplate,
   taskInbox,
-  notify,
   emit,
 } from './deps.ts'
 
@@ -49,32 +53,20 @@ export function register(router: Router): void {
         action: b.action as never, comment: b.comment,
       })
 
-      if (result.status === 'approved') {
-        const { rows } = await ctx.tx.query<{ entity_type: string; entity_id: string; subject_employee_id: string }>(
-          `SELECT entity_type, entity_id, subject_employee_id FROM approval_requests WHERE id = $1`,
+      if (result.changed && (result.status === 'approved' || result.status === 'rejected')) {
+        const { rows } = await ctx.tx.query<{ entity_type: string; entity_id: string; subject_employee_id: string; requested_by_user_id: string | null }>(
+          `SELECT entity_type, entity_id, subject_employee_id, requested_by_user_id FROM approval_requests WHERE id = $1`,
           [ctx.req.params.id])
         const r = rows[0]
         if (r?.entity_type === 'leave') {
-          const { rows: lr } = await ctx.tx.query<{ leave_type_id: string; total_days: string; start_date: string }>(
-            `SELECT leave_type_id, total_days::text, start_date::text FROM leave_requests WHERE id = $1`,
-            [r.entity_id])
-          const leave = lr[0]
-          if (leave) {
-            await consume(ctx.tx, {
-              employeeId: r.subject_employee_id, leaveTypeId: leave.leave_type_id,
-              cycleYear: new Date(leave.start_date).getFullYear(),
-              days: Number(leave.total_days), effectiveDate: leave.start_date, requestId: r.entity_id,
-              allowNegative: ctx.config.get<boolean>('leave.allow_negative_balance'),
-            })
-            await ctx.tx.query(
-              `UPDATE leave_requests SET status = 'approved', decided_at = now() WHERE id = $1`, [r.entity_id])
-            await notify(ctx.tx, {
-              userId: ctx.auth.userId, eventType: 'leave.approved',
-              title: 'Leave approved', entityType: 'leave', entityId: r.entity_id,
-              dedupeKey: `leave-approved:${r.entity_id}`,
-            })
+          // balance, request status, attendance marking and the applicant's notice — once, in leave/apply.ts
+          const settled = await settleLeaveDecision(ctx.tx, ctx.config, {
+            leaveRequestId: r.entity_id, status: result.status, actorUserId: ctx.auth.userId, requestedByUserId: r.requested_by_user_id,
+          })
+          if (settled.changed) {
             await emit(ctx.tx, {
-              action: 'leave.request.approved', entityType: 'leave_request', entityId: r.entity_id,
+              action: result.status === 'approved' ? 'leave.request.approved' : 'leave.request.rejected',
+              entityType: 'leave_request', entityId: r.entity_id,
               subjectEmployeeId: r.subject_employee_id, actorUserId: ctx.auth.userId,
             })
           }
@@ -117,6 +109,48 @@ export function register(router: Router): void {
       return ok({ completed: true })
     }))
 
+  router.get('/api/v1/task-templates',
+    { summary: 'Onboarding / offboarding checklists (?includeRetired=true for history)', tag: 'inbox', permission: 'task.read' },
+    authed('task.read', async (ctx) => ok({ templates: await listTemplates(ctx.tx, ctx.req.query.get('includeRetired') === 'true') })))
+
+  router.post('/api/v1/task-templates',
+    { summary: 'Define a checklist: name, trigger (onboarding|offboarding|manual) and its items in order', tag: 'inbox',
+      permission: 'task.assign',
+      requestExample: { name: 'New joiner', trigger: 'onboarding', items: [
+        { title: 'Collect PAN and Aadhaar', assigneeRule: 'hr', dueOffsetDays: 0, requiresAttachment: true },
+        { title: 'Issue laptop', assigneeRule: 'it', dueOffsetDays: 1 },
+        { title: 'Introduce the team', assigneeRule: 'manager', dueOffsetDays: 2 } ] } },
+    authed('task.assign', async (ctx) => {
+      const b = requireBody<{ name: string; trigger: Trigger; items: TemplateItemInput[] }>(ctx.req, ['name', 'trigger', 'items'])
+      if (!Array.isArray(b.items)) throw new HttpError(422, 'VALIDATION_FAILED', 'items must be an array')
+      const t = await createTemplate(ctx.tx, { name: b.name, trigger: b.trigger, items: b.items })
+      await emit(ctx.tx, { action: 'work.template.changed', entityType: 'task_template', entityId: t.id, actorUserId: ctx.auth.userId,
+        after: { name: t.name, trigger: t.trigger_event, items: t.items.length } })
+      return created(t)
+    }))
+
+  router.patch('/api/v1/task-templates/:id',
+    { summary: 'Rename, retrigger or replace the items of a checklist', tag: 'inbox', permission: 'task.assign',
+      requestExample: { items: [{ title: 'Collect PAN', assigneeRule: 'hr' }] } },
+    authed('task.assign', async (ctx) => {
+      const id = asUuid(ctx.req.params.id, 'id')
+      const b = requireBody<{ name?: string; trigger?: Trigger; items?: TemplateItemInput[] }>(ctx.req, [])
+      if (b.items !== undefined && !Array.isArray(b.items)) throw new HttpError(422, 'VALIDATION_FAILED', 'items must be an array')
+      const t = await updateTemplate(ctx.tx, id, b)
+      await emit(ctx.tx, { action: 'work.template.changed', entityType: 'task_template', entityId: id, actorUserId: ctx.auth.userId,
+        after: { name: t.name, trigger: t.trigger_event, items: t.items.length } })
+      return ok(t)
+    }))
+
+  router.post('/api/v1/task-templates/:id/retire',
+    { summary: 'Retire a checklist; tasks already created from it are untouched', tag: 'inbox', permission: 'task.assign' },
+    authed('task.assign', async (ctx) => {
+      const id = asUuid(ctx.req.params.id, 'id')
+      await retireTemplate(ctx.tx, id)
+      await emit(ctx.tx, { action: 'work.template.retired', entityType: 'task_template', entityId: id, actorUserId: ctx.auth.userId })
+      return ok({ retired: true })
+    }))
+
   router.post('/api/v1/tasks/instantiate',
     { summary: 'Run a task template for an employee (onboarding or offboarding)', tag: 'inbox',
       permission: 'task.assign',
@@ -124,13 +158,20 @@ export function register(router: Router): void {
     authed('task.assign', async (ctx) => {
       const b = requireBody<{ templateId: string; employeeId: string; anchorDate: string; sourceType: string; assignees?: Record<string, string> }>(
         ctx.req, ['templateId', 'employeeId', 'anchorDate', 'sourceType'])
+      const employeeId = asUuid(b.employeeId, 'employeeId')
+      const templateId = asUuid(b.templateId, 'templateId')
+      if (!(await getTemplate(ctx.tx, templateId))) throw new HttpError(404, 'TEMPLATE_NOT_FOUND', 'no such template')
+      // Explicit assignees win; otherwise the rules resolve from the org: the
+      // person's manager, whoever holds the HR/IT/finance role, the person.
+      const auto = await resolveAssignees(ctx.tx, employeeId)
       const ids = await instantiateTemplate(ctx.tx, {
-        templateId: asUuid(b.templateId, 'templateId'),
-        subjectEmployeeId: asUuid(b.employeeId, 'employeeId'),
+        templateId, subjectEmployeeId: employeeId,
         anchorDate: asDate(b.anchorDate, 'anchorDate'),
         sourceType: b.sourceType,
-        resolveAssignee: (rule) => b.assignees?.[rule],
+        resolveAssignee: (rule, ref) => b.assignees?.[rule] ?? auto(rule, ref),
       })
+      await emit(ctx.tx, { action: 'work.checklist.started', entityType: 'employee', entityId: employeeId, subjectEmployeeId: employeeId,
+        actorUserId: ctx.auth.userId, metadata: { templateId, sourceType: b.sourceType, tasks: ids.length } })
       return created({ taskIds: ids })
     }))
 

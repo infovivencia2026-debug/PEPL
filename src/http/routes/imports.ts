@@ -4,6 +4,11 @@ import { HttpError, authed, ok, requireBody, emit } from './deps.ts'
 import {
   commitImport, findDuplicates, importTemplate, validateImport, CsvError,
 } from '../../import/employees.ts'
+import { inviteEmployee } from '../../people/onboard.ts'
+import { notify } from '../../comms/index.ts'
+
+const publicUrl = (req: { headers: Record<string, string | string[] | undefined> }): string =>
+  process.env.PEPL_PUBLIC_URL ?? `${req.headers['x-forwarded-proto'] === 'https' ? 'https' : 'http'}://${String(req.headers.host ?? 'localhost')}`
 
 /** 5 MB of CSV is roughly 50,000 employees — far past any single upload. */
 const MAX_CSV_BYTES = 5 * 1024 * 1024
@@ -67,12 +72,30 @@ export function register(router: Router): void {
           report,
           headcountLimit: ctx.config.limit('employees'),
         })
+        // An email column means "give them a login": each gets a set-password
+        // link, emailed when a sender mailbox exists and returned regardless.
+        const invites: { employeeNumber: string; email: string; link: string }[] = []
+        const inviteErrors: { employeeNumber: string; email: string; error: string }[] = []
+        for (const row of result.withEmail) {
+          await ctx.tx.query('SAVEPOINT invite')
+          try {
+            const r = await inviteEmployee(ctx.tx, { employeeId: row.employeeId, email: row.email, issuedByUserId: ctx.session.userId, ip: ctx.req.ip })
+            const link = `${publicUrl(ctx.req)}/reset-password?token=${r.token}`
+            await notify(ctx.tx, { userId: r.userId, eventType: 'security.login.invited', title: 'Your PEPL login',
+              body: `Set your password here (link valid for 30 minutes): ${link}`, channels: ['email'], dedupeKey: `invite:${r.userId}:${r.token.slice(0, 8)}` })
+            await ctx.tx.query('RELEASE SAVEPOINT invite')
+            invites.push({ employeeNumber: row.employeeNumber, email: row.email, link })
+          } catch (err) {
+            await ctx.tx.query('ROLLBACK TO SAVEPOINT invite')
+            inviteErrors.push({ employeeNumber: row.employeeNumber, email: row.email, error: (err as Error).message })
+          }
+        }
         await emit(ctx.tx, {
           action: 'data.import.committed', entityType: 'employee_import',
           actorUserId: ctx.session.userId,
-          metadata: { created: result.created, skipped: result.skipped.length },
+          metadata: { created: result.created, skipped: result.skipped.length, invited: invites.length, inviteErrors: inviteErrors.length },
         })
-        return ok(result)
+        return ok({ created: result.created, skipped: result.skipped, invites, inviteErrors })
       } catch (e) {
         if (e instanceof CsvError) {
           throw new HttpError(422, 'IMPORT_INVALID', e.message, { line: e.line })

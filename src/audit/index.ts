@@ -33,6 +33,15 @@ export const ACTIONS: Readonly<Record<string, ActionDef>> = Object.freeze({
   'people.employee.created': { category: 'people', severity: 'info' },
   'people.employee.exited': { category: 'people', severity: 'notice' },
   'people.assignment.changed': { category: 'people', severity: 'info' },
+  'people.bank_account.changed': { category: 'people', severity: 'notice' },
+  'people.login.invited': { category: 'security', severity: 'notice' },
+  'work.template.changed': { category: 'config', severity: 'notice' },
+  'work.template.retired': { category: 'config', severity: 'notice' },
+  'work.checklist.started': { category: 'people', severity: 'info' },
+  'billing.details.changed': { category: 'config', severity: 'notice' },
+  'billing.plan.changed': { category: 'config', severity: 'critical' },
+  'security.support_access.granted': { category: 'security', severity: 'critical', requiresReason: true },
+  'security.support_access.revoked': { category: 'security', severity: 'notice' },
   'people.compensation.changed': { category: 'people', severity: 'notice', requiresReason: true },
   'people.compensation.corrected': { category: 'people', severity: 'warning', requiresReason: true },
 
@@ -42,8 +51,12 @@ export const ACTIONS: Readonly<Record<string, ActionDef>> = Object.freeze({
 
   'leave.balance.adjusted': { category: 'leave', severity: 'warning', requiresReason: true },
   'leave.request.approved': { category: 'leave', severity: 'info' },
+  'leave.request.rejected': { category: 'leave', severity: 'info' },
 
   'payroll.run.locked': { category: 'payroll', severity: 'critical' },
+  'payroll.period.created': { category: 'payroll', severity: 'notice' },
+  'payroll.period.changed': { category: 'payroll', severity: 'notice' },
+  'payroll.period.deleted': { category: 'payroll', severity: 'notice', requiresReason: true },
   'payroll.run.revised': { category: 'payroll', severity: 'critical', requiresReason: true },
   'payroll.bankfile.generated': { category: 'payroll', severity: 'critical' },
   'payroll.bankfile.downloaded': { category: 'payroll', severity: 'critical' },

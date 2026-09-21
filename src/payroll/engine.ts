@@ -268,10 +268,21 @@ export interface ValidationResult {
 /** A run cannot advance from calculated to validated while any blocker stands. */
 export function validateRun(
   rows: { input: PayrollInput; computed: Computed; previousNetPaise?: bigint }[],
-  opts: { variancePct: number },
+  opts: { variancePct: number; taxTables?: { fiscalYear: string; regimes: Record<'old' | 'new', boolean> } },
 ): ValidationResult {
   const blockers: ValidationFinding[] = []
   const warnings: ValidationFinding[] = []
+
+  // Zero tax because nobody loaded the year's slabs is not "no tax due"; it
+  // is a payroll that pays out untaxed and is found at the TDS return.
+  if (opts.taxTables) {
+    for (const regime of ['new', 'old'] as const) {
+      if (!opts.taxTables.regimes[regime] && rows.some((r) => r.input.taxRegime === regime)) {
+        blockers.push({ code: 'NO_TAX_SLABS', employeeId: '*',
+          message: `no income-tax tables for the ${regime} regime in FY ${opts.taxTables.fiscalYear}; run npm run seed:statutory after reconciling db/reference/income-tax.ts` })
+      }
+    }
+  }
 
   for (const { input, computed, previousNetPaise } of rows) {
     const id = input.employeeId

@@ -201,6 +201,13 @@ const payroll = defineConfig('payroll', {
   // The employer's own registration numbers. Not behaviour — identity on a
   // return — but they belong with the company's other payroll settings rather
   // than in a table of four strings.
+  pay_day: int({
+    default: 1,
+    min: 0,
+    max: 28,
+    label: 'Salary pay date (day of the following month)',
+    help: 'The day salaries are paid for a month: 1 = 1st of the next month, 7 = 7th. 0 = last working day of the month itself. Used when a period is created automatically; a period\'s own pay date can still be edited.',
+  }),
   email_payslips: bool({
     default: true,
     label: 'Email payslips when a run is locked',

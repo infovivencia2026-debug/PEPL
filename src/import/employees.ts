@@ -142,6 +142,8 @@ export async function findDuplicates(
 export interface CommitResult {
   created: number
   skipped: string[]
+  /** The rows that carried an email: pass to inviteEmployee to create logins. */
+  withEmail: { employeeId: string; employeeNumber: string; email: string }[]
 }
 
 /**
@@ -172,6 +174,7 @@ export async function commitImport(
       `${existing + toCreate.length}`, 1)
   }
 
+  const withEmail: CommitResult['withEmail'] = []
   for (const row of toCreate) {
     const { rows } = await tx.query<{ id: string }>(
       `INSERT INTO employees (tenant_id, employee_number, first_name, last_name, date_of_joining)
@@ -179,6 +182,7 @@ export async function commitImport(
       [args.tenantId, row.employeeNumber, row.firstName, row.lastName, row.dateOfJoining],
     )
     const employeeId = rows[0]!.id
+    if (row.email) withEmail.push({ employeeId, employeeNumber: row.employeeNumber, email: row.email })
 
     if (row.department || row.designation) {
       await tx.query(
@@ -191,5 +195,5 @@ export async function commitImport(
     }
   }
 
-  return { created: toCreate.length, skipped: [...skip] }
+  return { created: toCreate.length, skipped: [...skip], withEmail }
 }

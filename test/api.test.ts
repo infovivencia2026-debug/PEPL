@@ -737,3 +737,124 @@ describe('announcements live in the chat channel', () => {
     expect(gone === undefined || gone.deleted_at !== null).toBe(true)
   })
 })
+
+describe('a fresh tenant can onboard a person without the demo seed', () => {
+  it('bank account: recorded once, superseded not edited, masked on read, scope-checked', async () => {
+    const hr = await loginAs(ids.hr!)
+    const emp = await loginAs(ids.employee!)
+    const bad = await api('POST', `/api/v1/employees/${ids.otherEmp}/bank-accounts`, { token: hr, body: { beneficiaryName: 'Sneha', accountNumber: '123', ifsc: 'nope' } })
+    expect(bad.status).toBe(422)
+    const first = await api<{ id: string; account_masked: string; is_primary: boolean }>('POST', `/api/v1/employees/${ids.otherEmp}/bank-accounts`,
+      { token: hr, body: { beneficiaryName: 'Sneha Iyer', accountNumber: '50100123456789', ifsc: 'hdfc0001234', bankName: 'HDFC' } })
+    expect(first.status).toBe(201)
+    expect(first.body.account_masked).toBe('••••••••6789')
+    const second = await api<{ id: string }>('POST', `/api/v1/employees/${ids.otherEmp}/bank-accounts`,
+      { token: hr, body: { beneficiaryName: 'Sneha Iyer', accountNumber: '000987654321', ifsc: 'ICIC0000123' } })
+    expect(second.status).toBe(201)
+    const live = await api<{ accounts: { id: string; is_primary: boolean }[] }>('GET', `/api/v1/employees/${ids.otherEmp}/bank-accounts`, { token: hr })
+    expect(live.body.accounts.map((a) => a.id)).toEqual([second.body.id])
+    const history = await api<{ accounts: { id: string; superseded_at: string | null }[] }>('GET', `/api/v1/employees/${ids.otherEmp}/bank-accounts?history=true`, { token: hr })
+    expect(history.body.accounts).toHaveLength(2)
+    expect(history.body.accounts.find((a) => a.id === first.body.id)!.superseded_at).toBeTruthy()
+    // a colleague's account is out of an employee's scope
+    expect((await api('GET', `/api/v1/employees/${ids.otherEmp}/bank-accounts`, { token: emp })).status).toBe(404)
+    expect((await api('POST', `/api/v1/employees/${ids.otherEmp}/bank-accounts`, { token: emp, body: { beneficiaryName: 'x', accountNumber: '123456789', ifsc: 'HDFC0001234' } })).status).toBe(403)   // no employee.write at all
+  })
+
+  it('invite: creates the login with a set-password link; the person sets a password and signs in; re-invite re-issues', async () => {
+    const hr = await loginAs(ids.hr!)
+    const email = `sneha-${Date.now()}@apitest.local`
+    const none = await api<{ user_id: string | null }>('GET', `/api/v1/employees/${ids.otherEmp}/login`, { token: hr })
+    expect(none.body.user_id).toBeNull()
+
+    const inv = await api<{ userId: string; created: boolean; link: string }>('POST', `/api/v1/employees/${ids.otherEmp}/invite`, { token: hr, body: { email } })
+    expect(inv.status).toBe(201)
+    expect(inv.body.created).toBe(true)
+    const token = new URL(inv.body.link).searchParams.get('token')!
+    expect(token.length).toBeGreaterThan(20)
+
+    // HR without roles.write cannot hand out elevated roles
+    expect((await api('POST', `/api/v1/employees/${ids.otherEmp}/invite`, { token: hr, body: { email, roles: ['payroll_admin'] } })).status).toBe(403)
+
+    // the person sets their password through the public reset route and logs in
+    const set = await api('POST', '/api/v1/auth/reset-password', { body: { token, newPassword: 'sneha-first-password-2026' } })
+    expect(set.status).toBe(200)
+    const login = await api<{ token: string; user: { employeeId?: string; roles: string[] } }>('POST', '/api/v1/auth/login', { body: { email, password: 'sneha-first-password-2026' } })
+    expect(login.status).toBe(200)
+    expect(login.body.user.roles).toEqual(['employee'])
+    const me = await api<{ employeeId: string | null; scope: string }>('GET', '/api/v1/me', { token: login.body.token })
+    expect(me.body.employeeId ?? (me.body as unknown as { user: { employeeId: string } }).user?.employeeId).toBe(ids.otherEmp)
+
+    // a second invite does not create a second user; it re-issues the link
+    const again = await api<{ userId: string; created: boolean }>('POST', `/api/v1/employees/${ids.otherEmp}/invite`, { token: hr, body: { email: 'ignored@apitest.local' } })
+    expect(again.status).toBe(200)
+    expect(again.body).toMatchObject({ userId: inv.body.userId, created: false })
+    const status = await api<{ user_id: string; email: string; roles: string[] }>('GET', `/api/v1/employees/${ids.otherEmp}/login`, { token: hr })
+    expect(status.body).toMatchObject({ user_id: inv.body.userId, email, roles: ['employee'] })
+  })
+
+  it('manager on the assignment: set, carried forward, cycle refused; the manager gains scope over the report', async () => {
+    const hr = await loginAs(ids.hr!)
+    // Sneha (otherEmp) now reports to Arjun (managerEmp)
+    const r = await api<{ id: string }>('POST', `/api/v1/employees/${ids.otherEmp}/assignments`,
+      { token: hr, body: { department: 'Sales', designation: 'Executive', managerEmployeeId: ids.managerEmp, effectiveFrom: '2026-01-01', reason: 'reporting line' } })
+    expect(r.status).toBe(201)
+    // a later change that says nothing about the manager keeps Arjun
+    const promo = await api<{ id: string }>('POST', `/api/v1/employees/${ids.otherEmp}/assignments`,
+      { token: hr, body: { department: 'Sales', designation: 'Senior Executive', effectiveFrom: '2026-06-01', reason: 'promotion' } })
+    expect(promo.status).toBe(201)
+    const row = await withTenant(tenantId, async (tx) => (await tx.query<{ manager_employee_id: string }>(
+      `SELECT manager_employee_id FROM employee_assignments WHERE id = $1`, [promo.body.id])).rows[0]!)
+    expect(row.manager_employee_id).toBe(ids.managerEmp)
+    // Arjun cannot report to Sneha: that would loop
+    const loop = await api('POST', `/api/v1/employees/${ids.managerEmp}/assignments`,
+      { token: hr, body: { department: 'Engineering', designation: 'Manager', managerEmployeeId: ids.otherEmp, effectiveFrom: '2026-07-01' } })
+    expect(loop.status).toBe(422)
+    expect(loop.body.error?.code).toBe('MANAGER_CYCLE')
+    expect((await api('POST', `/api/v1/employees/${ids.otherEmp}/assignments`,
+      { token: hr, body: { department: 'Sales', designation: 'X', managerEmployeeId: ids.otherEmp, effectiveFrom: '2026-08-01' } })).body.error?.code).toBe('MANAGER_IS_SELF')
+    // the manager can now read the report's record
+    const mgr = await loginAs(ids.manager!)
+    expect((await api('GET', `/api/v1/employees/${ids.otherEmp}`, { token: mgr })).status).toBe(200)
+  })
+})
+
+describe('task templates: onboarding and offboarding checklists a company defines itself', () => {
+  it('create, validate, update, instantiate with auto-resolved assignees, retire', async () => {
+    const hr = await loginAs(ids.hr!)
+    const bad = await api('POST', '/api/v1/task-templates', { token: hr, body: { name: 'x', trigger: 'onboarding', items: [{ title: 'a', assigneeRule: 'named_user' }] } })
+    expect(bad.status).toBe(422)                                       // named_user needs assigneeRef
+    const t = await api<{ id: string; items: { sequence: number; assignee_rule: string }[] }>('POST', '/api/v1/task-templates', { token: hr, body: {
+      name: 'New joiner', trigger: 'onboarding', items: [
+        { title: 'Collect PAN and Aadhaar', assigneeRule: 'hr', dueOffsetDays: 0, requiresAttachment: true },
+        { title: 'Introduce the team', assigneeRule: 'manager', dueOffsetDays: 2 },
+        { title: 'Read the handbook', assigneeRule: 'employee', dueOffsetDays: 7, blocksCompletion: false },
+      ] } })
+    expect(t.status).toBe(201)
+    expect(t.body.items.map((i) => [i.sequence, i.assignee_rule])).toEqual([[1, 'hr'], [2, 'manager'], [3, 'employee']])
+    expect((await api('POST', '/api/v1/task-templates', { token: hr, body: { name: 'new JOINER', trigger: 'onboarding', items: [{ title: 'a', assigneeRule: 'hr' }] } })).body.error?.code).toBe('TEMPLATE_EXISTS')
+
+    const upd = await api<{ items: { title: string }[] }>('PATCH', `/api/v1/task-templates/${t.body.id}`, { token: hr, body: { items: [{ title: 'Collect PAN', assigneeRule: 'hr' }, { title: 'Laptop', assigneeRule: 'it' }] } })
+    expect(upd.status).toBe(200)
+    expect(upd.body.items.map((i) => i.title)).toEqual(['Collect PAN', 'Laptop'])
+
+    // instantiate for Sneha (reports to Arjun): no assignees given — rules resolve from the org
+    const run = await api<{ taskIds: string[] }>('POST', '/api/v1/tasks/instantiate', { token: hr, body: { templateId: t.body.id, employeeId: ids.otherEmp, anchorDate: '2026-10-01', sourceType: 'onboarding' } })
+    expect(run.status).toBe(201)
+    expect(run.body.taskIds).toHaveLength(2)
+    const tasks = await withTenant(tenantId, async (tx) => (await tx.query<{ title: string; assignee_user_id: string | null; due_date: string }>(
+      `SELECT title, assignee_user_id, due_date::text FROM tasks WHERE id = ANY($1::uuid[]) ORDER BY title`, [run.body.taskIds])).rows)
+    expect(tasks.map((x) => x.title)).toEqual(['Collect PAN', 'Laptop'])
+    expect(tasks.every((x) => x.assignee_user_id)).toBe(true)         // hr and it both resolved to a real login
+    expect(tasks[0]!.due_date).toBe('2026-10-01')
+
+    expect((await api('POST', `/api/v1/task-templates/${t.body.id}/retire`, { token: hr })).status).toBe(200)
+    const listed = await api<{ templates: { id: string }[] }>('GET', '/api/v1/task-templates', { token: hr })
+    expect(listed.body.templates.find((x) => x.id === t.body.id)).toBeUndefined()
+    const history = await api<{ templates: { id: string; status: string }[] }>('GET', '/api/v1/task-templates?includeRetired=true', { token: hr })
+    expect(history.body.templates.find((x) => x.id === t.body.id)!.status).toBe('retired')
+    expect((await api('PATCH', `/api/v1/task-templates/${t.body.id}`, { token: hr, body: { name: 'z' } })).body.error?.code).toBe('TEMPLATE_RETIRED')
+    // an employee cannot define checklists
+    expect((await api('POST', '/api/v1/task-templates', { token: await loginAs(ids.employee!), body: { name: 'n', trigger: 'manual', items: [{ title: 'a', assigneeRule: 'hr' }] } })).status).toBe(403)
+  })
+})

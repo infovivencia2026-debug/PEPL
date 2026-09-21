@@ -23,6 +23,8 @@ import { deliverEmails } from '../comms/delivery.ts'
 import { deliverPush } from '../comms/push.ts'
 import { escalateStale } from '../approvals/policy.ts'
 import { distributeRun, pendingRuns } from '../payroll/distribute.ts'
+import { ensurePeriod, upcomingMonth } from '../payroll/periods.ts'
+import { closePeriods, runDunning } from '../control-plane/billing.ts'
 import { generateVapidKeys, vapidFromEnv } from '../comms/web-push.ts'
 import { purgeOldMessages } from '../comms/chat.ts'
 import { syncTenant } from '../mail/sync.ts'
@@ -391,6 +393,47 @@ export async function runPayslipDistribution(): Promise<JobResult> {
     }))
 }
 
+/**
+ * Makes sure the current month and the next one have payroll and attendance
+ * periods, so a company never reaches the 1st with nowhere to record punches
+ * or start a run. Idempotent; runs daily.
+ */
+export async function runPeriodRollForward(now = new Date()): Promise<JobResult> {
+  return perTenant('payroll.periods', async (tenantId) =>
+    withTenant(tenantId, async (tx) => {
+      const cfg = await resolveConfig(tx, tenantId)
+      if (!cfg.isEnabled('payroll.enabled')) return 0
+      const payDay = cfg.get<number>('payroll.pay_day')
+      let created = 0
+      for (const month of new Set([upcomingMonth(now, 0), upcomingMonth(now, 7)])) {
+        if ((await ensurePeriod(tx, { month, payDay })).created) created++
+      }
+      return created
+    }))
+}
+
+/** Invoices every subscription period that has ended and opens the next. */
+export async function runBillingInvoices(now = new Date()): Promise<JobResult> {
+  const started = Date.now()
+  try {
+    const r = await closePeriods(now)
+    return { job: 'billing.invoice', tenants: r.invoiced + r.skipped, affected: r.invoiced, errors: [], durationMs: Date.now() - started }
+  } catch (err) {
+    return { job: 'billing.invoice', tenants: 0, affected: 0, errors: [{ tenantId: '-', message: (err as Error).message }], durationMs: Date.now() - started }
+  }
+}
+
+/** Trial expiry, past-due and suspension; and reactivation once nothing is outstanding. */
+export async function runBillingDunning(now = new Date()): Promise<JobResult> {
+  const started = Date.now()
+  try {
+    const r = await runDunning(now)
+    return { job: 'billing.dunning', tenants: r.pastDue + r.suspended + r.reactivated, affected: r.pastDue + r.suspended + r.reactivated, errors: [], durationMs: Date.now() - started }
+  } catch (err) {
+    return { job: 'billing.dunning', tenants: 0, affected: 0, errors: [{ tenantId: '-', message: (err as Error).message }], durationMs: Date.now() - started }
+  }
+}
+
 export const JOBS = {
   'leave.accrual': () => runLeaveAccrual(),
   'helpdesk.sla': runSlaBreaches,
@@ -402,6 +445,9 @@ export const JOBS = {
   'notifications.email': runNotificationEmail,
   'notifications.push': runNotificationPush,
   'payroll.payslips': runPayslipDistribution,
+  'payroll.periods': () => runPeriodRollForward(),
+  'billing.invoice': () => runBillingInvoices(),
+  'billing.dunning': () => runBillingDunning(),
   'push.keygen': runPushKeygen,
   'approvals.escalate': runApprovalEscalation,
 } as const
