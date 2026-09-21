@@ -64,7 +64,10 @@ describe('retention', () => {
   it('the nightly job blanks old coordinates (it used to fail on a missing grant)', async () => {
     const r = await runRetentionPurge()
     expect(r.errors).toEqual([])          // no tenant answers 'permission denied' any more
-    expect(await withTenant(A.id, (tx) => purgeOldCoordinates(tx))).toBe(1)
+    // fixture tenants carry a live entitlement, so the job itself covers A — the
+    // old punch is already blank and a second pass finds nothing left to do
+    expect(r.affected).toBeGreaterThanOrEqual(1)
+    expect(await withTenant(A.id, (tx) => purgeOldCoordinates(tx))).toBe(0)
     const { rows } = await withTenant(A.id, (tx) => tx.query<{ geo_lat: string | null }>(
       `SELECT geo_lat FROM attendance_punches WHERE employee_id = $1`, [A.employeeId]))
     expect(rows[0]!.geo_lat).toBeNull()

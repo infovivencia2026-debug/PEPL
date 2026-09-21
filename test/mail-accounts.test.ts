@@ -115,7 +115,9 @@ describe('several mailboxes per person', () => {
       expect(row.smtp_port).toBe(465)
       expect(row.smtp_secure).toBe(true)
       expect(decryptSecret(row.secret_ciphertext, tenantId, MASTER)).toBe('hunter2')
-      expect(encryptSecret('x', tenantId, MASTER).toString()).not.toContain('x')
+      const ct = encryptSecret('x', tenantId, MASTER)
+      expect(ct.length).toBeGreaterThan(16)                        // nonce + tag + body: never the plaintext
+      expect(ct.equals(Buffer.from('x'))).toBe(false)
       await expect(connectMailbox(tx, { userId: rahulId, email: `priya.ext-${stamp}@gmail.test`, username: 'r', password: 'p',
         imapHost: 'i', smtpHost: 's', master: MASTER })).rejects.toMatchObject({ code: 'EMAIL_TAKEN' })
     })

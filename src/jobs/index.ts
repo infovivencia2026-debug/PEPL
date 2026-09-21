@@ -21,7 +21,7 @@ import { emit } from '../audit/index.ts'
 import { runOutbox } from '../mail/outbox.ts'
 import { deliverEmails } from '../comms/delivery.ts'
 import { deliverPush } from '../comms/push.ts'
-import { escalateStale } from '../approvals/policy.ts'
+import { escalateStale, remindStale } from '../approvals/policy.ts'
 import { distributeRun, pendingRuns } from '../payroll/distribute.ts'
 import { ensurePeriod, upcomingMonth } from '../payroll/periods.ts'
 import { closePeriods, runDunning } from '../control-plane/billing.ts'
@@ -376,7 +376,9 @@ export async function runApprovalEscalation(): Promise<JobResult> {
   return perTenant('approvals.escalate', async (tenantId) =>
     withTenant(tenantId, async (tx) => {
       const cfg = await resolveConfig(tx, tenantId)
-      return escalateStale(tx, cfg.get<number>('approvals.escalate_after_days'))
+      const reminded = await remindStale(tx, cfg.get<number>('approvals.remind_after_days'))
+      const escalated = await escalateStale(tx, cfg.get<number>('approvals.escalate_after_days'))
+      return reminded + escalated
     }))
 }
 

@@ -117,6 +117,21 @@ describe('entitlements cannot be widened by a tenant setting', () => {
     expect(cfg.isEnabled('helpdesk.enabled')).toBe(true)
   })
 
+  it('the plan matrix decides: Starter has no expenses or performance, Growth has expenses only, Professional has both; core modules are on for all', async () => {
+    const plan = async (code: string) => {
+      await controlPool.query(`INSERT INTO tenant_entitlements (tenant_id, plan_code, features, limits) SELECT $1::uuid, code, features, limits FROM control_plane.plans WHERE code = $2::text
+        ON CONFLICT (tenant_id) DO UPDATE SET features = EXCLUDED.features, limits = EXCLUDED.limits, plan_code = EXCLUDED.plan_code`, [A.id, code])
+      return withTenant(A.id, (tx) => resolveConfig(tx, A.id))
+    }
+    const starter = await plan('starter')
+    expect([starter.isEnabled('expenses.enabled'), starter.isEnabled('performance.enabled'), starter.isEnabled('timesheets.enabled'), starter.isEnabled('recruitment.enabled')]).toEqual([false, false, false, false])
+    expect([starter.isEnabled('leave.enabled'), starter.isEnabled('attendance.enabled'), starter.isEnabled('documents.enabled')]).toEqual([true, true, true])
+    const growth = await plan('growth')
+    expect([growth.isEnabled('expenses.enabled'), growth.isEnabled('timesheets.enabled'), growth.isEnabled('performance.enabled')]).toEqual([true, true, false])
+    const pro = await plan('professional')
+    expect([pro.isEnabled('expenses.enabled'), pro.isEnabled('performance.enabled'), pro.isEnabled('recruitment.enabled')]).toEqual([true, true, true])
+  })
+
   it('losing an entitlement closes the feature without touching the setting', async () => {
     await grantPlan(A.id, { payroll: false })
     const cfg = await withTenant(A.id, (tx) => resolveConfig(tx, A.id))

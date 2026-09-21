@@ -12,6 +12,7 @@
  *                    person instead of dying in an inbox
  */
 import type { PoolClient } from 'pg'
+import { notify } from '../comms/index.ts'
 import { ApprovalError, CHAINS, raise, type ChainCode, type StepRole } from './index.ts'
 
 export const POLICY_CHAINS: readonly ChainCode[] = Object.keys(CHAINS) as ChainCode[]
@@ -195,6 +196,40 @@ export async function endDelegation(tx: PoolClient, id: string, fromUserId?: str
  * the request advances. A step with nobody after it is left alone: skipping
  * the last approver would approve by neglect, which is worse than waiting.
  */
+/**
+ * Daily nudge for a step pending longer than `afterDays`; when it is the last
+ * step of its chain, HR is copied, because nobody else can unblock it.
+ * Returns the number of approvers reminded.
+ */
+export async function remindStale(tx: PoolClient, afterDays: number, now = new Date()): Promise<number> {
+  if (afterDays <= 0) return 0
+  const cutoff = new Date(now.getTime() - afterDays * 86_400_000).toISOString()
+  const { rows } = await tx.query<{ request_id: string; step_no: number; approver: string; title: string; entity_type: string; is_last: boolean; age_days: number }>(
+    `SELECT s.approval_request_id AS request_id, s.step_no, s.approver_user_id AS approver, r.title, r.entity_type,
+            NOT EXISTS (SELECT 1 FROM approval_steps n WHERE n.approval_request_id = s.approval_request_id AND n.step_no > s.step_no AND n.status = 'pending') AS is_last,
+            floor(extract(epoch FROM ($2::timestamptz - r.created_at)) / 86400)::int AS age_days
+       FROM approval_steps s
+       JOIN approval_requests r ON (r.tenant_id, r.id) = (s.tenant_id, s.approval_request_id)
+      WHERE r.status = 'pending' AND s.status = 'pending' AND s.step_no = r.current_step AND s.approver_user_id IS NOT NULL
+        AND r.created_at < $1::timestamptz
+        AND (s.reminded_at IS NULL OR s.reminded_at < $2::timestamptz - interval '23 hours')`,
+    [cutoff, now.toISOString()])
+  const day = now.toISOString().slice(0, 10)
+  for (const s of rows) {
+    await notify(tx, { userId: s.approver, eventType: 'approval.reminder', title: `Waiting ${s.age_days} day(s): ${s.title}`,
+      body: 'This approval is pending with you.', entityType: 'approval_request', entityId: s.request_id, dedupeKey: `remind:${s.request_id}:${s.step_no}:${day}` })
+    if (s.is_last) {
+      const { rows: hr } = await tx.query<{ user_id: string }>(`SELECT user_id FROM user_roles WHERE role = 'hr_admin' AND user_id <> $1`, [s.approver])
+      for (const h of hr) {
+        await notify(tx, { userId: h.user_id, eventType: 'approval.stuck', title: `Stuck ${s.age_days} day(s) at the last approver: ${s.title}`,
+          body: 'Nobody after this approver can move it. Delegate or decide.', entityType: 'approval_request', entityId: s.request_id, dedupeKey: `stuck:${s.request_id}:${h.user_id}:${day}` })
+      }
+    }
+    await tx.query(`UPDATE approval_steps SET reminded_at = $3 WHERE approval_request_id = $1 AND step_no = $2`, [s.request_id, s.step_no, now.toISOString()])
+  }
+  return rows.length
+}
+
 export async function escalateStale(tx: PoolClient, afterDays: number, now = new Date()): Promise<number> {
   if (afterDays <= 0) return 0
   const cutoff = new Date(now.getTime() - afterDays * 86_400_000).toISOString()

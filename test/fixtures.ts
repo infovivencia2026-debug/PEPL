@@ -36,6 +36,12 @@ async function provision(
     [legal, display],
   )
   const tenantId = rows[0]!.id
+  // What a paying Professional tenant has. Suites that test the entitlement
+  // layer itself overwrite this row (ON CONFLICT ... DO UPDATE).
+  await controlPool.query(
+    `INSERT INTO tenant_entitlements (tenant_id, plan_code, features, limits)
+     SELECT $1, 'professional', features, limits FROM control_plane.plans WHERE code = 'professional'
+     ON CONFLICT (tenant_id) DO NOTHING`, [tenantId])
 
   // Employee rows are written through the APP role under tenant context, so the
   // seed itself exercises the WITH CHECK path rather than bypassing it.

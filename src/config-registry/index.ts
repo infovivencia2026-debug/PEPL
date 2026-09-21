@@ -12,6 +12,7 @@ import { bool, defineConfig, enumOf, flag, int, text, type Definition } from './
 
 const leave = defineConfig('leave', {
   enabled: flag({
+    core: true,
     default: true,
     label: 'Leave management',
     help: 'Leave types, policies, balances and approvals.',
@@ -77,6 +78,7 @@ const leave = defineConfig('leave', {
 
 const attendance = defineConfig('attendance', {
   enabled: flag({
+    core: true,
     default: true,
     label: 'Attendance',
     help: 'Capture, daily computation, periods and corrections.',
@@ -195,6 +197,7 @@ const attendance = defineConfig('attendance', {
 
 const expenses = defineConfig('expenses', {
   enabled: flag({
+    entitlement: 'expenses',
     default: true,
     label: 'Expenses & travel',
     help: 'Expense claims against categories with limits, travel requests with advances, reimbursed through payroll.',
@@ -210,6 +213,7 @@ const expenses = defineConfig('expenses', {
 
 const timesheets = defineConfig('timesheets', {
   enabled: flag({
+    entitlement: 'timesheets',
     default: true,
     label: 'Projects & timesheets',
     help: 'Projects people are allocated to, weekly hours booked against them with manager approval, a daily work log, and the approved-hours report.',
@@ -225,6 +229,7 @@ const timesheets = defineConfig('timesheets', {
 
 const recruitment = defineConfig('recruitment', {
   enabled: flag({
+    entitlement: 'recruitment',
     default: true,
     label: 'Recruitment',
     help: 'Requisitions, candidate pipeline, interviews, offers, and conversion of an accepted candidate into an employee with the onboarding checklist.',
@@ -239,6 +244,7 @@ const recruitment = defineConfig('recruitment', {
 
 const performance = defineConfig('performance', {
   enabled: flag({
+    entitlement: 'performance',
     default: true,
     label: 'Performance',
     help: 'Goals with weights and check-ins, review cycles (self review, manager review, HR calibration, acknowledgement) and performance improvement plans.',
@@ -410,6 +416,7 @@ const mail = defineConfig('mail', {
 
 const notifications = defineConfig('notifications', {
   enabled: flag({
+    core: true,
     default: true,
     label: 'Notifications',
     help: 'In-app notifications for approvals, leave decisions and announcements.',
@@ -434,6 +441,7 @@ const notifications = defineConfig('notifications', {
 
 const documents = defineConfig('documents', {
   enabled: flag({
+    core: true,
     default: true,
     label: 'Documents',
     help: 'Offer letters, ID proofs, policies and attachments.',
@@ -449,6 +457,19 @@ const documents = defineConfig('documents', {
 })
 
 const approvals = defineConfig('approvals', {
+  no_approver_fallback: enumOf(['route_to_hr', 'auto_approve'] as const, {
+    default: 'route_to_hr',
+    label: 'When a step has nobody to approve it',
+    help: 'A person with no manager on record, or a requester who is their own approver, leaves a step empty. Route to HR sends that step to an HR admin instead; auto-approve lets it through. Field duty, expenses and leave are all affected.',
+    risk: 'high',
+  }),
+  remind_after_days: int({
+    default: 2,
+    min: 0,
+    max: 30,
+    label: 'Remind an approver after (days)',
+    help: 'A pending step older than this gets a daily nudge to the approver; when it is the last step, HR is copied. 0 turns reminders off.',
+  }),
   escalate_after_days: int({
     default: 0,
     min: 0,

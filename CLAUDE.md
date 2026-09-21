@@ -392,3 +392,17 @@ statement as the app role (`test/privacy.test.ts` now does for this one), and
 "immutable table" is refined with column-level grants
 (`GRANT UPDATE (geo_lat, geo_lng)`) rather than abandoned when one column has
 to age out.
+
+## `node -e "…"` also eats `$1`, `$2`
+
+Bash expands `$1`/`$2` inside a double-quoted `node -e` string to empty, so a
+SQL placeholder written that way arrives as `SELECT , code …` and fails with
+"syntax error at or near ','". Use the Edit tool (or a `.mjs` file) for any
+replacement text that contains `$`.
+
+## Module completeness is a gate
+
+`npm run gate:modules` walks every `<module>.enabled` flag and requires it to be
+sellable (`entitlement`) or declared `core: true`, to own permissions, a
+`requireModule` guard, a test and a brief section. A module that is free on
+every plan by accident is what this catches — four of them were.

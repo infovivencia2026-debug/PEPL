@@ -7,12 +7,8 @@ import { Router, HttpError } from './router.ts'
 import { authed, ok, created, requireBody, requireModule, asUuid } from './context.ts'
 import { assertScope, assertPermission } from '../authz/permissions.ts'
 import { act } from '../approvals/index.ts'
-import { settle } from '../approvals/pending.ts'
-import { applyLeave, settleLeaveDecision } from '../leave/apply.ts'
-import { settleClaimDecision, settleTravelDecision } from '../work/expenses.ts'
-import { settleTimesheetDecision } from '../work/timesheets.ts'
-import { settleRequisitionDecision, settleOfferDecision } from '../people/recruitment.ts'
-import { settleRemoteDecision } from '../attendance/remote.ts'
+import { applyLeave } from '../leave/apply.ts'
+import { settleDecision } from '../approvals/settle.ts'
 import { emit } from '../audit/index.ts'
 import { textField, dateField } from './ui-routes.ts'
 
@@ -63,48 +59,7 @@ export function registerUiLeave(r: Router) {
       })
 
       if (result.changed && (result.status === 'approved' || result.status === 'rejected')) {
-        if (request.entity_type === 'leave') {
-          await settleLeaveDecision(c.tx, c.config, {
-            leaveRequestId: request.entity_id, status: result.status, actorUserId: c.auth.userId,
-            requestedByUserId: request.requested_by_user_id,
-          })
-          await emit(c.tx, {
-            action: result.status === 'approved' ? 'leave.request.approved' : 'leave.request.rejected',
-            entityType: 'leave_request', entityId: request.entity_id,
-            subjectEmployeeId: request.subject_employee_id, actorUserId: c.auth.userId,
-          })
-        } else if (request.entity_type === 'expense') {
-          const s = await settleClaimDecision(c.tx, { claimId: request.entity_id, status: result.status, actorUserId: c.auth.userId })
-          if (s.changed) {
-            await emit(c.tx, { action: result.status === 'approved' ? 'expense.claim.approved' : 'expense.claim.rejected',
-              entityType: 'expense_claim', entityId: request.entity_id, subjectEmployeeId: request.subject_employee_id, actorUserId: c.auth.userId })
-          }
-        } else if (request.entity_type === 'travel') {
-          await settleTravelDecision(c.tx, { tripId: request.entity_id, status: result.status })
-        } else if (request.entity_type === 'remote') {
-          await settleRemoteDecision(c.tx, { approvalRequestId: id, status: result.status })
-        } else if (request.entity_type === 'requisition') {
-          await settleRequisitionDecision(c.tx, { approvalRequestId: id, status: result.status })
-        } else if (request.entity_type === 'offer') {
-          await settleOfferDecision(c.tx, { approvalRequestId: id, status: result.status })
-        } else if (request.entity_type === 'timesheet') {
-          const s = await settleTimesheetDecision(c.tx, { approvalRequestId: id, status: result.status, actorUserId: c.auth.userId, comment: b.comment })
-          if (s.changed) await emit(c.tx, { action: result.status === 'approved' ? 'timesheet.approved' : 'timesheet.rejected', entityType: 'timesheet', entityId: s.timesheetId, subjectEmployeeId: request.subject_employee_id, actorUserId: c.auth.userId })
-        } else {
-          // A held salary revision or attendance correction lands (or is closed
-          // out) through the same functions a direct write uses.
-          const settled = await settle(c.tx, id, c.auth.userId)
-          if (settled?.status === 'applied') {
-            await emit(c.tx, {
-              action: settled.entity_type === 'compensation' ? 'people.compensation.changed' : 'attendance.day.corrected',
-              entityType: settled.entity_type === 'compensation' ? 'employee' : 'attendance',
-              entityId: settled.entity_type === 'compensation' ? settled.subject_employee_id : undefined,
-              subjectEmployeeId: settled.subject_employee_id, actorUserId: c.auth.userId,
-              reason: (settled.payload as { reason: string }).reason,
-              metadata: { viaApproval: id, ...settled.result },
-            })
-          }
-        }
+        await settleDecision(c.tx, c.config, { requestId: id, status: result.status, actorUserId: c.auth.userId, comment: b.comment })
       }
       if (request.requested_by_user_id) {
         c.publish({ type: 'approval.decided', userIds: [request.requested_by_user_id], data: { requestId: id, status: result.status, action: b.action } })

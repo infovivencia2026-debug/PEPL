@@ -11,7 +11,7 @@
     "typecheck": "tsc --noEmit",
     "gate:rls": "node --experimental-strip-types scripts/gate-rls.ts",
     "test": "vitest run",
-    "verify": "npm run typecheck && npm run db:setup && npm run migrate && npm run gate:rls && npm run gate:config && npm run gate:permissions && npm test && npm run seed:statutory && npm run gate:launch",
+    "verify": "npm run typecheck && npm run db:setup && npm run migrate && npm run gate:rls && npm run gate:config && npm run gate:permissions && npm run gate:modules && npm test && npm run seed:statutory && npm run gate:launch",
     "gate:config": "node --experimental-strip-types scripts/gate-config.ts",
     "db:reset": "node --experimental-strip-types scripts/reset-db.ts",
     "gate:launch": "node --experimental-strip-types scripts/gate-launch.ts",
@@ -27,6 +27,7 @@
     "check:responsive": "node --experimental-strip-types scripts/responsive-check.ts",
     "scheduler": "node --experimental-strip-types src/jobs/scheduler.ts",
     "gate:permissions": "node --experimental-strip-types scripts/gate-permissions.ts",
+    "gate:modules": "node --experimental-strip-types scripts/gate-modules.ts",
     "smoke": "node --experimental-strip-types scripts/smoke.ts",
     "seed:statutory": "node --experimental-strip-types scripts/seed-statutory.ts",
     "drill:restore": "node --experimental-strip-types scripts/restore-drill.ts"

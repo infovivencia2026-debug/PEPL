@@ -1,11 +1,6 @@
 /** Approvals and tasks — the unified inbox. */
 import type { Router } from '../router.ts'
-import { settle } from '../../approvals/pending.ts'
-import { settleLeaveDecision } from '../../leave/apply.ts'
-import { settleClaimDecision, settleTravelDecision } from '../../work/expenses.ts'
-import { settleTimesheetDecision } from '../../work/timesheets.ts'
-import { settleRequisitionDecision, settleOfferDecision } from '../../people/recruitment.ts'
-import { settleRemoteDecision } from '../../attendance/remote.ts'
+import { settleDecision } from '../../approvals/settle.ts'
 import {
   listTemplates, getTemplate, createTemplate, updateTemplate, retireTemplate, resolveAssignees,
   type TemplateItemInput, type Trigger,
@@ -47,6 +42,37 @@ export function register(router: Router): void {
       })
     }))
 
+  router.post('/api/v1/approvals/bulk',
+    { summary: 'Approve or reject up to 50 requests in one go; each is decided and settled independently and reported back', tag: 'inbox',
+      permission: 'approval.act', requestExample: { ids: ['…', '…'], action: 'approve', comment: 'Reviewed together' } },
+    authed('approval.act', async (ctx) => {
+      const b = requireBody<{ ids: string[]; action: 'approve' | 'reject'; comment?: string }>(ctx.req, ['ids', 'action'])
+      if (!['approve', 'reject'].includes(b.action)) throw new HttpError(422, 'VALIDATION_FAILED', 'bulk action is approve or reject')
+      if (!Array.isArray(b.ids) || b.ids.length === 0 || b.ids.length > 50) throw new HttpError(422, 'VALIDATION_FAILED', 'between 1 and 50 ids')
+      if (b.action === 'reject' && !b.comment?.trim()) throw new HttpError(422, 'VALIDATION_FAILED', 'a bulk rejection needs a comment')
+      const results: Array<{ id: string; status?: string; error?: string }> = []
+      for (const raw of b.ids) {
+        const id = asUuid(raw, 'ids')
+        // SAVEPOINT so one refusal (already decided, not the approver) does not roll back the others
+        await ctx.tx.query('SAVEPOINT bulk_item')
+        try {
+          const result = await act(ctx.tx, { requestId: id, actorUserId: ctx.auth.userId, action: b.action, comment: b.comment })
+          if (result.changed && (result.status === 'approved' || result.status === 'rejected')) {
+            const settled = await settleDecision(ctx.tx, ctx.config, { requestId: id, status: result.status, actorUserId: ctx.auth.userId, comment: b.comment })
+            if (settled?.requestedByUserId) ctx.publish({ type: 'approval.decided', userIds: [settled.requestedByUserId], data: { requestId: id, status: result.status, action: b.action } })
+          }
+          await ctx.tx.query('RELEASE SAVEPOINT bulk_item')
+          results.push({ id, status: result.status })
+        } catch (e) {
+          await ctx.tx.query('ROLLBACK TO SAVEPOINT bulk_item')
+          results.push({ id, error: (e as { code?: string }).code ?? 'FAILED' })
+        }
+      }
+      await emit(ctx.tx, { action: 'approval.bulk.decided', entityType: 'approval_request', actorUserId: ctx.auth.userId,
+        metadata: { action: b.action, requested: b.ids.length, decided: results.filter((r) => !r.error).length } })
+      return ok({ results })
+    }))
+
   router.post('/api/v1/approvals/:id/act',
     { summary: 'Approve, reject, send back, comment, delegate or withdraw', tag: 'inbox',
       permission: 'approval.act', requestExample: { action: 'approve', comment: 'ok' } },
@@ -58,54 +84,7 @@ export function register(router: Router): void {
       })
 
       if (result.changed && (result.status === 'approved' || result.status === 'rejected')) {
-        const { rows } = await ctx.tx.query<{ entity_type: string; entity_id: string; subject_employee_id: string; requested_by_user_id: string | null }>(
-          `SELECT entity_type, entity_id, subject_employee_id, requested_by_user_id FROM approval_requests WHERE id = $1`,
-          [ctx.req.params.id])
-        const r = rows[0]
-        if (r?.entity_type === 'expense') {
-          const s = await settleClaimDecision(ctx.tx, { claimId: r.entity_id, status: result.status, actorUserId: ctx.auth.userId })
-          if (s.changed) {
-            await emit(ctx.tx, { action: result.status === 'approved' ? 'expense.claim.approved' : 'expense.claim.rejected',
-              entityType: 'expense_claim', entityId: r.entity_id, subjectEmployeeId: r.subject_employee_id, actorUserId: ctx.auth.userId })
-          }
-        }
-        if (r?.entity_type === 'travel') await settleTravelDecision(ctx.tx, { tripId: r.entity_id, status: result.status })
-        if (r?.entity_type === 'requisition') await settleRequisitionDecision(ctx.tx, { approvalRequestId: ctx.req.params.id, status: result.status })
-        if (r?.entity_type === 'remote') await settleRemoteDecision(ctx.tx, { approvalRequestId: ctx.req.params.id!, status: result.status })
-        if (r?.entity_type === 'offer') await settleOfferDecision(ctx.tx, { approvalRequestId: ctx.req.params.id, status: result.status })
-        if (r?.entity_type === 'timesheet') {
-          const s = await settleTimesheetDecision(ctx.tx, { approvalRequestId: ctx.req.params.id, status: result.status, actorUserId: ctx.auth.userId, comment: b.comment })
-          if (s.changed) await emit(ctx.tx, { action: result.status === 'approved' ? 'timesheet.approved' : 'timesheet.rejected', entityType: 'timesheet', entityId: s.timesheetId, subjectEmployeeId: r.subject_employee_id, actorUserId: ctx.auth.userId })
-        }
-        if (r?.entity_type === 'leave') {
-          // balance, request status, attendance marking and the applicant's notice — once, in leave/apply.ts
-          const settled = await settleLeaveDecision(ctx.tx, ctx.config, {
-            leaveRequestId: r.entity_id, status: result.status, actorUserId: ctx.auth.userId, requestedByUserId: r.requested_by_user_id,
-          })
-          if (settled.changed) {
-            await emit(ctx.tx, {
-              action: result.status === 'approved' ? 'leave.request.approved' : 'leave.request.rejected',
-              entityType: 'leave_request', entityId: r.entity_id,
-              subjectEmployeeId: r.subject_employee_id, actorUserId: ctx.auth.userId,
-            })
-          }
-        }
-      }
-
-      // A held compensation change or attendance correction is applied (or
-      // closed out) here, through the same functions a direct write uses.
-      if (result.changed) {
-        const settled = await settle(ctx.tx, ctx.req.params.id!, ctx.auth.userId)
-        if (settled?.status === 'applied') {
-          await emit(ctx.tx, {
-            action: settled.entity_type === 'compensation' ? 'people.compensation.changed' : 'attendance.day.corrected',
-            entityType: settled.entity_type === 'compensation' ? 'employee' : 'attendance',
-            entityId: settled.entity_type === 'compensation' ? settled.subject_employee_id : undefined,
-            subjectEmployeeId: settled.subject_employee_id, actorUserId: ctx.auth.userId,
-            reason: (settled.payload as { reason: string }).reason,
-            metadata: { viaApproval: ctx.req.params.id, ...settled.result },
-          })
-        }
+        await settleDecision(ctx.tx, ctx.config, { requestId: ctx.req.params.id!, status: result.status, actorUserId: ctx.auth.userId, comment: b.comment })
       }
 
       // The person who raised the request is the one waiting on this answer.

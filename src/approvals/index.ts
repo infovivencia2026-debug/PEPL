@@ -8,6 +8,7 @@
  */
 import type { PoolClient } from 'pg'
 import { notify } from '../comms/index.ts'
+import { resolveConfig } from '../config/resolver.ts'
 
 export class ApprovalError extends Error {
   readonly code: string
@@ -72,17 +73,31 @@ export async function raise(tx: PoolClient, input: RaiseInput): Promise<string> 
   )
   const requestId = rows[0]!.id
 
+  // A step with nobody to approve it — no manager on record, or the requester
+  // is their own approver — used to be skipped, and a chain of skipped steps
+  // auto-approved. The default now routes such a step to an HR admin (never
+  // the requester); auto-approve is a deliberate setting.
+  const fallback = (await resolveConfig(tx, tid)).get<string>('approvals.no_approver_fallback')
+  const hrFallback = fallback === 'route_to_hr'
+    ? (await tx.query<{ user_id: string }>(
+        `SELECT r.user_id FROM user_roles r JOIN app_users u ON u.id = r.user_id AND u.status = 'active'
+          WHERE r.role IN ('hr_admin', 'org_admin') AND r.user_id <> $1
+          ORDER BY CASE r.role WHEN 'hr_admin' THEN 0 ELSE 1 END, r.user_id LIMIT 1`, [input.requestedByUserId])).rows[0]?.user_id
+    : undefined
+
   let stepNo = 0
   for (const role of roles) {
     stepNo++
-    const approver = input.approvers[role]
+    let approver = input.approvers[role]
+    let routedToHr = false
+    if ((!approver || approver === input.requestedByUserId) && hrFallback) { approver = hrFallback; routedToHr = true }
     const skip = !approver || approver === input.requestedByUserId
     await tx.query(
       `INSERT INTO approval_steps
-         (tenant_id, approval_request_id, step_no, approver_user_id, approver_role, status, decided_at)
-       VALUES ($1,$2,$3,$4,$5,$6,$7)`,
+         (tenant_id, approval_request_id, step_no, approver_user_id, approver_role, status, decided_at, routed_to_hr)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
       [tid, requestId, stepNo, approver ?? null, role,
-       skip ? 'skipped' : 'pending', skip ? new Date() : null],
+       skip ? 'skipped' : 'pending', skip ? new Date() : null, routedToHr],
     )
   }
 

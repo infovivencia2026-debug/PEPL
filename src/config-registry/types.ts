@@ -26,6 +26,12 @@ export interface DefinitionBase<T extends ConfigValue> {
   readonly risk: Risk
   /** Entitlement key that must be present for this setting to have any effect. */
   readonly entitlement?: string
+  /**
+   * A module every plan includes. Only meaningful on a `<module>.enabled` flag:
+   * gate:modules requires every module switch to be EITHER sellable (entitlement)
+   * OR declared core, so a module can never again ship free by accident.
+   */
+  readonly core?: boolean
   /** Other feature keys that must be enabled for this one to be enabled. */
   readonly dependsOn: readonly string[]
   /** Declaring 'payroll' forces effective-dating and the frozen-period guard. */
@@ -43,6 +49,7 @@ interface CommonOpts {
   help: string
   risk?: Risk
   entitlement?: string
+  core?: boolean
   dependsOn?: readonly string[]
   affects?: readonly string[]
   scopable?: readonly ScopeDimension[]
@@ -54,6 +61,7 @@ const common = (o: CommonOpts) => ({
   help: o.help,
   risk: o.risk ?? 'low',
   entitlement: o.entitlement,
+  core: o.core,
   dependsOn: o.dependsOn ?? [],
   affects: o.affects ?? [],
   scopable: o.scopable ?? [],

@@ -49,7 +49,9 @@ export function generateVapidKeys(): { publicKey: string; privateKey: string } {
   ecdh.generateKeys()
   return {
     publicKey: b64url.encode(ecdh.getPublicKey()),
-    privateKey: b64url.encode(ecdh.getPrivateKey()),
+    // getPrivateKey() drops leading zero bytes, so 1 key in 256 comes back 31
+    // bytes long and fails the 32-byte check at start-up. Left-pad it.
+    privateKey: b64url.encode(Buffer.concat([Buffer.alloc(32 - ecdh.getPrivateKey().length), ecdh.getPrivateKey()])),
   }
 }
 

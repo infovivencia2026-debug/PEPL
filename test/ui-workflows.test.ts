@@ -46,7 +46,7 @@ async function request(path: string, role?: string, body?: unknown) {
 beforeAll(async () => {
   ;({ a: A, b: B } = await resetAndSeed())
   await controlPool.query(
-    `INSERT INTO tenant_entitlements(tenant_id,plan_code,features,limits) VALUES($1,'test','{"payroll":true}','{"employees":100}')`,
+    `INSERT INTO tenant_entitlements(tenant_id,plan_code,features,limits) VALUES($1,'test','{"payroll":true}','{"employees":100}') ON CONFLICT (tenant_id) DO UPDATE SET features = EXCLUDED.features, limits = EXCLUDED.limits`,
     [A.id],
   )
   await withTenant(A.id, async (tx) => {
