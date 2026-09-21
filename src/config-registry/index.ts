@@ -189,6 +189,21 @@ const expenses = defineConfig('expenses', {
   }),
 })
 
+const timesheets = defineConfig('timesheets', {
+  enabled: flag({
+    default: true,
+    label: 'Projects & timesheets',
+    help: 'Projects people are allocated to, weekly hours booked against them with manager approval, a daily work log, and the approved-hours report.',
+    dependsOn: ['attendance.enabled'],
+    disableEffect: 'soft',
+  }),
+  approval_chain: enumOf(['manager', 'manager_then_hr', 'hr_only', 'manager_hr_finance', 'manager_dept_head', 'dept_head_hr'] as const, {
+    default: 'manager',
+    label: 'Timesheet approval chain',
+    help: 'Who approves a submitted week when no approval policy matches.',
+  }),
+})
+
 const payroll = defineConfig('payroll', {
   enabled: flag({
     default: true,
@@ -417,6 +432,7 @@ export const REGISTRY: Readonly<Record<string, Definition>> = Object.freeze({
   ...attendance,
   ...payroll,
   ...expenses,
+  ...timesheets,
   ...helpdesk,
   ...chat,
   ...mail,

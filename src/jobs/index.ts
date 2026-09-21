@@ -25,6 +25,7 @@ import { escalateStale } from '../approvals/policy.ts'
 import { distributeRun, pendingRuns } from '../payroll/distribute.ts'
 import { ensurePeriod, upcomingMonth } from '../payroll/periods.ts'
 import { closePeriods, runDunning } from '../control-plane/billing.ts'
+import { creditFromMuster, lapseExpired } from '../leave/compoff.ts'
 import { generateVapidKeys, vapidFromEnv } from '../comms/web-push.ts'
 import { purgeOldMessages } from '../comms/chat.ts'
 import { syncTenant } from '../mail/sync.ts'
@@ -440,6 +441,20 @@ export async function runBillingDunning(now = new Date()): Promise<JobResult> {
   }
 }
 
+/** Nightly: comp-off credits for yesterday's (and the past week's) off-day work, and lapses of expired ones. */
+export async function runCompOff(now = new Date()): Promise<JobResult> {
+  return perTenant('leave.comp_off', async (tenantId) =>
+    withTenant(tenantId, async (tx) => {
+      const cfg = await resolveConfig(tx, tenantId)
+      if (!cfg.isEnabled('leave.enabled')) return 0
+      const today = now.toISOString().slice(0, 10)
+      const from = new Date(now.getTime() - 7 * 86_400_000).toISOString().slice(0, 10)
+      const granted = await creditFromMuster(tx, cfg, { from, to: today })
+      const lapsed = await lapseExpired(tx, cfg, today)
+      return granted + lapsed
+    }))
+}
+
 export const JOBS = {
   'leave.accrual': () => runLeaveAccrual(),
   'helpdesk.sla': runSlaBreaches,
@@ -454,6 +469,7 @@ export const JOBS = {
   'payroll.periods': () => runPeriodRollForward(),
   // The cycle that just ended: on 1 April the leave year to roll is last year's.
   'leave.rollover': () => runLeaveRollover(new Date().getFullYear() - 1),   // gated inside to each tenant's cycle start
+  'leave.comp_off': () => runCompOff(),
   'billing.invoice': () => runBillingInvoices(),
   'billing.dunning': () => runBillingDunning(),
   'push.keygen': runPushKeygen,

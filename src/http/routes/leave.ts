@@ -2,6 +2,7 @@
 import type { Router } from '../router.ts'
 import { applyLeave } from '../../leave/apply.ts'
 import { scopeIds } from '../ui-data.ts'
+import { grantCompOff, listCredits } from '../../leave/compoff.ts'
 import {
   HttpError,
   authed,
@@ -46,6 +47,30 @@ export function register(router: Router): void {
           ORDER BY l.applied_at DESC LIMIT $4 OFFSET $5`,
         [ids, status ?? null, employeeId ?? null, limit + 1, offset])
       return ok({ requests: rows.slice(0, limit), hasMore: rows.length > limit })
+    }))
+
+  router.get('/api/v1/leave/comp-off',
+    { summary: 'Comp-off credits (own by default): the off days worked, when each expires, spent or not', tag: 'leave', permission: 'leave.read' },
+    authed('leave.read', async (ctx) => {
+      requireModule(ctx, 'leave.enabled')
+      const employeeId = ctx.req.query.get('employeeId') ?? ctx.auth.employeeId
+      if (!employeeId) throw new HttpError(422, 'NO_EMPLOYEE_RECORD', 'this user has no employee record')
+      assertScope(ctx.auth, asUuid(employeeId, 'employeeId'))
+      return ok({ credits: await listCredits(ctx.tx, employeeId) })
+    }))
+
+  router.post('/api/v1/leave/comp-off',
+    { summary: 'Grant a comp-off the muster missed (HR): one full or half day for a date worked', tag: 'leave',
+      permission: 'leave.balance.adjust', requestExample: { employeeId: '…', workDate: '2026-10-02', days: 1, reason: 'worked the Gandhi Jayanti holiday at the client site' } },
+    authed('leave.balance.adjust', async (ctx) => {
+      requireModule(ctx, 'leave.enabled')
+      const b = requireBody<{ employeeId: string; workDate: string; days?: number; reason: string }>(ctx.req, ['employeeId', 'workDate', 'reason'])
+      const days = b.days === 0.5 ? 0.5 : 1
+      const r = await grantCompOff(ctx.tx, ctx.config, { employeeId: asUuid(b.employeeId, 'employeeId'), workDate: asDate(b.workDate, 'workDate'), days, actorUserId: ctx.auth.userId, note: b.reason })
+      if (!r.granted) throw new HttpError(409, 'COMP_OFF_EXISTS', 'a comp-off for that date is already credited')
+      await emit(ctx.tx, { action: 'leave.balance.adjusted', entityType: 'employee', entityId: b.employeeId, subjectEmployeeId: b.employeeId,
+        actorUserId: ctx.auth.userId, reason: b.reason, metadata: { compOff: b.workDate, days, expiresOn: r.expiresOn } })
+      return created(r)
     }))
 
   router.get('/api/v1/leave/balances',

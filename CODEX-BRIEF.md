@@ -1571,6 +1571,58 @@ Build:
 
 ---
 
+## 2.45 Comp-off — 2 endpoints, part of leave
+
+Work on a weekly off or holiday credits the CO leave type automatically
+(nightly, from the muster: a full day at or above the half-day hours, half
+below), expiring after `leave.comp_off_expiry_days` (default 90). It is spent
+through the ordinary leave request against type CO.
+
+```
+GET  /api/v1/leave/comp-off?employeeId=   -> { credits: [{ id, work_date, expires_on, status: available|available_half|consumed|expired }] }
+POST /api/v1/leave/comp-off               { employeeId, workDate, days: 1|0.5, reason }   (leave.balance.adjust)  409 COMP_OFF_EXISTS
+```
+
+Build: on My leave, a "Comp-off" card listing credits with expiry ("expires
+in 12 days" in amber under 14); the CO balance already appears in balances.
+HR: "Grant comp-off" on the employee's Leave tab. Settings: the two new
+leave settings render from the generated screen.
+
+---
+
+## 2.46 Projects, timesheets and the work log — 14 endpoints, `timesheets.enabled`
+
+```
+GET/POST /api/v1/projects                     ?mine=true | ?includeClosed=true     (write: project.write)
+GET/POST /api/v1/projects/:id/allocations     { employeeId, role?, percent?, startsOn?, endsOn? }   422 OVER_ALLOCATED
+POST     /api/v1/allocations/:id/end          { endsOn }
+GET      /api/v1/employees/:id/allocations
+GET      /api/v1/timesheets/week?date=&employeeId=   -> { id, week_start, status, entries[], total_hours, billable_hours, comment }
+GET      /api/v1/timesheets?employeeId=&status=
+GET      /api/v1/timesheets/:id
+POST     /api/v1/timesheets/entries           { projectId, workDate, hours (0 clears), billable?, note?, employeeId? }
+                                              422 NOT_ALLOCATED | OVER_24_HOURS | PROJECT_INACTIVE · 409 TIMESHEET_LOCKED
+POST     /api/v1/timesheets/submit            { weekStart }  422 TIMESHEET_EMPTY  → approval (entity_type 'timesheet')
+GET      /api/v1/reports/hours?from=&to=&projectId=&format=csv
+GET/POST /api/v1/work-logs                    { workDate, done, blockers?, nextPlan?, projectId? }
+```
+
+Build:
+- **My timesheet**: a week grid — rows = my projects (`/projects?mine=true`),
+  columns Mon–Sun, cells editable hours (0.25 steps), a day total, a week
+  total, billable badge. Prev/next week. Status pill; "Submit week"; a
+  rejected week shows the manager's comment and is editable again.
+- **Work log**: under the grid, today's "Done / Blockers / Next" with the
+  last 7 days collapsed.
+- **Manager**: team timesheets by status (approvals arrive in the normal
+  inbox; the card shows the grid read-only with per-project totals).
+- **Projects** (project.write): list with approved vs budget hours bar;
+  editor; allocations table with the 100% rule shown as a stacked bar per
+  person.
+- **Reports → Hours**: the report table + CSV.
+
+---
+
 # Part 3 — What to build, in order
 
 1. **Chat UI.** The largest visible hole. Conversation list, thread, composer,
@@ -1642,6 +1694,8 @@ Build:
     fetching and search-driven pickers.
 30. **Expenses & travel** (§2.44) — My expenses, trips, approval cards,
     categories editor, payslip line linkage.
+31. **Comp-off card and HR grant** (§2.45).
+32. **Timesheets, work log, projects, hours report** (§2.46).
 
 ## Running it
 

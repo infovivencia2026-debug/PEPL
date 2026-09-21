@@ -27,6 +27,7 @@ export const PERMISSIONS = [
   'settings.write', 'roles.write',
   'import.run', 'report.read',
   'expense.read', 'expense.claim', 'expense.write', 'expense.policy.write',
+  'timesheet.read', 'timesheet.write', 'project.write',
 ] as const
 
 export type Permission = (typeof PERMISSIONS)[number]
@@ -47,11 +48,13 @@ export const ROLE_PERMISSIONS: Readonly<Record<string, { permissions: Permission
     org_admin: {
       scope: 'all',
       permissions: [
+        'timesheet.read', 'timesheet.write', 'project.write',
         'expense.read', 'expense.claim', 'expense.write', 'expense.policy.write',...PERMISSIONS],
     },
     hr_admin: {
       scope: 'all',
       permissions: [
+        'timesheet.read', 'timesheet.write', 'project.write',
         'expense.read', 'expense.claim', 'expense.write', 'expense.policy.write',
         'employee.read', 'employee.write',
         'attendance.read', 'attendance.correct',
@@ -85,6 +88,7 @@ export const ROLE_PERMISSIONS: Readonly<Record<string, { permissions: Permission
       // must be able to see the batches already generated, or they cannot tell a
       // retry from a second payment.
       permissions: [
+        'timesheet.read',
         'expense.read', 'expense.write',
         'payroll.read', 'bank.read', 'bank.export', 'report.read',
         'approval.act', 'incentive.read',
@@ -93,6 +97,7 @@ export const ROLE_PERMISSIONS: Readonly<Record<string, { permissions: Permission
     manager: {
       scope: 'reports',
       permissions: [
+        'timesheet.read', 'timesheet.write',
         'expense.read', 'expense.claim',
         'employee.read',
         'attendance.read', 'attendance.correct',
@@ -105,6 +110,7 @@ export const ROLE_PERMISSIONS: Readonly<Record<string, { permissions: Permission
     employee: {
       scope: 'self',
       permissions: [
+        'timesheet.read',
         'expense.read', 'expense.claim',
         'employee.read',
         'attendance.read', 'leave.read', 'leave.apply',
@@ -115,6 +121,7 @@ export const ROLE_PERMISSIONS: Readonly<Record<string, { permissions: Permission
     auditor: {
       scope: 'all',
       permissions: [
+        'timesheet.read',
         'expense.read',
         'employee.read', 'attendance.read', 'leave.read', 'payroll.read',
         'audit.read', 'report.read', 'compensation.read',
