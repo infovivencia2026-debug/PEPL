@@ -19,58 +19,13 @@ import { applyLeave } from '../src/leave/apply.ts'
 import { recognise, upsertCourse, nominateMandatory, listNominations, completeCourse } from '../src/people/learning.ts'
 import { resolveConfig } from '../src/config/resolver.ts'
 import { recordPunch, recomputeDay } from '../src/attendance/index.ts'
+import { PEOPLE } from './demo-roster.ts'
+import { seedDocuments, seedAssets, seedRecruitment, seedPerformance, seedExpenses, runAugustPayroll } from './demo-operations.ts'
 
 const COMPANY = 'Acme Manufacturing Pvt Ltd'
 const PASSWORD = 'demo-password-2026'
 const L = (rupees: number): number => rupees * 100
 
-interface Person {
-  number: string
-  first: string
-  last: string
-  email: string
-  role: string
-  department: string
-  designation: string
-  ctc: number
-  basic: number
-  hra: number
-  special: number
-  isManager?: boolean
-}
-
-const PEOPLE: Person[] = [
-  { number: 'ACM-001', first: 'Priya', last: 'Sharma', email: 'priya@acme.test', role: 'hr_admin',
-    department: 'Human Resources', designation: 'HR Manager',
-    ctc: 900_000, basic: 30_000, hra: 15_000, special: 30_000 },
-  { number: 'ACM-002', first: 'Anil', last: 'Verma', email: 'anil@acme.test', role: 'payroll_admin',
-    department: 'Finance', designation: 'Payroll Officer',
-    ctc: 780_000, basic: 26_000, hra: 13_000, special: 26_000 },
-  { number: 'ACM-003', first: 'Arjun', last: 'Rao', email: 'arjun@acme.test', role: 'manager',
-    department: 'Engineering', designation: 'Engineering Manager', isManager: true,
-    ctc: 1_800_000, basic: 60_000, hra: 30_000, special: 60_000 },
-  { number: 'ACM-004', first: 'Rahul', last: 'Nair', email: 'rahul@acme.test', role: 'employee',
-    department: 'Engineering', designation: 'Senior Developer',
-    ctc: 1_200_000, basic: 40_000, hra: 20_000, special: 40_000 },
-  { number: 'ACM-005', first: 'Sneha', last: 'Iyer', email: 'sneha@acme.test', role: 'employee',
-    department: 'Engineering', designation: 'Developer',
-    ctc: 840_000, basic: 28_000, hra: 14_000, special: 28_000 },
-  { number: 'ACM-006', first: 'Vikram', last: 'Singh', email: 'vikram@acme.test', role: 'employee',
-    department: 'Production', designation: 'Machine Operator',
-    ctc: 300_000, basic: 12_000, hra: 6_000, special: 7_000 },
-  { number: 'ACM-007', first: 'Meera', last: 'Das', email: 'meera@acme.test', role: 'employee',
-    department: 'Production', designation: 'Quality Inspector',
-    ctc: 360_000, basic: 14_000, hra: 7_000, special: 9_000 },
-  { number: 'ACM-008', first: 'Kavya', last: 'Reddy', email: 'kavya@acme.test', role: 'employee',
-    department: 'Sales', designation: 'Sales Executive',
-    ctc: 600_000, basic: 20_000, hra: 10_000, special: 20_000 },
-  { number: 'ACM-009', first: 'Deepa', last: 'Menon', email: 'finance@acme.test', role: 'finance',
-    department: 'Finance', designation: 'Finance Controller',
-    ctc: 1_500_000, basic: 50_000, hra: 25_000, special: 50_000 },
-  { number: 'ACM-010', first: 'Ravi', last: 'Kulkarni', email: 'auditor@acme.test', role: 'auditor',
-    department: 'Finance', designation: 'Internal Auditor',
-    ctc: 1_100_000, basic: 36_000, hra: 18_000, special: 37_000 },
-]
 
 /**
  * Deletes every row belonging to one tenant, across every table that carries a
@@ -91,7 +46,7 @@ async function main(): Promise<void> {
   const { tenantId } = await provisionTenant({
     legalName: COMPANY,
     displayName: 'Acme',
-    planCode: 'professional',
+    planCode: 'enterprise',
     adminEmail: 'admin@acme.test',
     adminName: 'Acme Administrator',
     // PEPL_DEMO_TYPE=manufacturing (or education, field_sales, retail, agency) seeds that organisation type's preset
@@ -154,6 +109,7 @@ async function main(): Promise<void> {
   const ids: Record<string, string> = {}
   const userIds: Record<string, string> = {}
 
+  const counts: Record<string, number> = {}
   await withTenant(tenantId, async (tx) => {
     // admin login
     const adminUserId = await createUser(tx, {
@@ -173,8 +129,8 @@ async function main(): Promise<void> {
     for (const p of PEOPLE) {
       const { rows } = await tx.query<{ id: string }>(
         `INSERT INTO employees (tenant_id, employee_number, first_name, last_name, date_of_joining)
-         VALUES ($1,$2,$3,$4, DATE '2025-06-01') RETURNING id`,
-        [tenantId, p.number, p.first, p.last])
+         VALUES ($1,$2,$3,$4, $5::date) RETURNING id`,
+        [tenantId, p.number, p.first, p.last, p.joinedOn])
       ids[p.number] = rows[0]!.id
 
       userIds[p.number] = await createUser(tx, {
@@ -183,22 +139,20 @@ async function main(): Promise<void> {
       })
     }
 
-    const managerId = ids['ACM-003']!
-
     for (const p of PEOPLE) {
       const employeeId = ids[p.number]!
       await tx.query(
         `INSERT INTO employee_assignments
            (tenant_id, employee_id, department, designation, manager_employee_id,
             location, employment_type, effective_from, change_reason)
-         VALUES ($1,$2,$3,$4,$5,'Hyderabad','full_time', DATE '2025-06-01', 'initial assignment')`,
+         VALUES ($1,$2,$3,$4,$5,$6,'full_time', $7::date, 'initial assignment')`,
         [tenantId, employeeId, p.department, p.designation,
-         p.isManager || p.role === 'hr_admin' ? null : managerId])
+         p.manager ? ids[p.manager] ?? null : null, p.location, p.joinedOn])
 
       await changeCompensation(tx, {
         employeeId, annualCtcPaise: L(p.ctc),
         components: { basic: L(p.basic), hra: L(p.hra), special: L(p.special) },
-        effectiveFrom: '2025-06-01', reason: 'offer',
+        effectiveFrom: p.joinedOn, reason: 'offer',
       })
     }
 
@@ -300,6 +254,18 @@ async function main(): Promise<void> {
       await applyLeave(tx, cfg, { employeeId: ids[num]!, requestedByUserId: userIds[num]!, leaveTypeId: el.id, startDate: day(from), endDate: day(to), reason })
     }
 
+    // Everything a prospect asks to see beyond the directory: files, assets, a
+    // hiring pipeline, a review cycle, claims awaiting a decision, and August's
+    // payroll run taken all the way to locked.
+    const demo = { tx, tenantId, ids, userIds, adminUserId, cfg }
+    counts.documents = await seedDocuments(demo)
+    counts.assets = await seedAssets(demo)
+    counts.candidates = await seedRecruitment(demo)
+    counts.appraisals = await seedPerformance(demo)
+    counts.claims = await seedExpenses(demo)
+    const payroll = await runAugustPayroll(demo)
+    counts.payslips = payroll.employees
+
     // A site, so the kiosk has a code to show and geofenced punches have a fence.
     await tx.query(
       `INSERT INTO geofence_sites (tenant_id, code, name, lat, lng, radius_m, applies_to_all)
@@ -334,7 +300,11 @@ async function main(): Promise<void> {
 Demo tenant seeded into "${process.env.PEPL_DB ?? 'pepl_dev'}".
 
   Company    ${COMPANY}
-  Employees  ${PEOPLE.length}
+  Employees  ${PEOPLE.length} across 6 departments and 3 locations
+  On file    ${counts.documents} documents · ${counts.assets} assets · ${counts.candidates} candidates
+             ${counts.appraisals} appraisals · ${counts.claims} expense claims
+  Payroll    August 2026 run LOCKED — ${counts.payslips} payslips, processed by
+             anil@acme.test and approved by finance@acme.test (never the same person)
   Password   ${PASSWORD}      <- the same for every account below
 
   ${'EMAIL'.padEnd(width)}${'ROLE'.padEnd(16)}SEES
