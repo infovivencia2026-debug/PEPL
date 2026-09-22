@@ -82,3 +82,11 @@ tr.row-overdue td:first-child { box-shadow: inset 3px 0 0 var(--danger); }
 .celebration { display: flex; gap: 12px; align-items: center; }
 .celebration p { margin: 2px 0 0; font-size: 12.5px; color: var(--muted); }
 @media (max-width: 860px) { .wall-layout { grid-template-columns: 1fr; } }
+
+/* growth: learning compliance bars */
+.stack-bar { display: flex; height: 10px; border-radius: 5px; overflow: hidden; background: var(--surface-muted); margin: 10px 0 8px; }
+.stack-bar i { display: block; height: 100%; }
+.stack-bar .done { background: var(--chart-0); }
+.stack-bar .open { background: var(--chart-1); }
+.stack-bar .over { background: var(--danger); }
+details summary { cursor: pointer; font-size: 12px; color: var(--primary); min-height: 44px; display: flex; align-items: center; }

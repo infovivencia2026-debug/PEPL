@@ -16,7 +16,7 @@ import { createUser } from '../src/auth/index.ts'
 import { changeAssignment, changeCompensation } from '../src/people/history.ts'
 import { appendEntry, accrueMonthly } from '../src/leave/ledger.ts'
 import { applyLeave } from '../src/leave/apply.ts'
-import { recognise } from '../src/people/learning.ts'
+import { recognise, upsertCourse, nominateMandatory, listNominations, completeCourse } from '../src/people/learning.ts'
 import { resolveConfig } from '../src/config/resolver.ts'
 import { recordPunch, recomputeDay } from '../src/attendance/index.ts'
 
@@ -270,6 +270,14 @@ async function main(): Promise<void> {
        VALUES ($1,'2026-09',DATE '2026-09-01',DATE '2026-09-30',DATE '2026-10-01')
        ON CONFLICT (tenant_id, label) DO NOTHING`,
       [tenantId])
+
+    // A mandatory course, nominated to everyone, with two people already done.
+    await upsertCourse(tx, { code: 'POSH_AWARENESS', title: 'POSH awareness', description: 'What the law requires of every workplace, and how to raise a complaint safely.', mode: 'online', mandatory: true, validityMonths: 12, dueDays: 30 })
+    await nominateMandatory(tx)
+    for (const num of ['ACM-001', 'ACM-003'] as const) {
+      const nom = (await listNominations(tx, { employeeId: ids[num]!, courseCode: 'POSH_AWARENESS' }))[0]
+      if (nom) await completeCourse(tx, { nominationId: nom.id, byTrainer: true, score: 90, actorUserId: adminUserId })
+    }
 
     // A couple of recognitions so the wall is not empty in the demo.
     for (const [from, to, badge, note] of [
