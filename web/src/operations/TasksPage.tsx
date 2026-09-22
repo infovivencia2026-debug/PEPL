@@ -1,3 +1,6 @@
+import { AssetsPage } from '../work/Assets'
+import { WorkReportsPage } from '../work/Reports'
+import { ProfitabilityPage } from '../work/Profitability'
 import type { Workspace } from '../types'
 import type { FormSpec } from '../forms'
 import { useState } from 'react'
@@ -6,21 +9,30 @@ import {
   Sparkles,
 } from 'lucide-react'
 import { dateLabel } from '../api'
-import {
-  Badge,
-  Button,
-  Card,
-  Empty,
-  PageHeader,
-} from '../ui'
+import { Badge, Button, Card, Empty, PageHeader, Tabs } from '../ui'
 type Props = {
   data: Workspace
   open: (s: FormSpec) => void
   act: (path: string, body: unknown, message: string) => Promise<void>
 }
 
-export function TasksPage({ data, act }: Props) {
+export function TasksPage({ data, act, screen = 'tasks' }: Props & { screen?: string }) {
   const [busy, setBusy] = useState('')
+  // Work hub: tasks, the asset register, work reports and project profitability
+  const WORK: Array<[string, string, boolean]> = [
+    ['tasks', 'My tasks', true],
+    ['assets', 'Assets', data.permissions.includes('asset.read') && Boolean(data.modules.assets)],
+    ['reports', 'Work reports', data.permissions.includes('task.read')],
+    ['profitability', 'Profitability', data.permissions.includes('timesheet.read') && Boolean(data.modules.timesheets)],
+  ]
+  const shown = WORK.filter((v) => v[2])
+  const workTabs = shown.length > 1 ? (
+    <Tabs value={shown.find((v) => v[0] === screen)?.[1] ?? 'My tasks'} items={shown.map((v) => v[1])}
+      onChange={(label) => { const v = shown.find((x) => x[1] === label); window.location.hash = `#/tasks${v && v[0] !== 'tasks' ? `/${v[0]}` : ''}` }} />
+  ) : null
+  if (screen === 'assets') return <><PageHeader title="Assets" description="What the company lent whom — and what must come back before anyone leaves." eyebrow="Work · Assets" />{workTabs}<AssetsPage data={data} /></>
+  if (screen === 'reports') return <><PageHeader title="Work reports" description="The form your people fill in the field, rendered from your own template." eyebrow="Work · Reports" />{workTabs}<WorkReportsPage data={data} /></>
+  if (screen === 'profitability') return <><PageHeader title="Project profitability" description="Hours against money, from approved timesheets and locked payroll." eyebrow="Work · Projects" />{workTabs}<ProfitabilityPage data={data} /></>
   return (
     <>
       <PageHeader

@@ -48,3 +48,12 @@ tr.row-overdue td:first-child { box-shadow: inset 3px 0 0 var(--danger); }
   .journal-head .row-actions { margin-left: 0; width: 100%; }
   .dismiss-row { flex-direction: column; align-items: stretch; }
 }
+
+/* work: assets, reports, profitability */
+.plain-list { list-style: none; margin: 8px 0 0; padding: 0; font-size: 12.5px; display: flex; flex-direction: column; gap: 6px; }
+.plain-list li { display: flex; align-items: center; gap: 7px; color: var(--foreground); }
+.plain-list small { color: var(--muted); }
+.margin-chip { display: inline-flex; align-items: center; gap: 6px; padding: 5px 10px; border-radius: 9px; font-size: 12px; font-weight: 550; }
+.margin-chip.good { background: #eaf3e5; color: #2d5a3c; }
+.margin-chip.thin { background: #fcf1d9; color: #7a5f1f; }
+.margin-chip.bad { background: #f9dcd6; color: #8f3224; }
