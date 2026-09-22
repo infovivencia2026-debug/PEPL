@@ -16,6 +16,10 @@ import {
 import { fullName, dateLabel, exportCsv, pretty } from '../api'
 import { PunchControl } from '../PunchControl'
 import { RemoteWorkPanel } from '../RemoteWork'
+import { MusterPage } from '../time/Muster'
+import { MyMonth } from '../time/MyMonth'
+import { ControlRoom } from '../time/ControlRoom'
+import { KioskPage } from '../time/Kiosk'
 import {
   Avatar,
   Badge,
@@ -25,6 +29,7 @@ import {
   PageHeader,
   SearchBox,
   Stat,
+  Tabs,
 } from '../ui'
 type Props = { data: Workspace; open: (s: FormSpec) => void }
 
@@ -32,9 +37,26 @@ export function AttendancePage({
   data,
   open,
   onDate,
-}: { onDate: (s: string) => void } & Props) {
+  view = 'register',
+}: { onDate: (s: string) => void; view?: string } & Props) {
   const [search, setSearch] = useState(''),
     [status, setStatus] = useState('')
+  // Sub-views live in the route (#/attendance/muster …) so each is deep-linkable.
+  const VIEWS: Array<[string, string, boolean]> = [
+    ['register', 'Register', true],
+    ['muster', 'Muster', data.permissions.includes('attendance.read') && data.user.scope !== 'self'],
+    ['month', 'My month', Boolean(data.user.employeeId)],
+    ['control-room', 'Control room', data.user.scope !== 'self'],
+    ['kiosk', 'Kiosk', data.permissions.includes('attendance.kiosk')],
+  ]
+  const visible = VIEWS.filter((v) => v[2])
+  const tabs = (
+    <Tabs value={visible.find((v) => v[0] === view)?.[1] ?? 'Register'} onChange={(label) => { const v = visible.find((x) => x[1] === label); window.location.hash = `#/attendance${v && v[0] !== 'register' ? `/${v[0]}` : ''}` }} items={visible.map((v) => v[1])} />
+  )
+  if (view === 'muster') return <><PageHeader title="Muster roll" description="What payroll will freeze: one code per person per day, from the same classification." eyebrow="Time · Muster" />{tabs}<MusterPage data={data} open={open} /></>
+  if (view === 'month') return <><PageHeader title="My month" description="Your own days, as they will count." eyebrow="Time · My month" />{tabs}<MyMonth data={data} /></>
+  if (view === 'control-room') return <><PageHeader title="Control room" description="Who is in, late, missing or on break — right now." eyebrow="Time · Live" />{tabs}<ControlRoom data={data} /></>
+  if (view === 'kiosk') return <><PageHeader title="Kiosk" description="Put this on the wall tablet at the door." eyebrow="Time · Kiosk" />{tabs}<KioskPage data={data} /></>
   const rows = data.attendance.filter(
     (a) =>
       fullName(a).toLowerCase().includes(search.toLowerCase()) &&
@@ -133,6 +155,7 @@ export function AttendancePage({
           </Button>
         )}
       </PageHeader>
+      {tabs}
       {data.user.employeeId && <PunchControl data={data} />}
       <RemoteWorkPanel data={data} />
       <div className="stats-row">

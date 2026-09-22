@@ -58,6 +58,8 @@ async function main(): Promise<void> {
       if (process.env.SHOOT_CLICK) { await page.getByRole('button', { name: new RegExp(process.env.SHOOT_CLICK, 'i') }).first().click(); await page.waitForTimeout(500) }
       await page.screenshot({ path: `${OUT}/${name}.png`, fullPage: true })
       console.log(`${OUT}/${name}.png`)
+      // SHOOT_EVAL="<js expression>" prints a measurement from the page (layout assertions, not eyeballing)
+      if (process.env.SHOOT_EVAL) console.log('eval:', JSON.stringify(await page.evaluate(process.env.SHOOT_EVAL)))
       const mobile = await browser.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, isMobile: true, hasTouch: true })
       const mp = await mobile.newPage()
       await login(mp)

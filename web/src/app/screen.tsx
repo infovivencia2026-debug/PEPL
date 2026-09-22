@@ -91,6 +91,7 @@ export function screenFor({
       <AttendancePage
         {...props}
         onDate={onDate}
+        view={route.split('/')[1] || 'register'}
       />
     )
   else if (section === 'leave') page = <LeavePage {...props} />

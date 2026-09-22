@@ -162,7 +162,7 @@ async function main(): Promise<void> {
 
     // Chat and mail are off by default for a real company; the demo turns them
     // on so the whole product is visible without hunting through settings.
-    for (const key of ['chat.enabled', 'mail.enabled', 'helpdesk.enabled']) {
+    for (const key of ['chat.enabled', 'mail.enabled', 'helpdesk.enabled', 'attendance.qr_punch_enabled']) {
       await setSetting(tx, {
         key, value: true,
         actorUserId: adminUserId, reason: 'demo tenant shows every module',
@@ -282,6 +282,12 @@ async function main(): Promise<void> {
     ] as const) {
       await applyLeave(tx, cfg, { employeeId: ids[num]!, requestedByUserId: userIds[num]!, leaveTypeId: el.id, startDate: day(from), endDate: day(to), reason })
     }
+
+    // A site, so the kiosk has a code to show and geofenced punches have a fence.
+    await tx.query(
+      `INSERT INTO geofence_sites (tenant_id, code, name, lat, lng, radius_m, applies_to_all)
+       VALUES ($1, 'HYD-HQ', 'Hyderabad HQ', 17.4435, 78.3772, 150, true) ON CONFLICT DO NOTHING`,
+      [tenantId])
 
     // An announcement awaiting acknowledgement.
     await tx.query(
