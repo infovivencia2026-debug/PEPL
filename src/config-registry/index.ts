@@ -299,6 +299,11 @@ const performance = defineConfig('performance', {
 })
 
 const people = defineConfig('people', {
+  transfer_approval_chain: enumOf(['manager', 'manager_then_hr', 'hr_only', 'manager_hr_finance', 'manager_dept_head', 'dept_head_hr'] as const, {
+    default: 'manager_then_hr',
+    label: 'Transfer approval chain',
+    help: 'Who approves a department / location / manager change when no approval policy matches. Applied on the effective date.',
+  }),
   probation_review_days_ahead: int({
     default: 14,
     min: 0,
@@ -314,6 +319,16 @@ const assets = defineConfig('assets', {
     default: true,
     label: 'Assets',
     help: 'Laptops, phones, SIMs, ID cards, uniforms, PPE, tools, licence seats: a register with issue and return, maintenance, and an exit clearance that will not sign while a leaver still holds an item.',
+    disableEffect: 'soft',
+  }),
+})
+
+const surveys = defineConfig('surveys', {
+  enabled: flag({
+    entitlement: 'surveys',
+    default: true,
+    label: 'Surveys & pulse',
+    help: 'Pulse surveys, eNPS and a suggestion box. Anonymous by construction: individual answers are never readable; results are aggregates that withhold small groups.',
     disableEffect: 'soft',
   }),
 })
@@ -583,6 +598,7 @@ export const REGISTRY: Readonly<Record<string, Definition>> = Object.freeze({
   ...performance,
   ...people,
   ...assets,
+  ...surveys,
   ...security,
   ...helpdesk,
   ...chat,

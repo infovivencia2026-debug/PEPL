@@ -4,12 +4,18 @@ import { HttpError, authed, ok, created, noContent, requireBody, requireModule, 
 import {
   listProjects, upsertProject, listAllocations, allocate, endAllocation,
   getWeek, getTimesheet, listTimesheets, setHours, submitWeek, hoursReport, weekStartOf,
-  writeWorkLog, listWorkLogs,
+  writeWorkLog, listWorkLogs, profitabilityReport,
 } from '../../work/timesheets.ts'
 import { scopeIds } from '../ui-data.ts'
 import type { ChainCode } from '../../approvals/index.ts'
 
 export function register(router: Router): void {
+  router.get('/api/v1/projects/profitability', { summary: 'Per project: approved hours, billable revenue, cost of hours at CTC/173, margin (?from=&to=&projectId=)', tag: 'timesheets', permission: 'project.write' },
+    authed('project.write', async (ctx) => {
+      const from = asDate(ctx.req.query.get('from'), 'from'), to = asDate(ctx.req.query.get('to'), 'to')
+      return ok({ from, to, projects: await profitabilityReport(ctx.tx, { from, to, projectId: ctx.req.query.get('projectId') ? asUuid(ctx.req.query.get('projectId'), 'projectId') : undefined }) })
+    }))
+
   router.get('/api/v1/projects',
     { summary: 'Projects (?mine=true for the ones you are allocated to; ?includeClosed=true)', tag: 'projects', permission: 'timesheet.read' },
     authed('timesheet.read', async (ctx) => {

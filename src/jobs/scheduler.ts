@@ -53,6 +53,8 @@ export const SCHEDULE: Schedule[] = [
   { job: 'attendance.auto_checkout', everyMs: 15 * MINUTE },
   { job: 'people.probation', everyMs: HOUR, due: (now) => now.getHours() === 4 },
   { job: 'roster.shortage', everyMs: HOUR, due: (now) => now.getHours() === 18 },
+  { job: 'policies.remind', everyMs: HOUR, due: (now) => now.getHours() === 9 },
+  { job: 'people.transfers', everyMs: HOUR, due: (now) => now.getHours() === 0 },
 
   // Daily work, checked hourly so a restart cannot miss the window.
   { job: 'audit.seal', everyMs: HOUR, due: (now) => now.getHours() === 1 },

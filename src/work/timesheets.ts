@@ -256,6 +256,28 @@ export async function settleTimesheetDecision(
 }
 
 /** Approved hours by project for a date range — utilisation, billing, project profitability. */
+/** Per project: hours, billable value, cost of those hours at each person's CTC/173, margin. */
+export async function profitabilityReport(tx: PoolClient, args: { from: string; to: string; projectId?: string }): Promise<Array<{ project_code: string; project_name: string; client: string | null; billable: boolean; hours: number; billable_hours: number; revenue_paise: string; cost_paise: string; margin_paise: string; margin_pct: number | null }>> {
+  const { rows } = await tx.query<{ project_code: string; project_name: string; client: string | null; billable: boolean; hours: string; billable_hours: string; revenue: string; cost: string }>(
+    `WITH e AS (
+       SELECT te.project_id, te.hours, te.billable, t.employee_id, te.work_date,
+              (SELECT c.annual_ctc_paise FROM compensation_records c WHERE c.employee_id = t.employee_id AND c.superseded_at IS NULL AND c.effective_from <= te.work_date ORDER BY c.effective_from DESC LIMIT 1) AS ctc
+         FROM timesheet_entries te JOIN timesheets t ON (t.tenant_id, t.id) = (te.tenant_id, te.timesheet_id) AND t.status = 'approved'
+        WHERE te.work_date BETWEEN $1::date AND $2::date AND ($3::uuid IS NULL OR te.project_id = $3))
+     SELECT p.code AS project_code, p.name AS project_name, p.client, p.billable,
+            coalesce(sum(e.hours), 0)::text AS hours, coalesce(sum(e.hours) FILTER (WHERE e.billable), 0)::text AS billable_hours,
+            (coalesce(sum(e.hours) FILTER (WHERE e.billable), 0) * coalesce(p.bill_rate_paise_per_hour, 0))::bigint::text AS revenue,
+            coalesce(sum(e.hours * coalesce(e.ctc, 0) / 12.0 / 173.0), 0)::bigint::text AS cost
+       FROM projects p LEFT JOIN e ON e.project_id = p.id
+      WHERE ($3::uuid IS NULL OR p.id = $3)
+      GROUP BY p.code, p.name, p.client, p.billable, p.bill_rate_paise_per_hour ORDER BY p.code`, [args.from, args.to, args.projectId ?? null])
+  return rows.map((r) => {
+    const revenue = BigInt(r.revenue), cost = BigInt(r.cost), margin = revenue - cost
+    return { project_code: r.project_code, project_name: r.project_name, client: r.client, billable: r.billable, hours: Number(r.hours), billable_hours: Number(r.billable_hours),
+      revenue_paise: revenue.toString(), cost_paise: cost.toString(), margin_paise: margin.toString(), margin_pct: revenue > 0n ? Math.round(Number(margin) / Number(revenue) * 1000) / 10 : null }
+  })
+}
+
 export async function hoursReport(
   tx: PoolClient, args: { from: string; to: string; projectId?: string; employeeIds?: string[] | null },
 ): Promise<{ project_code: string; project_name: string; client: string | null; employee_number: string; employee_name: string; hours: string; billable_hours: string; billable_paise: string }[]> {

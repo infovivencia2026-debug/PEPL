@@ -6,12 +6,21 @@ import {
 import {
   listCategories, upsertCategory, retireCategory, seedDefaultCategories,
   listClaims, getClaim, submitClaim, cancelClaim,
-  listTrips, getTrip, requestTravel, settleTrip,
+  listTrips, getTrip, requestTravel, settleTrip, listPerDiemRates, upsertPerDiemRate,
 } from '../../work/expenses.ts'
 import { scopeIds } from '../ui-data.ts'
 import type { ChainCode } from '../../approvals/index.ts'
 
 export function register(router: Router): void {
+  router.get('/api/v1/expenses/per-diem-rates', { summary: 'Per-diem rates by city class and grade', tag: 'expenses', permission: 'expense.read' },
+    authed('expense.read', async (ctx) => ok({ rates: await listPerDiemRates(ctx.tx) })))
+  router.post('/api/v1/expenses/per-diem-rates', { summary: 'Set a per-diem rate (city class × grade, from a date)', tag: 'expenses', permission: 'expense.write',
+    requestExample: { cityClass: 'metro', gradeCode: null, ratePaise: 200000, halfDayPct: 50 } },
+    authed('expense.write', async (ctx) => {
+      const b = requireBody<{ cityClass: string; gradeCode?: string | null; ratePaise: number; halfDayPct?: number; effectiveFrom?: string }>(ctx.req, ['cityClass', 'ratePaise'])
+      return created(await upsertPerDiemRate(ctx.tx, { ...b, ratePaise: asInt(b.ratePaise, 'ratePaise', { min: 0 }), effectiveFrom: b.effectiveFrom ? asDate(b.effectiveFrom, 'effectiveFrom') : undefined }))
+    }))
+
   router.get('/api/v1/expenses/categories',
     { summary: 'Expense categories with their policy (limits, receipt threshold, mileage rate)', tag: 'expenses', permission: 'expense.read' },
     authed('expense.read', async (ctx) => {

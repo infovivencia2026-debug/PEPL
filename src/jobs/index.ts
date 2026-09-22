@@ -25,6 +25,8 @@ import { escalateStale, remindStale } from '../approvals/policy.ts'
 import { autoCheckout } from '../attendance/ops.ts'
 import { openDueProbationReviews } from '../people/letters.ts'
 import { alertShortages } from '../attendance/roster.ts'
+import { remindPolicies } from '../comms/engage.ts'
+import { applyDueTransfers } from '../people/structure.ts'
 import { distributeRun, pendingRuns } from '../payroll/distribute.ts'
 import { ensurePeriod, upcomingMonth } from '../payroll/periods.ts'
 import { closePeriods, runDunning } from '../control-plane/billing.ts'
@@ -383,6 +385,16 @@ export async function runProbationReviews(): Promise<JobResult> {
     }))
 }
 
+/** Nightly: approved transfers whose effective date has arrived land as assignment changes. */
+export async function runDueTransfers(): Promise<JobResult> {
+  return perTenant('people.transfers', async (tenantId) => withTenant(tenantId, (tx) => applyDueTransfers(tx)))
+}
+
+/** Nightly: nudge everyone still to acknowledge a published policy. */
+export async function runPolicyReminders(): Promise<JobResult> {
+  return perTenant('policies.remind', async (tenantId) => withTenant(tenantId, (tx) => remindPolicies(tx)))
+}
+
 /** Nightly: shifts under their minimum headcount in the coming days. */
 export async function runRosterShortage(): Promise<JobResult> {
   return perTenant('roster.shortage', async (tenantId) =>
@@ -510,6 +522,8 @@ export const JOBS = {
   'attendance.auto_checkout': runAutoCheckout,
   'people.probation': runProbationReviews,
   'roster.shortage': runRosterShortage,
+  'policies.remind': runPolicyReminders,
+  'people.transfers': runDueTransfers,
 } as const
 
 export type JobName = keyof typeof JOBS

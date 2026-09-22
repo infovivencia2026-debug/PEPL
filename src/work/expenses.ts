@@ -12,6 +12,7 @@
  * settlements — paid once, released if the run is unfrozen.
  */
 import type { PoolClient } from 'pg'
+import { currentPosting } from '../people/profile.ts'
 import { raiseWithPolicy } from '../approvals/policy.ts'
 import type { ChainCode } from '../approvals/index.ts'
 import { notify } from '../comms/index.ts'
@@ -89,11 +90,12 @@ export interface Claim {
   description: string; merchant: string | null; receipt_document_id: string | null; cost_centre: string | null
   status: string; approval_request_id: string | null; reimbursement_run_id: string | null; reimbursed_at: string | null
   created_at: string; decided_at: string | null
+  per_diem: { cityClass: string; days: number; halfDays: number; ratePaise: number; halfDayPct: number } | null
 }
 const CLAIM_COLS = `c.id, c.employee_id, e.employee_number, concat_ws(' ', e.first_name, e.last_name) AS employee_name,
   c.category_id, k.code AS category_code, k.name AS category_name,
   c.travel_request_id, c.incurred_on::text, c.amount_paise::text, c.distance_km::text,
-  c.description, c.merchant, c.receipt_document_id, c.cost_centre,
+  c.description, c.merchant, c.receipt_document_id, c.cost_centre, c.per_diem,
   c.status, c.approval_request_id, c.reimbursement_run_id, c.reimbursed_at::text, c.created_at::text, c.decided_at::text`
 const CLAIM_FROM = `FROM expense_claims c
   JOIN employees e ON (e.tenant_id, e.id) = (c.tenant_id, c.employee_id)
@@ -120,6 +122,31 @@ export async function listClaims(
   return { claims: rows.slice(0, limit), hasMore: rows.length > limit }
 }
 
+export interface PerDiemRate { id: string; city_class: string; grade_code: string | null; rate_paise: string; half_day_pct: number; effective_from: string }
+export async function listPerDiemRates(tx: PoolClient): Promise<PerDiemRate[]> {
+  return (await tx.query<PerDiemRate>(`SELECT id, city_class, grade_code, rate_paise::text, half_day_pct, effective_from::text FROM per_diem_rates ORDER BY city_class, grade_code NULLS FIRST, effective_from DESC`)).rows
+}
+export async function upsertPerDiemRate(tx: PoolClient, r: { cityClass: string; gradeCode?: string | null; ratePaise: number; halfDayPct?: number; effectiveFrom?: string }): Promise<PerDiemRate> {
+  const tid = await tenantId(tx)
+  if (!['metro', 'tier1', 'tier2', 'other', 'international'].includes(r.cityClass)) throw new ExpenseError('VALIDATION_FAILED', 'cityClass is metro, tier1, tier2, other or international')
+  if (!Number.isInteger(r.ratePaise) || r.ratePaise < 0) throw new ExpenseError('VALIDATION_FAILED', 'ratePaise is a whole number')
+  const { rows } = await tx.query<PerDiemRate>(
+    `INSERT INTO per_diem_rates (tenant_id, city_class, grade_code, rate_paise, half_day_pct, effective_from) VALUES ($1,$2,$3,$4,$5,$6)
+     ON CONFLICT (tenant_id, city_class, grade_code, effective_from) DO UPDATE SET rate_paise = EXCLUDED.rate_paise, half_day_pct = EXCLUDED.half_day_pct
+     RETURNING id, city_class, grade_code, rate_paise::text, half_day_pct, effective_from::text`,
+    [tid, r.cityClass, r.gradeCode ?? null, r.ratePaise, r.halfDayPct ?? 50, r.effectiveFrom ?? new Date().toISOString().slice(0, 10)])
+  return rows[0]!
+}
+/** The rate for a person's grade (else the all-grades rate) in force on a date. */
+export async function perDiemRateFor(tx: PoolClient, args: { employeeId: string; cityClass: string; on: string }): Promise<PerDiemRate | null> {
+  const posting = await currentPosting(tx, args.employeeId, args.on)
+  const { rows } = await tx.query<PerDiemRate>(
+    `SELECT id, city_class, grade_code, rate_paise::text, half_day_pct, effective_from::text FROM per_diem_rates
+      WHERE city_class = $1 AND (grade_code = $2 OR grade_code IS NULL) AND effective_from <= $3::date
+      ORDER BY grade_code NULLS LAST, effective_from DESC LIMIT 1`, [args.cityClass, posting?.grade_code ?? null, args.on])
+  return rows[0] ?? null
+}
+
 export interface SubmitClaim {
   employeeId: string
   requestedByUserId: string
@@ -134,6 +161,8 @@ export interface SubmitClaim {
   costCentre?: string | null
   /** The person has looked at the earlier claim and says this one is different. */
   notADuplicate?: boolean
+  /** A per-diem claim: priced from the rate table, no receipt, amount ignored. */
+  perDiem?: { cityClass: string; days: number; halfDays?: number }
   fallbackChain: ChainCode
 }
 
@@ -146,9 +175,17 @@ export async function submitClaim(tx: PoolClient, input: SubmitClaim): Promise<{
   if (input.incurredOn > today) throw new ExpenseError('VALIDATION_FAILED', 'an expense cannot be dated in the future')
   if ((Date.parse(today) - Date.parse(input.incurredOn)) / 86_400_000 > 90) throw new ExpenseError('CLAIM_TOO_OLD', 'expenses must be claimed within 90 days')
 
-  // Mileage is priced by the category, never by the claimant.
+  // Mileage is priced by the category, never by the claimant; per-diem by the rate table.
   let amount = input.amountPaise ?? 0
-  if (cat.mileage_rate_paise_per_km) {
+  let perDiem: Record<string, unknown> | null = null
+  if (input.perDiem) {
+    const d = input.perDiem
+    if (!Number.isInteger(d.days) || d.days < 0 || d.days > 90 || (d.halfDays !== undefined && (!Number.isInteger(d.halfDays) || d.halfDays < 0)) || d.days + (d.halfDays ?? 0) === 0) throw new ExpenseError('VALIDATION_FAILED', 'per-diem needs whole days and/or half days')
+    const rate = await perDiemRateFor(tx, { employeeId: input.employeeId, cityClass: d.cityClass, on: input.incurredOn })
+    if (!rate) throw new ExpenseError('PER_DIEM_RATE_MISSING', `no per-diem rate for ${d.cityClass}; ask HR to set one`)
+    amount = d.days * Number(rate.rate_paise) + Math.round((d.halfDays ?? 0) * Number(rate.rate_paise) * rate.half_day_pct / 100)
+    perDiem = { cityClass: d.cityClass, days: d.days, halfDays: d.halfDays ?? 0, ratePaise: Number(rate.rate_paise), halfDayPct: rate.half_day_pct }
+  } else if (cat.mileage_rate_paise_per_km) {
     if (!input.distanceKm || input.distanceKm <= 0) throw new ExpenseError('VALIDATION_FAILED', 'a mileage claim needs the distance in km')
     amount = Math.round(input.distanceKm * Number(cat.mileage_rate_paise_per_km))
   }
@@ -169,7 +206,7 @@ export async function submitClaim(tx: PoolClient, input: SubmitClaim): Promise<{
   }
   // 0 = a receipt is never required (mileage, small allowances); otherwise above the threshold.
   const receiptAbove = Number(cat.receipt_required_above_paise)
-  if (receiptAbove > 0 && amount > receiptAbove && !input.receiptDocumentId && !cat.mileage_rate_paise_per_km) {
+  if (receiptAbove > 0 && amount > receiptAbove && !input.receiptDocumentId && !cat.mileage_rate_paise_per_km && !perDiem) {
     throw new ExpenseError('RECEIPT_REQUIRED', `a receipt is required for ${cat.name} above ₹${(Number(cat.receipt_required_above_paise) / 100).toLocaleString('en-IN')}`)
   }
   if (!input.notADuplicate) {
@@ -185,10 +222,10 @@ export async function submitClaim(tx: PoolClient, input: SubmitClaim): Promise<{
 
   const { rows } = await tx.query<{ id: string }>(
     `INSERT INTO expense_claims (tenant_id, employee_id, category_id, travel_request_id, incurred_on, amount_paise, distance_km,
-        description, merchant, receipt_document_id, cost_centre, requested_by_user_id)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12) RETURNING id`,
+        description, merchant, receipt_document_id, cost_centre, requested_by_user_id, per_diem)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13::jsonb) RETURNING id`,
     [tid, input.employeeId, input.categoryId, input.travelRequestId ?? null, input.incurredOn, amount, input.distanceKm ?? null,
-     input.description.trim().slice(0, 1000), input.merchant?.trim() || null, input.receiptDocumentId ?? null, input.costCentre ?? null, input.requestedByUserId])
+     input.description.trim().slice(0, 1000), input.merchant?.trim() || null, input.receiptDocumentId ?? null, input.costCentre ?? null, input.requestedByUserId, perDiem ? JSON.stringify(perDiem) : null])
   const id = rows[0]!.id
   const approval = await raiseWithPolicy(tx, {
     entityType: 'expense', entityId: id, requestedByUserId: input.requestedByUserId, subjectEmployeeId: input.employeeId,

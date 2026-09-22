@@ -11,6 +11,7 @@
  * forgotten in the final pay.
  */
 import type { PoolClient } from 'pg'
+import { openReturnables } from '../work/assets.ts'
 import { initiateSeparation, getSeparation, type Separation, type SeparationReason } from '../payroll/exit.ts'
 import { templateForTrigger, resolveAssignees } from '../work/templates.ts'
 import { instantiateTemplate } from '../work/tasks.ts'
@@ -163,6 +164,12 @@ export async function clearArea(
   const sep = (await tx.query<{ status: string }>(`SELECT status FROM employee_separations WHERE id = $1`, [args.separationId])).rows[0]
   if (!sep) throw new ExitWorkflowError('NOT_FOUND', 'no such separation')
   if (sep.status !== 'initiated') throw new ExitWorkflowError('SEPARATION_NOT_OPEN', `the separation is ${sep.status}; clearance is closed`)
+  if (args.area !== 'hr' && args.area !== 'finance') {
+    // An area signs only once every returnable item it is responsible for is back (or written off as a recovery).
+    const emp = (await tx.query<{ employee_id: string }>(`SELECT employee_id FROM employee_separations WHERE id = $1`, [args.separationId])).rows[0]!
+    const held = (await openReturnables(tx, emp.employee_id)).filter((h) => h.area === args.area)
+    if (held.length && args.status === 'cleared') throw new ExitWorkflowError('ASSETS_OUTSTANDING', `still holding: ${held.map((h) => `${h.name} (${h.tag})`).join(', ')} — take them back or clear with a recovery`)
+  }
   if (args.area === 'hr') {
     const pending = await tx.query(`SELECT area FROM exit_clearances WHERE separation_id = $1 AND area <> 'hr' AND status = 'pending'`, [args.separationId])
     if (pending.rowCount) throw new ExitWorkflowError('CLEARANCE_PENDING', `HR signs off last; still pending: ${pending.rows.map((r: { area: string }) => r.area).join(', ')}`)
