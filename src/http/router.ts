@@ -356,22 +356,31 @@ export class Router {
     }))
   }
 
+  /**
+   * The most specific match wins, not the first registered: a literal segment
+   * beats a parameter at the same position. Without this, /org/:kind (masters,
+   * registered early) swallowed /org/chart (registered later) and answered
+   * "kind must be one of department, location…" to a chart request.
+   */
   match(method: string, path: string): { route: Route; params: Record<string, string> } | undefined {
     const parts = path.split('/').filter(Boolean)
+    let best: { route: Route; params: Record<string, string>; literals: number } | undefined
     for (const route of this.routes) {
       if (route.method !== method) continue
       if (route.segments.length !== parts.length) continue
       const params: Record<string, string> = {}
       let ok = true
+      let literals = 0
       for (let i = 0; i < route.segments.length; i++) {
         const seg = route.segments[i]!
         const part = parts[i]!
         if (seg.startsWith(':')) params[seg.slice(1)] = decodeURIComponent(part)
         else if (seg !== part) { ok = false; break }
+        else literals++
       }
-      if (ok) return { route, params }
+      if (ok && (!best || literals > best.literals)) best = { route, params, literals }
     }
-    return undefined
+    return best && { route: best.route, params: best.params }
   }
 }
 

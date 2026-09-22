@@ -2,6 +2,7 @@ import type { FormSpec } from '../forms'
 import { useState, useEffect } from 'react'
 import {
   ArrowLeft,
+  ArrowLeftRight,
   BriefcaseBusiness,
 } from 'lucide-react'
 import { api, fullName, dateLabel, money } from '../api'
@@ -131,6 +132,58 @@ export function EmployeeProfile({
             >
               <BriefcaseBusiness size={17} />
               Change assignment
+            </Button>
+          )}
+          {data.permissions.includes('employee.write') && (
+            <Button
+              variant="secondary"
+              onClick={() =>
+                open({
+                  title: 'Transfer',
+                  description: 'A transfer goes through approval and is applied on the effective date. Leave a field blank to keep it.',
+                  path: '/transfers',
+                  domain: true,
+                  success: 'Transfer requested; it shows as pending until approved.',
+                  fields: [
+                    { name: 'employeeId', label: 'Employee', value: id, options: [{ value: id, label: fullName(e) }] },
+                    { name: 'effectiveFrom', label: 'Effective from', type: 'date', value: data.today },
+                    { name: 'department', label: 'New department', required: false, value: '' },
+                    { name: 'designation', label: 'New designation', required: false, value: '' },
+                    { name: 'locationCode', label: 'New location code', required: false, value: '' },
+                    { name: 'managerEmployeeId', label: 'New manager', required: false, options: [{ value: '', label: 'Keep current' }, ...data.employees.filter((m) => m.id !== id).map((m) => ({ value: m.id, label: fullName(m) }))] },
+                    { name: 'reason', label: 'Reason', type: 'textarea' },
+                  ],
+                  transform: (v) => Object.fromEntries(Object.entries(v).filter(([, val]) => val !== '')),
+                })
+              }
+            >
+              <ArrowLeftRight size={17} />
+              Transfer
+            </Button>
+          )}
+          {data.user.employeeId === id && (
+            <Button
+              variant="ghost"
+              onClick={() =>
+                open({
+                  title: 'Request a change to my profile',
+                  description: 'Locked fields change only through HR. Say what should change and attach evidence in Documents first if you have it.',
+                  path: '/profile-changes',
+                  domain: true,
+                  success: 'Sent to HR; you will hear back in your inbox.',
+                  fields: [
+                    { name: 'lastName', label: 'Last name', required: false, value: '' },
+                    { name: 'dateOfBirth', label: 'Date of birth', type: 'date', required: false, value: '' },
+                    { name: 'personalEmail', label: 'Personal email', required: false, value: '' },
+                    { name: 'phone', label: 'Phone', required: false, value: '' },
+                    { name: 'address', label: 'Address', required: false, value: '' },
+                    { name: 'note', label: 'Why (and where the evidence is)', type: 'textarea' },
+                  ],
+                  transform: (v) => ({ note: v.note, changes: Object.fromEntries(Object.entries(v).filter(([k, val]) => k !== 'note' && val !== '')) }),
+                })
+              }
+            >
+              Request a change
             </Button>
           )}
         </div>

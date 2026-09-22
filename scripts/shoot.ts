@@ -54,6 +54,8 @@ async function main(): Promise<void> {
       const name = process.argv[4] ?? route.replace(/[^\w-]+/g, '-')
       await page.goto(`${BASE}/#/${route}`)
       await page.waitForTimeout(1200)
+      // SHOOT_SELECT="label=value;label=value" picks options in <select>s (by accessible label) before the shot
+      for (const pair of (process.env.SHOOT_SELECT ?? '').split(';').filter(Boolean)) { const [label, value] = pair.split('=') as [string, string]; await page.getByLabel(new RegExp(label, 'i')).first().selectOption({ label: value }).catch(async () => page.getByLabel(new RegExp(label, 'i')).first().selectOption(value)); await page.waitForTimeout(700) }
       // SHOOT_CLICK="Select all" clicks a button by name before the shot (to show a selected state)
       if (process.env.SHOOT_CLICK) { await page.getByRole('button', { name: new RegExp(process.env.SHOOT_CLICK, 'i') }).first().click(); await page.waitForTimeout(500) }
       await page.screenshot({ path: `${OUT}/${name}.png`, fullPage: true })

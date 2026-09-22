@@ -10,6 +10,8 @@ import {
 } from 'lucide-react'
 import { fullName, dateLabel, exportCsv } from '../api'
 import type { Workspace, Profile } from '../types'
+import { LettersPage } from './Letters'
+import { OrgChartPage, PositionsPage, ProbationPage, RequestsPage } from './Structure'
 import {
   Avatar,
   Badge,
@@ -18,20 +20,39 @@ import {
   Empty,
   PageHeader,
   SearchBox,
+  Tabs,
 } from '../ui'
 
 export function People({
   data,
   open,
+  screen = 'directory',
 }: {
   data: Workspace
   open: (s: FormSpec) => void
+  screen?: string
 }) {
   const [search, setSearch] = useState(''),
     [department, setDepartment] = useState(''),
     [status, setStatus] = useState(''),
     [view, setView] = useState('table'),
     [page, setPage] = useState(1)
+  // Sub-views on the route (#/people/letters …); the directory is the default.
+  const VIEWS: Array<[string, string, boolean]> = [
+    ['directory', 'Directory', true],
+    ['org-chart', 'Org chart', data.permissions.includes('employee.read')],
+    ['positions', 'Positions', data.permissions.includes('employee.read') && data.user.scope === 'all'],
+    ['probation', 'Probation', data.permissions.includes('employee.read') && data.user.scope !== 'self'],
+    ['letters', 'Letters', data.permissions.includes('letter.read')],
+    ['requests', 'Requests', data.permissions.includes('employee.write')],
+  ]
+  const shown = VIEWS.filter((v) => v[2])
+  const tabs = <Tabs value={shown.find((v) => v[0] === screen)?.[1] ?? 'Directory'} onChange={(label) => { const v = shown.find((x) => x[1] === label); window.location.hash = `#/people${v && v[0] !== 'directory' ? `/${v[0]}` : ''}` }} items={shown.map((v) => v[1])} />
+  if (screen === 'org-chart') return <><PageHeader title="Org chart" description="Who reports to whom, drawn from the reporting lines on record." eyebrow="People · Structure" />{tabs}<OrgChartPage /></>
+  if (screen === 'positions') return <><PageHeader title="Positions" description="Budgeted seats, who sits in them, and what is vacant." eyebrow="People · Structure" />{tabs}<PositionsPage data={data} /></>
+  if (screen === 'probation') return <><PageHeader title="Probation" description="Reviews due, and the decisions taken." eyebrow="People · Probation" />{tabs}<ProbationPage data={data} /></>
+  if (screen === 'letters') return <><PageHeader title="Letters" description="Offer, appointment, confirmation, experience — merged from the record and signed once." eyebrow="People · Letters" />{tabs}<LettersPage data={data} /></>
+  if (screen === 'requests') return <><PageHeader title="Profile change requests" description="Corrections people asked for on locked fields, with their evidence." eyebrow="People · Requests" />{tabs}<RequestsPage data={data} /></>
   const rows = data.employees.filter(
     (e) =>
       `${fullName(e)} ${e.employee_number} ${e.designation ?? ''}`
@@ -101,6 +122,7 @@ export function People({
             </Button>
           )}
       </PageHeader>
+      {tabs}
       <div className="people-summary">
         <span>
           <b>{data.employees.length}</b> people in your workspace

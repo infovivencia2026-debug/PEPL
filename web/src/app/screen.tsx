@@ -76,7 +76,9 @@ export function screenFor({
   else if (section === 'hiring') page = <RecruitmentPage data={data} route={route} />
   else if (section === 'performance') page = <PerformancePage data={data} />
   else if (section === 'people')
-    page = route.split('/')[1] ? (
+    page = ['org-chart', 'positions', 'probation', 'letters', 'requests'].includes(route.split('/')[1] ?? '') ? (
+      <People data={data} open={setForm} screen={route.split('/')[1]} />
+    ) : route.split('/')[1] ? (
       <EmployeeProfile
         id={route.split('/')[1]}
         data={data}
