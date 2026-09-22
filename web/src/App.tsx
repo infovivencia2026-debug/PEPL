@@ -32,7 +32,10 @@ import {
 import type { Workspace } from './types'
 import { ActionForm, Login, type FormSpec } from './forms'
 import { MfaGate, RecheckModal } from './security/Mfa'
-import { installRecheck } from './domainApi'
+import { installRecheck, domainApi } from './domainApi'
+import { AssistantDrawer } from './shell/Assistant'
+import { TrustPage } from './shell/Trust'
+import { MessageCircleQuestion } from 'lucide-react'
 import {
   Avatar,
   Brand,
@@ -79,7 +82,10 @@ export function App() {
     // MFA: 'verify' after a login that needs a code; 'enrol' when the company requires admins to set it up
     [mfa, setMfa] = useState<'verify' | 'enrol' | null>(null),
     // a sensitive action asked for a fresh code; retry it once verified
-    [recheck, setRecheck] = useState<(() => Promise<void>) | null>(null)
+    [recheck, setRecheck] = useState<(() => Promise<void>) | null>(null),
+    [assistant, setAssistant] = useState(false),
+    // a sandbox tenant is invented data that never sends; the shell says so on every page
+    [sandbox, setSandbox] = useState(false)
   const recheckDismiss = useRef<(() => void) | null>(null)
   const request = useRef(0),
     date = useRef(''),
@@ -117,6 +123,18 @@ export function App() {
   useEffect(() => {
     void load()
   }, [load])
+  useEffect(() => {
+    if (!data) return
+    void domainApi<{ isSandbox: boolean }>('/sandbox').then((r) => setSandbox(r.isSandbox)).catch(() => undefined)
+  }, [data])
+  useEffect(() => {
+    const key = (e: KeyboardEvent) => {
+      const el = e.target as HTMLElement | null
+      if (e.key === '?' && !e.metaKey && !e.ctrlKey && el && !/^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName) && !el.isContentEditable) { e.preventDefault(); setAssistant(true) }
+    }
+    window.addEventListener('keydown', key)
+    return () => window.removeEventListener('keydown', key)
+  }, [])
   // any domain call refused with MFA_RECHECK_REQUIRED opens the code prompt and retries itself
   useEffect(() => {
     installRecheck(() => new Promise<boolean>((resolve) => { setRecheck(() => async () => resolve(true)); recheckDismiss.current = () => resolve(false) }))
@@ -379,6 +397,8 @@ export function App() {
             <PasswordRecovery token={new URLSearchParams(location.search).get('token')} />
           ) : route === 'forgot-password' ? (
             <PasswordRecovery />
+          ) : route === 'trust' ? (
+            <TrustPage />
           ) : route === 'signup' && (loggedOut || !data) ? (
             <Signup onSignedIn={async () => { setLoggedOut(false); await load() }} />
           ) : loading ? (
@@ -419,6 +439,9 @@ export function App() {
           </footer>
         )}
       </div>
+      {sandbox && <div className="sandbox-banner" role="status">Sandbox — nothing here is real, and nothing it sends leaves the building.</div>}
+      {!loggedOut && data && <button type="button" className="assistant-launcher" onClick={() => setAssistant(true)} aria-label="Ask PEPL (press ?)"><MessageCircleQuestion size={20} aria-hidden="true" /></button>}
+      <AssistantDrawer open={assistant} onClose={() => setAssistant(false)} />
       {recheck && <RecheckModal onVerified={() => { const again = recheck; setRecheck(null); void again() }} onClose={() => { setRecheck(null); recheckDismiss.current?.(); recheckDismiss.current = null }} />}
       {form && (
         <ActionForm

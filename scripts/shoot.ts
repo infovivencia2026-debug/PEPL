@@ -70,6 +70,8 @@ async function main(): Promise<void> {
       for (const pair of (process.env.SHOOT_SELECT ?? '').split(';').filter(Boolean)) { const [label, value] = pair.split('=') as [string, string]; await page.getByLabel(new RegExp(label, 'i')).first().selectOption({ label: value }).catch(async () => page.getByLabel(new RegExp(label, 'i')).first().selectOption(value)); await page.waitForTimeout(700) }
       // SHOOT_CLICK="Select all" clicks a button by name before the shot (to show a selected state)
       if (process.env.SHOOT_CLICK) { await page.getByRole('button', { name: new RegExp(process.env.SHOOT_CLICK, 'i') }).first().click(); await page.waitForTimeout(500) }
+      // SHOOT_TYPE="label=text" fills an input then presses Enter (drives a search/ask box)
+      if (process.env.SHOOT_TYPE) { const [label, text] = process.env.SHOOT_TYPE.split('=') as [string, string]; await page.getByLabel(new RegExp(label, 'i')).first().fill(text); await page.keyboard.press('Enter'); await page.waitForTimeout(1500) }
       await page.screenshot({ path: `${OUT}/${name}.png`, fullPage: true })
       console.log(`${OUT}/${name}.png`)
       // SHOOT_EVAL="<js expression>" prints a measurement from the page (layout assertions, not eyeballing)
