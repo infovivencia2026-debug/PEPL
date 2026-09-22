@@ -31,6 +31,8 @@ import {
 } from './api'
 import type { Workspace } from './types'
 import { ActionForm, Login, type FormSpec } from './forms'
+import { MfaGate, RecheckModal } from './security/Mfa'
+import { installRecheck } from './domainApi'
 import {
   Avatar,
   Brand,
@@ -72,7 +74,12 @@ export function App() {
     [searchOpen, setSearchOpen] = useState(false),
     [search, setSearch] = useState(''),
     [notifications, setNotifications] = useState(false),
-    [revision, setRevision] = useState(0)
+    [revision, setRevision] = useState(0),
+    // MFA: 'verify' after a login that needs a code; 'enrol' when the company requires admins to set it up
+    [mfa, setMfa] = useState<'verify' | 'enrol' | null>(null),
+    // a sensitive action asked for a fresh code; retry it once verified
+    [recheck, setRecheck] = useState<(() => Promise<void>) | null>(null)
+  const recheckDismiss = useRef<(() => void) | null>(null)
   const request = useRef(0),
     date = useRef(''),
     main = useRef<HTMLElement>(null),
@@ -92,7 +99,9 @@ export function App() {
       }
     } catch (e) {
       if (seq === request.current) {
-        if (e instanceof ApiError && e.status === 401) {
+        if (e instanceof ApiError && e.code === 'MFA_REQUIRED') { setMfa('verify'); setLoggedOut(false) }
+        else if (e instanceof ApiError && e.code === 'MFA_ENROLMENT_REQUIRED') { setMfa('enrol'); setLoggedOut(false) }
+        else if (e instanceof ApiError && e.status === 401) {
           setLoggedOut(true)
           setData(null)
         } else setError(toErrorView(e))
@@ -107,6 +116,11 @@ export function App() {
   useEffect(() => {
     void load()
   }, [load])
+  // any domain call refused with MFA_RECHECK_REQUIRED opens the code prompt and retries itself
+  useEffect(() => {
+    installRecheck(() => new Promise<boolean>((resolve) => { setRecheck(() => async () => resolve(true)); recheckDismiss.current = () => resolve(false) }))
+    return () => installRecheck(null)
+  }, [])
   useEffect(() => {
     const update = () => {
       setRoute(getRoute())
@@ -168,6 +182,8 @@ export function App() {
       await load()
       setToast(message)
     } catch (e) {
+      // payroll lock, bank file: the server wants a fresh authenticator code, then the same call again
+      if (e instanceof ApiError && e.code === 'MFA_RECHECK_REQUIRED') { setRecheck(() => () => act(path, body, message)); return }
       setToast((e as Error).message)
     }
   }
@@ -364,6 +380,8 @@ export function App() {
             <PasswordRecovery />
           ) : loading ? (
             <Skeleton />
+          ) : mfa ? (
+            <MfaGate mode={mfa} onVerified={async () => { setMfa(null); await load() }} onSignOut={async () => { await api('/auth/logout', {}).catch(() => undefined); setMfa(null); setLoggedOut(true); setData(null) }} />
           ) : loggedOut ? (
             <Login
               onSuccess={async () => {
@@ -398,6 +416,7 @@ export function App() {
           </footer>
         )}
       </div>
+      {recheck && <RecheckModal onVerified={() => { const again = recheck; setRecheck(null); void again() }} onClose={() => { setRecheck(null); recheckDismiss.current?.(); recheckDismiss.current = null }} />}
       {form && (
         <ActionForm
           spec={form}

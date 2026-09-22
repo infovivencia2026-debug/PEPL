@@ -1,6 +1,7 @@
 import { Router, HttpError } from './router.ts'
 import {
   authed,
+  requireRecentMfa,
   ok,
   created,
   requireBody,
@@ -424,6 +425,8 @@ function registerPayroll(r: Router) {
         assertPermission(c.auth, 'payroll.approve')
         await approve(c.tx, id, c.auth.userId, separate)
       } else if (b.action === 'lock') {
+        // the same fresh-code rule as /api/v1/payroll/runs/:id/lock — the browser path must not be the soft one
+        await requireRecentMfa(c)
         assertPermission(c.auth, 'payroll.lock')
         await lock(c.tx, id, c.auth.userId, separate)
         await audit(c, 'payroll.run.locked', 'payroll_run', id)

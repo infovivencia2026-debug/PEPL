@@ -1,6 +1,14 @@
 import { ApiError } from './api'
 
-export async function domainApi<T>(path: string, body?: unknown, method?: 'GET' | 'POST' | 'PATCH' | 'DELETE'): Promise<T> {
+/**
+ * Installed by the shell: opens the authenticator prompt and resolves true once
+ * a fresh code is verified (false if dismissed). Every domainApi call then
+ * retries itself once, so no screen needs its own recheck handling.
+ */
+export let requestRecheck: (() => Promise<boolean>) | null = null
+export function installRecheck(fn: (() => Promise<boolean>) | null): void { requestRecheck = fn }
+
+export async function domainApi<T>(path: string, body?: unknown, method?: 'GET' | 'POST' | 'PATCH' | 'DELETE', retried = false): Promise<T> {
   const verb = method ?? (body === undefined ? 'GET' : 'POST')
   const response = await fetch(`/api/v1${path}`, {
     credentials: 'same-origin',
@@ -9,6 +17,9 @@ export async function domainApi<T>(path: string, body?: unknown, method?: 'GET' 
     body: body === undefined ? undefined : JSON.stringify(body),
   })
   const result = response.status === 204 ? {} : await response.json().catch(() => ({}))
+  if (!response.ok && response.status === 403 && result.error?.code === 'MFA_RECHECK_REQUIRED' && !retried && requestRecheck) {
+    if (await requestRecheck()) return domainApi<T>(path, body, method, true)
+  }
   if (!response.ok) throw new ApiError(result.error?.message ?? 'Unable to complete this request', response.status, result.error?.code, result.error?.requestId, { ...result.error?.details, ...(response.headers.get('retry-after') ? { retryAfter: response.headers.get('retry-after') } : {}) })
   return result as T
 }

@@ -7,7 +7,9 @@ import { Button, Card, Modal } from './ui'
 type Ids = { uan: string | null; pan: string | null; esi_number: string | null; pf_member_id: string | null }
 export function StatutoryIds({ id, canWrite }: { id: string; canWrite: boolean }) {
   const [ids, setIds] = useState<Ids | null>(null); const [error, setError] = useState(''); const [notice, setNotice] = useState(''); const [busy, setBusy] = useState(false)
-  const load = useCallback(async () => { setIds((await domainApi<{ statutoryIds: Ids | null }>(`/employees/${id}/statutory-ids`)).statutoryIds) }, [id])
+  // masked for anyone but the person; Reveal re-fetches with ?reveal=true, which the server audits
+  const [masked, setMasked] = useState(false)
+  const load = useCallback(async (reveal = false) => { const r = await domainApi<{ statutoryIds: Ids | null; masked: boolean }>(`/employees/${id}/statutory-ids${reveal ? '?reveal=true' : ''}`); setIds(r.statutoryIds); setMasked(r.masked) }, [id])
   useEffect(() => { void load().catch(caught => setError(caught.message)) }, [load])
   const save = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault(); const body = Object.fromEntries([...new FormData(event.currentTarget)].filter(([,value]) => String(value).trim()))
@@ -15,7 +17,7 @@ export function StatutoryIds({ id, canWrite }: { id: string; canWrite: boolean }
     try { await domainApi(`/employees/${id}/statutory-ids`, body, 'PATCH'); await load(); setNotice('Statutory identifiers saved.') } catch (caught) { setError(caught instanceof Error ? caught.message : 'Unable to save identifiers') } finally { setBusy(false) }
   }
   return <Card title="Statutory identifiers" subtitle="Private payroll details. Omitted fields are kept unchanged.">
-    <div className="identifier-warnings">{!ids?.uan && <span className="status-pill status-rejected">Missing UAN — excluded from ECR</span>}{!ids?.pan && <span className="status-pill status-rejected">Missing PAN — excluded from 24Q</span>}</div>
+    <div className="identifier-warnings">{!ids?.uan && <span className="status-pill status-rejected">Missing UAN — excluded from ECR</span>}{!ids?.pan && <span className="status-pill status-rejected">Missing PAN — excluded from 24Q</span>}{masked && <span className="status-pill">Masked · <button type="button" className="link-btn" onClick={() => void load(true).catch((c: Error) => setError(c.message))}>Reveal (audited)</button></span>}</div>
     <form onSubmit={save} key={JSON.stringify(ids)} className="lifecycle-form">{[{name:'uan',label:'UAN',value:ids?.uan,pattern:'[0-9]{12}',hint:'12 digits'}, {name:'pan',label:'PAN',value:ids?.pan,pattern:'[A-Za-z]{5}[0-9]{4}[A-Za-z]',hint:'AAAAA9999A'}, {name:'esiNumber',label:'ESI number',value:ids?.esi_number,pattern:'[0-9]{10}|[0-9]{17}',hint:'10 or 17 digits'}, {name:'pfMemberId',label:'PF member ID',value:ids?.pf_member_id,hint:'Establishment-linked member ID'}].map(field => <label key={field.name}>{field.label}<input name={field.name} defaultValue={field.value ?? ''} pattern={field.pattern} readOnly={!canWrite} placeholder={field.hint} /><small>{field.hint}</small></label>)}{canWrite && <Button disabled={busy}>Save identifiers</Button>}</form>{error && <p role="alert" className="form-error">{error}</p>}{notice && <p role="status" className="success-note">{notice}</p>}
   </Card>
 }

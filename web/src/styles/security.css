@@ -1,0 +1,31 @@
+/* Security: MFA gate, enrolment, status card, recheck. */
+
+.mfa-gate { min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 24px; }
+.mfa-gate .card { width: min(520px, 100%); padding: 32px; }
+.mfa-gate h1 { font-size: clamp(24px, 3vw, 32px); margin: 8px 0 6px; letter-spacing: -.8px; font-weight: 550; }
+.mfa-gate p { color: var(--muted); margin: 0 0 18px; }
+.mfa-form { display: flex; gap: 10px; align-items: flex-end; flex-wrap: wrap; }
+.mfa-form .field { flex: 1 1 220px; margin: 0; }
+.mfa-form input { font-size: 20px; letter-spacing: 3px; font-variant-numeric: tabular-nums; min-height: 48px; }
+.mfa-form .btn { min-height: 48px; }
+.link-btn { background: none; border: 0; padding: 8px 0; color: var(--primary); text-decoration: underline; font-size: 13px; min-height: 44px; }
+.link-btn:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; border-radius: 4px; }
+.mfa-gate .link-btn { margin-top: 12px; }
+
+.mfa-enrol .steps .step-title { display: block; margin-bottom: 8px; }
+.mfa-qr { width: 220px; height: 220px; margin: 6px 0; border-radius: 12px; overflow: hidden; }
+.mfa-qr svg { width: 100%; height: 100%; display: block; }
+code.secret { font-family: ui-monospace, 'Cascadia Mono', Consolas, monospace; letter-spacing: 1.5px; background: var(--surface-muted); padding: 3px 8px; border-radius: 6px; user-select: all; }
+
+.mfa-codes h3 { display: flex; align-items: center; gap: 8px; margin: 0 0 8px; font-size: 17px; color: #2d5a3c; }
+.mfa-codes ol { columns: 2; gap: 24px; margin: 14px 0; padding-left: 22px; }
+.mfa-codes li { margin-bottom: 6px; }
+.mfa-codes code { font-family: ui-monospace, 'Cascadia Mono', Consolas, monospace; letter-spacing: 1px; font-size: 14px; user-select: all; }
+
+.mfa-status { display: flex; gap: 16px; align-items: flex-start; }
+.mfa-status p { margin: 0 0 10px; font-size: 13px; }
+.mfa-pill { display: inline-flex; align-items: center; gap: 6px; padding: 8px 12px; border-radius: 10px; font-weight: 550; font-size: 13px; flex: none; }
+.mfa-pill.on { background: #eaf3e5; color: #2d5a3c; }
+.mfa-pill.off { background: #fcf1d9; color: #7a5f1f; }
+
+@media (max-width: 720px) { .mfa-codes ol { columns: 1; } .mfa-status { flex-direction: column; } }

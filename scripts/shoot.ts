@@ -73,6 +73,43 @@ async function main(): Promise<void> {
       return
     }
 
+    // `npm run shoot -- mfa`: enable 2FA for SHOOT_EMAIL through the real UI (setup → code → recovery codes),
+    // sign out, sign in again and prove the code gate appears and lets a valid code through. Disables it afterwards.
+    if (only === 'mfa') {
+      const { totp, stepAt } = await import('../src/auth/mfa.ts')
+      const b32decode = (str: string): Buffer => { const A = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567'; let bits = 0, val = 0; const out: number[] = []; for (const ch of str.replace(/=+$/, '')) { val = (val << 5) | A.indexOf(ch); bits += 5; if (bits >= 8) { out.push((val >>> (bits - 8)) & 0xff); bits -= 8 } } return Buffer.from(out) }
+      await page.goto(`${BASE}/#/account`); await page.waitForTimeout(1200)
+      if (await page.locator('.mfa-pill.on').count()) { console.error('2FA is already on for this account (a previous run died?) — disable it in Account first'); process.exitCode = 1; return }
+      await page.getByRole('button', { name: /^set up$/i }).click(); await page.waitForTimeout(1500)
+      const secret = (await page.locator('code.secret').textContent())!.trim()
+      await page.getByLabel(/six-digit code/i).fill(totp(b32decode(secret), stepAt()))
+      await page.getByRole('button', { name: /continue/i }).click(); await page.waitForTimeout(1200)
+      await page.screenshot({ path: `${OUT}/mfa-recovery-codes.png` }); console.log(`${OUT}/mfa-recovery-codes.png`)
+      const codes = await page.locator('.mfa-codes code').allTextContents()
+      if (codes.length !== 8) { console.error(`FAIL: expected 8 recovery codes, saw ${codes.length}`); process.exitCode = 1 }
+      await page.getByRole('button', { name: /i have saved them/i }).click(); await page.waitForTimeout(800)
+      // sign out, sign in: the gate must appear
+      await page.getByRole('button', { name: /account menu/i }).click(); await page.getByRole('button', { name: /^sign out$/i }).click(); await page.waitForTimeout(1500)
+      await page.locator('input[type="email"]').first().fill(EMAIL); await page.locator('input[type="password"]').first().fill(PASSWORD); await page.locator('button[type="submit"]').first().click()
+      await page.getByRole('heading', { name: /one more step/i }).waitFor({ timeout: 15_000 })
+      await page.screenshot({ path: `${OUT}/mfa-gate.png` }); console.log(`${OUT}/mfa-gate.png`)
+      await page.getByLabel(/six-digit code/i).fill('000000'); await page.getByRole('button', { name: /continue/i }).click(); await page.waitForTimeout(1000)
+      const wrong = await page.getByText(/did not match/i).count()
+      // the enrolment consumed the current step and the server refuses a step already used — use the next one (±1 drift is accepted)
+      await page.getByLabel(/six-digit code/i).fill(totp(b32decode(secret), stepAt() + 1)); await page.getByRole('button', { name: /continue/i }).click()
+      // the hash survives sign-out, so we land back on Account: the workspace shell (account menu) is the proof of admission
+      await page.getByRole('button', { name: /account menu/i }).waitFor({ timeout: 20_000 })
+      await page.screenshot({ path: `${OUT}/mfa-after-code.png` })
+      console.log(`gate: wrong code refused=${wrong > 0}, right code admitted=true`)
+      // tidy: disable so the demo account stays password-only for the next rig run
+      await page.goto(`${BASE}/#/account`); await page.waitForTimeout(1200)
+      await page.getByRole('button', { name: /^disable$/i }).click(); await page.waitForTimeout(600)
+      await page.waitForTimeout(31_000); await page.getByLabel(/six-digit code, or a recovery code/i).fill(totp(b32decode(secret), stepAt() + 1)); await page.getByRole('button', { name: /continue/i }).click(); await page.waitForTimeout(1200)
+      console.log(`disabled again: ${(await page.locator('.mfa-pill.off').count()) > 0}`)
+      if (wrong === 0) process.exitCode = 1
+      return
+    }
+
     if (!only || only === 'dashboard') {
       await page.screenshot({ path: `${OUT}/verify-dashboard.png` })
       console.log(`${OUT}/verify-dashboard.png`)
