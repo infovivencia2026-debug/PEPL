@@ -99,7 +99,9 @@ export function screenFor({
   else if (section === 'leave') page = <LeavePage {...props} />
   else if (section === 'approvals') page = <ApprovalsPage {...props} />
   else if (section === 'payroll')
-    page = <PayrollPage {...props} refresh={load} />
+    page = ['compliance', 'contractors', 'bonus'].includes(route.split('/')[1] ?? '')
+      ? <PayrollPage {...props} refresh={load} screen={route.split('/')[1]} />
+      : <PayrollPage {...props} refresh={load} />
   else if (section === 'tasks') page = <TasksPage {...props} />
   else if (section === 'reports') page = <ReportsPage {...props} />
   else if (section === 'activity') page = <ActivityPage {...props} />

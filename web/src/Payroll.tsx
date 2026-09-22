@@ -28,6 +28,12 @@ import {
 import { PayrollInputs } from './PayrollInputs'
 import { decodeBase64, domainApi, downloadFile } from './domainApi'
 import { Filings } from './Filings'
+import { ChecksTab } from './pay/Checks'
+import { JournalTab } from './pay/Journal'
+import { CompliancePage } from './pay/Compliance'
+import { ContractorsPage } from './pay/Contractors'
+import { BonusPage } from './pay/Bonus'
+import { PaymentStatusStrip } from './pay/Reconcile'
 import { PayslipDetails } from './PayslipDetails'
 import { LoansPanel } from './LoansPanel'
 interface FrozenInput {
@@ -47,11 +53,24 @@ export function PayrollPage({
   data,
   open,
   refresh,
+  screen = 'runs',
 }: {
   data: Workspace
   open: (s: FormSpec) => void
   refresh: () => Promise<void>
+  screen?: string
 }) {
+  const PAY_VIEWS: Array<[string, string, boolean]> = [
+    ['runs', 'Runs', true],
+    ['compliance', 'Compliance', data.permissions.includes('compliance.read')],
+    ['contractors', 'Contractors', data.permissions.includes('contractor.read')],
+    ['bonus', 'Bonus', data.permissions.includes('payroll.process')],
+  ]
+  const payShown = PAY_VIEWS.filter((v) => v[2])
+  const payTabs = (
+    <Tabs value={payShown.find((v) => v[0] === screen)?.[1] ?? 'Runs'} items={payShown.map((v) => v[1])}
+      onChange={(label) => { const v = payShown.find((x) => x[1] === label); window.location.hash = `#/payroll${v && v[0] !== 'runs' ? `/${v[0]}` : ''}` }} />
+  )
   const [selected, setSelected] = useState(() => location.hash.replace(/^#\/?/, '').split('/')[1] ?? ''),
     [tab, setTab] = useState('Register'),
     [editing, setEditing] = useState(false),
@@ -183,6 +202,9 @@ export function PayrollPage({
       }),
     })
   }
+  if (screen === 'compliance') return <><PageHeader title="Compliance calendar" description="What this company owes the state, when, and whether it was filed on time." eyebrow="Pay · Compliance" />{payTabs}<CompliancePage data={data} /></>
+  if (screen === 'contractors') return <><PageHeader title="Contractors" description="People paid on invoice — outside the payroll run, with TDS deducted per invoice." eyebrow="Pay · Contractors" />{payTabs}<ContractorsPage data={data} /></>
+  if (screen === 'bonus') return <><PageHeader title="Statutory bonus" description="Payment of Bonus Act arithmetic, before any money moves." eyebrow="Pay · Bonus" />{payTabs}<BonusPage data={data} /></>
   return (
     <>
       <PageHeader
@@ -341,10 +363,11 @@ export function PayrollPage({
           <Tabs
             value={tab}
             onChange={setTab}
-            items={['Register', 'Frozen inputs']}
+            items={['Register', 'Frozen inputs', 'Checks', 'Journal']}
           />
         </>
       ) : null}
+      {data.user.scope === 'all' && payShown.length > 1 && payTabs}
       {error && <ErrorBox message={error} />}
       <Card
         title={
@@ -360,7 +383,11 @@ export function PayrollPage({
             : 'Published payroll records'
         }
       >
-        {tab === 'Frozen inputs' ? (
+        {tab === 'Checks' && run ? (
+          <ChecksTab runId={run.id} data={data} onChanged={refresh} />
+        ) : tab === 'Journal' && run ? (
+          <JournalTab runId={run.id} locked={run.status === 'locked'} data={data} />
+        ) : tab === 'Frozen inputs' ? (
           inputs.length ? (
             <div className="table-scroll">
               <table>
@@ -442,6 +469,7 @@ export function PayrollPage({
         )}
       </Card>
       {run && run.revision > 1 && <Card title="Changes from the previous revision" subtitle="Only changed payroll components are shown">{delta.length ? <div className="table-scroll"><table><thead><tr><th>Employee</th><th>Component</th><th>Previous</th><th>Revised</th><th>Change</th></tr></thead><tbody>{delta.map(row => <tr key={`${row.employee_id}-${row.component_code}`}><td>{fullName(data.employees.find(employee => employee.id === row.employee_id) ?? { first_name: 'Employee', last_name: row.employee_id.slice(0, 6) })}</td><td>{pretty(row.component_code)}</td><td>{money(row.old_amount)}</td><td>{money(row.new_amount)}</td><td className={BigInt(row.delta_paise) < 0n ? 'delta-negative' : 'delta-positive'}>{BigInt(row.delta_paise) > 0n ? '+' : ''}{money(row.delta_paise)}</td></tr>)}</tbody></table></div> : <Empty title="No component changes" text="This revision currently matches the previous run." />}</Card>}
+      {run && run.status === 'locked' && has('bank.read') && <PaymentStatusStrip runId={run.id} canReconcile={has('bank.export')} />}
       {run && has('payroll.process') && <Filings key={run.id} run={run} data={data} />}
       {data.user.scope === 'self' && data.user.employeeId && <LoansPanel id={data.user.employeeId} data={data} />}
       {breakdown && <PayslipDetails id={breakdown} onClose={() => setBreakdown('')} />}

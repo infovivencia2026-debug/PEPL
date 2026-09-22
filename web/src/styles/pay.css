@@ -1,0 +1,50 @@
+/* Pay: journal, checks, compliance, contractors, bonus, reconciliation. */
+
+.num { text-align: right; font-variant-numeric: tabular-nums; }
+th.num { text-align: right; }
+.warn-text { color: #8f3224; }
+
+.journal-head { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 14px; }
+.journal-head .row-actions { margin: 0 0 0 auto; }
+.balance-pill { display: inline-flex; align-items: center; gap: 8px; padding: 9px 14px; border-radius: 12px; font-size: 13px; font-weight: 550; }
+.balance-pill.ok { background: #eaf3e5; color: #2d5a3c; }
+.balance-pill.warn { background: #fcf1d9; color: #7a5f1f; }
+.balance-pill.bad { background: #f9dcd6; color: #8f3224; }
+.draft-row td { background: var(--surface-muted); }
+.draft-row input, .draft-row select { width: 100%; }
+
+/* checks */
+.finding-list section { margin-bottom: 20px; }
+.finding-list h3.sev { display: flex; align-items: center; gap: 8px; font-size: 13px; margin: 0 0 10px; text-transform: uppercase; letter-spacing: .5px; }
+.finding-list h3.sev.blocking { color: #8f3224; }
+.finding-list h3.sev.warning { color: #7a5f1f; }
+.finding-list h3.sev.info { color: var(--muted); }
+.finding { margin-bottom: 10px; }
+.finding.settled { opacity: .62; }
+.finding .approval-full-head { margin-bottom: 8px; align-items: flex-start; }
+.finding small { display: block; color: var(--muted); font-size: 11px; margin-top: 2px; }
+.dismiss-row { display: flex; gap: 8px; align-items: flex-end; }
+.dismiss-row .field { flex: 1; margin: 0; }
+
+/* compliance */
+.compliance-score .stat span.subtle { font-size: 11px; }
+.compliance-score .stat strong.bad { color: #8f3224; }
+tr.row-overdue td:first-child { box-shadow: inset 3px 0 0 var(--danger); }
+
+/* payments */
+.pay-strip { display: flex; height: 12px; border-radius: 6px; overflow: hidden; background: var(--surface-muted); margin: 6px 0 10px; }
+.pay-strip i { display: block; height: 100%; }
+.pay-strip .settled, .dot.settled { background: var(--chart-0); }
+.pay-strip .failed, .dot.failed { background: var(--danger); }
+.pay-strip .pending, .dot.pending { background: var(--warning); }
+.pay-legend { list-style: none; display: flex; gap: 16px; margin: 0 0 12px; padding: 0; font-size: 12px; color: var(--muted); }
+.pay-legend li { display: flex; align-items: center; gap: 6px; }
+.pay-legend .dot { width: 9px; height: 9px; border-radius: 50%; }
+.failure-list { background: #f9dcd6; border-radius: 12px; padding: 12px 14px; margin-bottom: 12px; }
+.failure-list h4 { margin: 0 0 6px; font-size: 13px; color: #8f3224; }
+.failure-list ul { margin: 0; padding-left: 18px; font-size: 12.5px; }
+
+@media (max-width: 720px) {
+  .journal-head .row-actions { margin-left: 0; width: 100%; }
+  .dismiss-row { flex-direction: column; align-items: stretch; }
+}

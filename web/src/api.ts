@@ -130,7 +130,7 @@ export const dateLabel = (
         options,
       )
     : '—'
-export const money = (s: string | null | undefined) =>
+export const money = (s: string | number | null | undefined) =>
   s === null || s === undefined
     ? '—'
     : new Intl.NumberFormat('en-IN', {
