@@ -23,6 +23,7 @@
     "start": "node --experimental-strip-types src/http/server.ts",
     "typecheck:web": "tsc -p web/tsconfig.json",
     "job": "node --experimental-strip-types scripts/run-job.ts",
+    "ops": "node --experimental-strip-types scripts/ops.ts",
     "incident": "node --experimental-strip-types scripts/incident.ts",
     "shoot": "node --experimental-strip-types scripts/shoot.ts",
     "check:responsive": "node --experimental-strip-types scripts/responsive-check.ts",

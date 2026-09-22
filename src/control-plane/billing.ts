@@ -282,6 +282,28 @@ export async function runDunning(now = new Date()): Promise<{ pastDue: number; s
   return { pastDue: r2.rowCount ?? 0, suspended: (r1.rowCount ?? 0) + (r3.rowCount ?? 0), reactivated: r4.rowCount ?? 0 }
 }
 
+/**
+ * An invoice raised in error. Voiding rather than deleting, because an invoice
+ * number that vanishes is a hole in a sequence a CFO will ask about — and
+ * because dunning must stop chasing it. A paid invoice is never voided; that is
+ * a credit note, which is a different document.
+ */
+export async function voidInvoice(invoiceId: string, reason: string): Promise<Invoice> {
+  const { rows } = await controlDb.query<Invoice & { tenant_id: string }>(
+    `UPDATE control_plane.invoices SET status = 'void'
+      WHERE id = $1 AND status = 'due'
+      RETURNING tenant_id, id, number, period_start::text, period_end::text, plan_code, employees, base_paise::text, per_employee_paise::text,
+                subtotal_paise::text, gst_rate::text, gst_paise::text, total_paise::text, status, due_on::text, paid_at::text, payment_reference`,
+    [invoiceId])
+  if (!rows[0]) throw new ControlPlaneError('INVOICE_NOT_FOUND', 'no such unpaid invoice; a paid invoice is reversed with a credit note')
+  await controlDb.query(
+    `INSERT INTO control_plane.platform_audit (action, tenant_id, detail) VALUES ('invoice.voided', $1, $2::jsonb)`,
+    [rows[0].tenant_id, JSON.stringify({ invoice: rows[0].number, reason })])
+  // The debt is gone, so a company suspended only for this invoice comes back.
+  await runDunning()
+  return rows[0]
+}
+
 /** Operator action (or a gateway webhook): the invoice is settled. Dunning reactivates on its next pass. */
 export async function markInvoicePaid(invoiceId: string, reference: string): Promise<Invoice> {
   const { rows } = await controlDb.query<Invoice & { tenant_id: string }>(

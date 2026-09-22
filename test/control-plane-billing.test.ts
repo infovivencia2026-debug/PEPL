@@ -9,7 +9,7 @@ import { createHandler } from '../src/http/router.ts'
 import { buildRouter } from '../src/http/app.ts'
 import { closePools } from '../src/db/pool.ts'
 import { controlDb } from '../src/control-plane/index.ts'
-import { closePeriods, runDunning, markInvoicePaid, priceFor, GST_RATE } from '../src/control-plane/billing.ts'
+import { closePeriods, runDunning, markInvoicePaid, voidInvoice, listInvoices, priceFor, GST_RATE } from '../src/control-plane/billing.ts'
 import { withTenant } from '../src/db/tenant-tx.ts'
 import { resolveConfig } from '../src/config/resolver.ts'
 
@@ -134,6 +134,27 @@ describe('signup and billing', () => {
     expect(paid.status).toBe('paid')
     expect((await api('GET', '/billing', undefined, token)).body.status).toBe('active')
     expect((await api('GET', '/payroll/periods', undefined, token)).status).toBe(200)
+
+    // A paid invoice is not voidable. Reversing one is a credit note, which is a
+    // different document with its own number; silently voiding it would leave the
+    // customer's ledger and ours disagreeing about money already received.
+    await expect(voidInvoice(invoices[0]!.id, 'changed my mind')).rejects.toMatchObject({ code: 'INVOICE_NOT_FOUND' })
+  })
+
+  it('an invoice raised in error is voided, not deleted, and stops being chased', async () => {
+    // Bill a fresh period so there is an unpaid invoice to void.
+    await closePeriods(new Date(Date.UTC(2027, 0, 15)))
+    const due = (await listInvoices(tenantId)).filter((i) => i.status === 'due')
+    expect(due.length).toBeGreaterThan(0)
+
+    const voided = await voidInvoice(due[0]!.id, 'billed on the wrong headcount')
+    expect(voided.status).toBe('void')
+
+    // The number survives: a gap in an invoice sequence is the first thing a
+    // CFO asks about, and dunning must stop chasing a debt that is not owed.
+    const after = await listInvoices(tenantId)
+    expect(after.map((i) => i.number)).toContain(voided.number)
+    expect(after.find((i) => i.id === due[0]!.id)?.status).toBe('void')
   })
 
   it('support access is granted by the tenant, listed, and revoked; another tenant\'s grant is not reachable', async () => {
