@@ -217,6 +217,26 @@ load-bearing** — later files deliberately override earlier ones. Add rules to
 - A `<button>` with no class slips through every class-based CSS rule. The
   inactive tab in `Tabs` is one, and it was the last 41px touch target.
 - `npm run check:responsive` is green across eight devices. Keep it that way.
+- **The dashboard is one viewport, so the board must page by what FITS.**
+  `WidgetBoard` used to pass `Number.MAX_SAFE_INTEGER` as `maxRows` above 1050px,
+  putting every widget on one page: the last rows fell below the fold and the rows
+  above them were too short for their own content. It now derives `maxRows` from the
+  measured frame height over a minimum tile height.
+- **`1fr` rows need a DEFINITE grid height.** With `min-height:100%` the tracks size
+  to content and the board overflows the frame; `height:100%` makes the fr share
+  exact. `minmax(min-content,1fr)` is worse than useless here — the children are
+  `height:100%`, so `min-content` echoes the row height back and resolves ~250px
+  regardless of content. Use a pixel floor (`--tile-min`).
+- **Anything sized in `vh` inside a tile ignores the tile.** The donut was
+  `clamp(115px,17vh,190px)` and outgrew its row at every height. A fitted row is
+  about 18vh less heading and padding — size against that budget.
+- **`.assistant-launcher` is `position:fixed` in the bottom-right corner.** Anything
+  that lives there needs a gutter or the button sits on it; the pagination Next
+  button did. `.widget-pagination` and `.workspace-footer` reserve one in `pay.css`.
+- **The fitted dashboard's rules live in `composition.css`, not `viewport.css`** —
+  it is imported later, so it wins. Tuning viewport.css and seeing nothing change
+  means composition.css already sets that property.
+
 
 ## A migration cannot write a tenant-scoped table
 

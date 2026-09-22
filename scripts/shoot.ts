@@ -62,6 +62,7 @@ async function main(): Promise<void> {
     }
 
     if (only === 'route') {
+      if (process.env.SHOOT_VIEWPORT) { const [w, h] = process.env.SHOOT_VIEWPORT.split('x').map(Number) as [number, number]; await page.setViewportSize({ width: w, height: h }) }
       const route = process.argv[3] ?? 'dashboard'
       const name = process.argv[4] ?? route.replace(/[^\w-]+/g, '-')
       await page.goto(`${BASE}/#/${route}`)

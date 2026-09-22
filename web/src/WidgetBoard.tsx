@@ -82,7 +82,11 @@ export function WidgetBoard({ children, account }: { children: ReactNode; accoun
       : viewport.width <= 1050 ? (widget.hero ? 12 : 6) : configured
     return { id, span }
   })
-  const pages = paginateWidgets(spans, viewport.width > 1050 ? Number.MAX_SAFE_INTEGER : Math.max(1, Math.floor((viewport.height + 16) / 240)))
+  // The board is one viewport, so a page holds as many rows as the frame can show at a
+  // comfortable tile height. Desktop used to put every widget on a single page, which left
+  // the last rows below the fold and the tiles above them too short for their own content.
+  const minTile = viewport.width > 1050 ? 200 : 240
+  const pages = paginateWidgets(spans, Math.max(1, Math.floor((viewport.height + 16) / minTile)))
   const currentPage = Math.min(pageIndex, Math.max(0, pages.length - 1))
   const displayed = editing ? visible : pages[currentPage]?.ids ?? []
   const movePage = (next: number) => {

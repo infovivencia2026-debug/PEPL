@@ -11,7 +11,7 @@ body { background:repeating-linear-gradient(132deg,transparent 0 310px,#9ac3b20d
  .workspace-main { padding-top:8px; }
  .dashboard-heading { flex-basis:29px; height:29px; margin-bottom:9px; }
  .widget-workspace:not(.is-customizing) .widget-grid { gap:13px; }
- .widget-workspace:not(.is-customizing) .widget-grid[style*="--page-rows: 4"] { grid-template-rows:minmax(0,.95fr) minmax(0,1.3fr) minmax(0,.82fr) minmax(0,.93fr); }
+ .widget-workspace:not(.is-customizing) .widget-grid[style*="--page-rows: 4"] { grid-template-rows:none; }
  .widget-workspace:not(.is-customizing) .widget-content > .card { padding:14px 18px; background-color:#fff; }
  .widget-workspace:not(.is-customizing) .widget-content > .welcome-card { padding:17px 28px; }
  .widget-workspace:not(.is-customizing) .widget-content > .welcome-card h2 { font-size:clamp(25px,3.5vh,36px); line-height:1.08; margin-bottom:8px; }
@@ -22,7 +22,9 @@ body { background:repeating-linear-gradient(132deg,transparent 0 310px,#9ac3b20d
  .app-shell .workspace-main .widget-workspace .widget-content > .stat > p { font-size:14px; }
  .widget-workspace:not(.is-customizing) .stat .icon-box { width:40px; height:40px; }
  .widget-workspace:not(.is-customizing) .stat .icon-box svg { width:25px; height:25px; }
- .widget-workspace:not(.is-customizing) .donut { width:clamp(115px,17vh,190px); }
+ /* A fitted row is about 18vh, less the heading and padding, so the donut has to be
+    sized against that budget rather than the whole window. */
+ .widget-workspace:not(.is-customizing) .donut { width:clamp(88px,12vh,150px); }
  .widget-workspace:not(.is-customizing) .donut strong { font-size:28px; }
  .widget-workspace:not(.is-customizing) .donut-layout { gap:23px; }
  .widget-workspace:not(.is-customizing) .legend { gap:9px; }
@@ -69,7 +71,7 @@ body { background:repeating-linear-gradient(132deg,transparent 0 310px,#9ac3b20d
  .widget-workspace:not(.is-customizing) .card-head h2 { font-size:15px; }
 }
 @media(min-width:1051px) and (max-height:800px) {
- .widget-workspace:not(.is-customizing) .widget-grid[style*="--page-rows: 4"] { grid-template-rows:minmax(0,.95fr) minmax(0,1.3fr) minmax(0,.9fr) minmax(0,.85fr); }
+ .widget-workspace:not(.is-customizing) .widget-grid[style*="--page-rows: 4"] { grid-template-rows:none; }
  .widget-workspace:not(.is-customizing) .widget-content > .stat { padding:8px 16px; }
  .widget-workspace:not(.is-customizing) .stat > strong { font-size:30px; }
  .widget-workspace:not(.is-customizing) [data-widget-id=attendance] .donut-layout { height:calc(100% - 47px); }
