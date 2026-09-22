@@ -90,3 +90,18 @@ tr.row-overdue td:first-child { box-shadow: inset 3px 0 0 var(--danger); }
 .stack-bar .open { background: var(--chart-1); }
 .stack-bar .over { background: var(--danger); }
 details summary { cursor: pointer; font-size: 12px; color: var(--primary); min-height: 44px; display: flex; align-items: center; }
+
+/* company: posture ring, benchmark bands */
+.posture-top { display: grid; grid-template-columns: 300px minmax(0, 1fr); gap: 16px; margin-bottom: 16px; }
+.score-card { display: flex; gap: 16px; align-items: center; }
+.score-card h3 { margin: 0 0 4px; font-size: 16px; }
+.score-ring { position: relative; width: 108px; height: 108px; flex: none; border-radius: 50%; display: grid; place-items: center; background: conic-gradient(var(--chart-0) calc(var(--pct) * 1%), var(--surface-muted) 0); }
+.score-ring::after { content: ''; position: absolute; inset: 10px; border-radius: 50%; background: var(--surface); }
+.score-ring strong, .score-ring small { position: relative; z-index: 1; }
+.score-ring strong { font-size: 30px; font-weight: 500; letter-spacing: -1.5px; }
+.score-ring small { color: var(--muted); font-size: 11px; }
+.bench-band { position: relative; height: 26px; margin: 10px 0 6px; }
+.bench-band .band { position: absolute; left: 0; right: 0; top: 11px; height: 6px; border-radius: 3px; background: linear-gradient(90deg, var(--surface-muted), var(--chart-5), var(--surface-muted)); }
+.bench-band .median { position: absolute; top: 5px; width: 2px; height: 18px; background: var(--muted); }
+.bench-band .mine { position: absolute; top: 2px; width: 12px; height: 24px; margin-left: -6px; border-radius: 4px; background: var(--primary); box-shadow: 0 0 0 3px #174f4622; }
+@media (max-width: 860px) { .posture-top { grid-template-columns: 1fr; } }
