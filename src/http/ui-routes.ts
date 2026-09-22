@@ -363,7 +363,7 @@ function registerPayroll(r: Router) {
       const { rows } = await c.tx.query(
         `SELECT e.id,e.first_name,e.last_name,e.date_of_joining::text,c.annual_ctc_paise::text,c.components FROM employees e
    LEFT JOIN compensation_records c ON c.employee_id=e.id AND c.tenant_id=e.tenant_id AND c.superseded_at IS NULL AND c.effective_from<=$1 AND (c.effective_to IS NULL OR c.effective_to>$1)
-   WHERE e.status='active' AND e.date_of_joining<=$1 ORDER BY e.first_name`,
+   WHERE e.status='active' AND e.date_of_joining<=$1 AND NOT EXISTS (SELECT 1 FROM contractor_terms t WHERE t.tenant_id=e.tenant_id AND t.employee_id=e.id) ORDER BY e.first_name`,
         [run.period_end],
       )
       return ok({ period: run, employees: rows })
@@ -455,6 +455,7 @@ function registerPayroll(r: Router) {
               Number(run.period_end.slice(5, 7)),
             ),
           pfOnFullWage: Boolean(run.config_snapshot.pf_on_full_wage),
+          lwfRates: statutory.lwfRates,
           lopBasis: run.config_snapshot.lop_basis as
             'calendar_days' | 'fixed_30' | 'working_days',
         }

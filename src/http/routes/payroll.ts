@@ -28,6 +28,7 @@ import {
 } from './deps.ts'
 import { componentFlags } from '../../payroll/structures.ts'
 import { distributeRun } from '../../payroll/distribute.ts'
+import { runPayrollGuards } from '../../payroll/guards.ts'
 import { ensurePeriod, listPayrollPeriods, updatePayDate, deletePeriod } from '../../payroll/periods.ts'
 
 /**
@@ -157,6 +158,7 @@ export function register(router: Router): void {
         statutory: statutory.config,
         components: (await componentFlags(ctx.tx)) ?? undefined,
         ptAmountPaise: (state, gross) => ptFor(statutory.ptSlabs, state, gross),
+        lwfRates: statutory.lwfRates,
         pfOnFullWage: ctx.config.get<boolean>('payroll.pf_on_full_wage'),
         lopBasis: ctx.config.get<'calendar_days' | 'fixed_30' | 'working_days'>('payroll.lop_basis'),
         computeTds: tdsFor(statutory),
@@ -196,6 +198,9 @@ export function register(router: Router): void {
     { summary: 'Approve a validated run (never the person who ran it)', tag: 'payroll',
       permission: 'payroll.approve' },
     authed('payroll.approve', async (ctx) => {
+      // The guards run here so an approver always sees the current findings; approve() refuses open blockers.
+      const guard = await runPayrollGuards(ctx.tx, ctx.config, asUuid(ctx.req.params.id, 'id'))
+      if (guard.blocking > 0) throw new HttpError(409, 'ANOMALIES_OPEN', `${guard.blocking} blocking finding(s) open on this run; see GET /anomalies?runId=`)
       await approve(ctx.tx, asUuid(ctx.req.params.id, 'id'), ctx.auth.userId, {
         requireSeparateApprover: ctx.config.get<boolean>('payroll.require_separate_approver'),
       })

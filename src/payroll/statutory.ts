@@ -25,10 +25,19 @@ export interface PtSlab {
   month_override: number | null
 }
 
+export interface LwfRate {
+  state_code: string
+  employee_paise: string
+  employer_paise: string
+  deduction_months: number[]
+  wage_ceiling_paise: string | null
+}
+
 export interface LoadedStatutory {
   id: string
   config: StatutoryConfig
   ptSlabs: PtSlab[]
+  lwfRates: LwfRate[]
   taxSlabs: Record<'old' | 'new', TaxSlab[]>
   taxRules: Partial<Record<'old' | 'new', TaxRules>>
   fiscalYear: string
@@ -65,6 +74,14 @@ export async function loadStatutory(tx: PoolClient, asOf?: string): Promise<Load
     [date],
   )
 
+  const { rows: lwfRates } = await tx.query<LwfRate>(
+    `SELECT state_code, employee_paise::text, employer_paise::text, deduction_months, wage_ceiling_paise::text
+       FROM lwf_rates
+      WHERE effective_from <= $1::date AND (effective_to IS NULL OR effective_to > $1::date)
+      ORDER BY state_code`,
+    [date],
+  )
+
   const fiscalYear = fiscalYearOf(new Date(date))
 
   const { rows: slabRows } = await tx.query<TaxSlab & { regime: 'old' | 'new' }>(
@@ -89,6 +106,7 @@ export async function loadStatutory(tx: PoolClient, asOf?: string): Promise<Load
     fiscalYear,
     taxSlabs,
     taxRules,
+    lwfRates,
     config: {
       pf_employee_rate: Number(row.pf_employee_rate),
       pf_employer_rate: Number(row.pf_employer_rate),
@@ -124,4 +142,12 @@ export function ptFor(slabs: readonly PtSlab[], stateCode: string, grossPaise: b
   })
 
   return BigInt((monthSpecific ?? match)?.amount_paise ?? 0)
+}
+
+/** LWF for a state in a calendar month (1–12): zero outside the state's collection months or above its wage ceiling. */
+export function lwfFor(rates: readonly LwfRate[], stateCode: string, month: number, grossPaise: bigint): { employee: bigint; employer: bigint } {
+  const r = rates.find((x) => x.state_code === stateCode)
+  if (!r || !r.deduction_months.includes(month)) return { employee: 0n, employer: 0n }
+  if (r.wage_ceiling_paise !== null && grossPaise > BigInt(r.wage_ceiling_paise)) return { employee: 0n, employer: 0n }
+  return { employee: BigInt(r.employee_paise), employer: BigInt(r.employer_paise) }
 }

@@ -28,6 +28,8 @@ export const DEFAULT_MAPPINGS: Array<Omit<Mapping, 'id'>> = [
   { component_code: 'ESI_EE', component_type: 'deduction', debit_account: 'Salary Payable', credit_account: 'ESI Payable', cost_centre_by: 'none' },
   { component_code: 'ESI_ER', component_type: 'employer_contribution', debit_account: 'ESI Employer Contribution', credit_account: 'ESI Payable', cost_centre_by: 'department' },
   { component_code: 'PT', component_type: 'deduction', debit_account: 'Salary Payable', credit_account: 'Professional Tax Payable', cost_centre_by: 'none' },
+  { component_code: 'LWF_EE', component_type: 'deduction', debit_account: 'Salary Payable', credit_account: 'Labour Welfare Fund Payable', cost_centre_by: 'none' },
+  { component_code: 'LWF_ER', component_type: 'employer_contribution', debit_account: 'LWF Employer Contribution', credit_account: 'Labour Welfare Fund Payable', cost_centre_by: 'department' },
   { component_code: 'TDS', component_type: 'deduction', debit_account: 'Salary Payable', credit_account: 'TDS Payable (192)', cost_centre_by: 'none' },
   { component_code: 'LOAN', component_type: 'deduction', debit_account: 'Salary Payable', credit_account: 'Staff Loans & Advances', cost_centre_by: 'none' },
   { component_code: 'REIMB', component_type: 'earning', debit_account: 'Staff Reimbursements', credit_account: 'Salary Payable', cost_centre_by: 'department' },

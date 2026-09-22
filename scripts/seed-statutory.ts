@@ -11,6 +11,7 @@
 import { pathToFileURL } from 'node:url'
 import { controlDb } from '../src/control-plane/index.ts'
 import { PT_EXEMPT_STATES, PT_STATES } from '../db/reference/pt-slabs.ts'
+import { LWF_STATES } from '../db/reference/lwf.ts'
 import { INCOME_TAX, STATUTORY_CONFIG } from '../db/reference/income-tax.ts'
 
 const paise = (rupees: number | null): string | null => (rupees === null ? null : String(Math.round(rupees * 100)))
@@ -70,6 +71,17 @@ export async function seedPtSlabs(effectiveFrom: string): Promise<{ states: numb
   return { states: PT_STATES.length, slabs }
 }
 
+export async function seedLwfRates(effectiveFrom: string): Promise<{ states: number }> {
+  for (const st of LWF_STATES) {
+    await controlDb.query(`DELETE FROM lwf_rates WHERE state_code = $1 AND effective_from = $2::date`, [st.code, effectiveFrom])
+    await controlDb.query(`UPDATE lwf_rates SET effective_to = $2::date - 1 WHERE state_code = $1 AND effective_from < $2::date AND effective_to IS NULL`, [st.code, effectiveFrom])
+    await controlDb.query(
+      `INSERT INTO lwf_rates (state_code, effective_from, employee_paise, employer_paise, deduction_months, wage_ceiling_paise) VALUES ($1,$2,$3,$4,$5,$6)`,
+      [st.code, effectiveFrom, String(Math.round(st.employee * 100)), String(Math.round(st.employer * 100)), st.months, st.ceiling === undefined ? null : String(st.ceiling * 100)])
+  }
+  return { states: LWF_STATES.length }
+}
+
 function fiscalYearStart(d = new Date()): string {
   const y = d.getMonth() >= 3 ? d.getFullYear() : d.getFullYear() - 1
   return `${y}-04-01`
@@ -83,6 +95,8 @@ if (import.meta.url === pathToFileURL(process.argv[1] ?? '').href) {
   }
   const r = await seedPtSlabs(effectiveFrom)
   console.log(`pt_slabs: ${r.states} states, ${r.slabs} slabs effective ${effectiveFrom}; ${PT_EXEMPT_STATES.length} states/UTs levy no PT`)
+  const l = await seedLwfRates(effectiveFrom)
+  console.log(`lwf_rates: ${l.states} states effective ${effectiveFrom}`)
   const t = await seedTaxTables()
   console.log(`statutory_configs: PF/ESI in force from ${STATUTORY_CONFIG.effectiveFrom}; tax tables for ${t.fiscalYears} fiscal year(s): ${INCOME_TAX.map((f) => f.fiscalYear).join(', ')}`)
   console.log('REFERENCE DATA — reconcile each state against its current notification before paying anyone there.')

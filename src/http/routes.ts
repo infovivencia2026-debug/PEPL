@@ -61,12 +61,23 @@ import { register as engage } from './routes/engage.ts'
 import { register as structure } from './routes/structure.ts'
 import { register as engageOps } from './routes/engage-ops.ts'
 import { register as integrations } from './routes/integrations.ts'
+import { register as compliance } from './routes/compliance.ts'
+import { register as learning } from './routes/learning.ts'
+import { register as feedback } from './routes/feedback.ts'
+import { register as contractors } from './routes/contractors.ts'
+import { register as groups } from './routes/groups.ts'
+import { register as reportBuilder } from './routes/report-builder.ts'
+import { register as anomalies } from './routes/anomalies.ts'
+import { register as sandbox } from './routes/sandbox.ts'
+import { register as trust } from './routes/trust.ts'
+import { register as benchmarks } from './routes/benchmarks.ts'
+import { register as assistant } from './routes/assistant.ts'
 
 export const router = new Router()
 
 for (const register of [
   system, config, people, attendance, leave, inbox,
-  payroll, helpdesk, incentives, comms, activity, roles, documents, chat, mail, imports, payments, holidays, leavePolicy, taxDeclarations, push, filings, exits, account, privacy, org, geofences, shifts, structures, incentiveAdmin, approvalPolicy, loans, reports, datasetImports, billing, expenses, timesheets, exitWorkflow, recruitment, performance, letters, roster, assets, engage, structure, engageOps, integrations,
+  payroll, helpdesk, incentives, comms, activity, roles, documents, chat, mail, imports, payments, holidays, leavePolicy, taxDeclarations, push, filings, exits, account, privacy, org, geofences, shifts, structures, incentiveAdmin, approvalPolicy, loans, reports, datasetImports, billing, expenses, timesheets, exitWorkflow, recruitment, performance, letters, roster, assets, engage, structure, engageOps, integrations, compliance, learning, feedback, contractors, groups, reportBuilder, anomalies, sandbox, trust, benchmarks, assistant,
 ]) {
   register(router)
 }

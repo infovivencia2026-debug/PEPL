@@ -406,3 +406,30 @@ replacement text that contains `$`.
 sellable (`entitlement`) or declared `core: true`, to own permissions, a
 `requireModule` guard, a test and a brief section. A module that is free on
 every plan by accident is what this catches — four of them were.
+
+## A job sees nothing through a user-keyed policy
+
+`feedback_requests` (and `survey_responses`) are visible only to the row's
+own user via `current_app_user()`. The nightly reminder runs `withTenant`
+with NO user pinned, so it selected zero rows and reminded nobody — and the
+test only caught it because it counted sends. Anything a job needs from such
+a table goes through a narrow SECURITY DEFINER function (`feedback_pending`)
+that returns ids, never answers.
+
+## Do not edit shared wiring while a verify is in flight
+
+A `npm run verify` reads `src/` at each step, not at the start. Editing
+`src/jobs/index.ts` (to reference `tenants.is_sandbox`) while a verify was
+between `migrate` and `test` made every job-driven suite fail with
+`column t.is_sandbox does not exist` — the migration had not been applied to
+`pepl_test` when the test step ran the NEW code. The run was red for a reason
+that had nothing to do with either the old or the new tree. Write new files
+freely; hold edits to files an in-flight verify imports until it reports.
+
+## Placeholder admin from provisioning
+
+`provisionTenant` inserts the admin into `app_users` with no password and
+no role (the signup flow finishes it). Anything that seeds a working tenant
+afterwards (`seed-demo`, the sandbox) must replace that row via `createUser`,
+or the "admin" cannot log in and has no `org_admin` role — which surfaced as
+`admin_email: null` in the sandbox listing, not as a login error.

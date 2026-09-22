@@ -2100,9 +2100,286 @@ apply `GET /branding` at boot: product name + colours as CSS variables on the
 login page and shell; **Account → Notifications**: WhatsApp opt-in with number;
 **Company → WhatsApp**: provider form (secret write-only), event list.
 
+## 2.64 Integrations hub (Phase C1, `integrations.enabled`)
+
+```
+GET/POST /api/v1/integrations/api-keys            integration.manage   POST { name, roles, expiresAt? } -> { key: 'pk_…' } shown ONCE · POST /api-keys/:id/revoke
+GET/POST /api/v1/integrations/webhooks            { name, url, secret, events: ['leave.approved', …] (audit vocabulary), active }  · PATCH /:id · POST /:id/test · GET /:id/deliveries (status, attempts, last error)
+GET/POST /api/v1/integrations/connections         { kind: tally|zoho_books|slack|sso_oidc|biometric, config, secret (write-only) }  · POST /:id/test · DELETE
+```
+
+Build: **Company → Integrations** with three tabs. API keys: the key is
+displayed exactly once in a copy box with "we will not show this again";
+revoked rows greyed. Webhooks: event picker grouped by category (the audit
+vocabulary — fetch `/audit/actions`), delivery log with retry status and the
+signature header explained (`X-PEPL-Signature: sha256=…`). Connections:
+one card per kind with a "Test" button and a green/red result.
+
+## 2.65 Compliance calendar & registers (Phase C2, `payroll.enabled`)
+
+```
+GET  /api/v1/compliance/calendar?from=&to=&status=   compliance.read   -> { obligations: [{ id, code, title, authority, period, due_on, status: pending|filed|not_applicable, filed_on, reference_no, evidence_document_id, produced_by, check, overdue }], catalogue }
+POST /api/v1/compliance/:id/mark                     compliance.manage { status: filed|not_applicable|pending, filedOn, referenceNo, evidenceDocumentId, note }   not_applicable needs note
+GET  /api/v1/compliance/score?from=&to=              -> { due, filedOnTime, filedLate, overdue, score (0–100), byCode: [...] }
+GET  /api/v1/reports/registers/:kind  wage|overtime|leave  ?month=YYYY-MM | ?year=  &format=csv    report.read, scope all
+```
+
+Build: **Pay → Compliance**: a month calendar and a list, one row per
+obligation with its authority, a due chip (overdue in red WITH the word
+"overdue"), and a "Mark filed" drawer (date, reference no, evidence upload).
+Rows with `produced_by` link straight to the PEPL filing that produces it
+(ECR, ESI, PT, 24Q, Form 16, muster). Rows with `check: true` carry
+"confirm with your consultant" — the dates vary by state. A score tile
+(on-time over due, last 12 months) at the top with the by-code breakdown.
+**Reports → Registers**: three tabs, month/year picker, table + CSV download.
+
+## 2.66 Learning & recognition (Phase C3, `learning.enabled`)
+
+```
+GET/POST /api/v1/learning/courses                learning.read / learning.manage  { code, title, description, mode: online|classroom|external|self_paced, link, durationMin, mandatory, audience: { departments?, designations?, joinedAfter? }, validityMonths, dueDays } · DELETE /courses/:code retires
+POST /api/v1/learning/courses/:code/nominate     { employeeIds, dueOn? } -> { nominated }   · POST /learning/nominate-mandatory (sweep now)
+GET  /api/v1/learning/nominations?employeeId=&course=&status=     scoped   [{ id, course_code, course_title, employee_name, due_on, status: assigned|in_progress|completed|failed|waived, score, valid_until, certificate_document_id }]
+GET  /api/v1/me/learning                          -> { nominations, points: { balance, earned, redeemed } }
+POST /api/v1/learning/nominations/:id/start · /complete { score?, passed?, certificateDocumentId? } (nominee, or HR/trainer) · /waive { note }   409 NOMINATION_STATE · 403 NOT_YOURS
+GET  /api/v1/learning/compliance                  learning.manage -> [{ course, title, audience, completed, open, overdue, expiring, overdueNames }]
+GET  /api/v1/recognition/badges  (anyone)  · POST recognition.manage { code, name, description, points, managerOnly }
+POST /api/v1/recognition  { badgeCode, toEmployeeId, message (≥5 chars), visibility: company|team|private }    403 BADGE_MANAGER_ONLY · 429 RECOGNITION_TOO_SOON (same badge, same person, within 7 days) · SSE recognition.given
+GET  /api/v1/recognition/feed?employeeId=&limit=  · GET /recognition/leaderboard?from=&to= (default this quarter)
+GET  /api/v1/recognition/points/:employeeId  · POST /points/:employeeId/redeem { points, kind: redemption|payout|adjustment, note }   409 INSUFFICIENT_POINTS
+```
+
+Build: **Growth → Learning**: the catalogue (mandatory ones badged), a
+course form, nominate-from-people-picker, and a compliance board — one row
+per mandatory course with a stacked bar completed / open / overdue /
+expiring and the overdue names on expand. **Me → My learning**: my courses
+as cards with Start / Mark complete (self-paced) and the certificate upload;
+the points balance. **Engage → Recognition wall**: the feed (badge, from →
+to, message, time), a "Recognise someone" composer (badge picker greys the
+manager-only ones for non-managers, people picker, message, visibility),
+the quarter leaderboard; subscribe to `recognition.given` to prepend
+live. Points: a balance on the employee profile and a "Redeem / pay out"
+drawer for HR (append-only — show the ledger as history, never as editable
+rows).
+
+## 2.67 360° feedback & promotion / increment recommendations (Phase C4, `performance.enabled`)
+
+```
+GET/POST /api/v1/feedback/rounds            performance.review   POST { subjectEmployeeId, appraisalId?, title?, questions? (default set returned by GET), dueOn, raters: [{ employeeId, relationship: manager|peer|report|stakeholder|self }] }   409 ROUND_OPEN
+GET  /api/v1/feedback/rounds/:id            subject (after close) or reviewer in scope -> { round, byRelationship: [{ relationship, asked, answered, question_id, avg_value, texts, withheld }], overall: [{ question_id, avg, n }], pending? }
+POST /api/v1/feedback/rounds/:id/close
+GET  /api/v1/me/feedback-requests?status=requested   -> what others asked of ME: [{ id, subject_name, relationship, due_on, questions }]
+POST /api/v1/me/feedback-requests/:id      { answers: { qid: 1–5 | text } } or { decline: true }     409 FEEDBACK_STATE · 409 ROUND_CLOSED
+GET/POST /api/v1/recommendations            performance.review   POST { employeeId, appraisalId?, newDesignation?, newGradeCode?, newAnnualCtcPaise? (needs compensation.read) | incrementPct?, effectiveFrom, justification }   409 RECOMMENDATION_OPEN · 422 NO_CURRENT_COMPENSATION
+POST /api/v1/recommendations/:id/withdraw
+```
+
+Build: **Growth → Performance → 360°**: open a round from an appraisal
+(rater picker grouped by relationship, due date), and a results view that
+is a radar/bar per question with one series per relationship — a withheld
+group renders as "fewer than N answered" with a lock icon, never as an
+empty bar; free text as anonymous cards. **Me → Feedback requests**: a
+short form per request (rating pills 1–5, two text boxes), with the
+confidentiality note verbatim. **Recommendations**: from the appraisal
+page, a "Recommend" drawer (designation, grade, % or CTC when permitted,
+effective date, justification ≥ 10 chars); a list with approval status;
+CTC figures are null for anyone without compensation.read — render "—".
+
+## 2.68 Contractor workforce, LWF, statutory bonus (Phase C5, `payroll.enabled`)
+
+```
+GET  /api/v1/contractors                       contractor.read     [{ employee_id, employee_name, employee_number, pan, gstin, entity_type, tds_section: 194C|194J|194H|none, tds_rate_pct, rate_type, rate_paise, invoice_required, contract_start, contract_end }]
+GET/PATCH/DELETE /api/v1/contractors/:employeeId   contractor.manage  PATCH { pan, gstin, entityType?, tdsSection, tdsRatePct?, rateType: monthly|daily|hourly|per_unit|fixed, ratePaise, invoiceRequired, contractStart, contractEnd, notes }   409 INVOICES_OPEN on delete
+GET  /api/v1/contractor-invoices?employeeId=&status=&from=&to=    contractor.read
+POST /api/v1/contractor-invoices              anyone for THEMSELF, contractor.manage for others   { employeeId?, invoiceNo, invoiceDate, periodStart, periodEnd, description?, units? | amountPaise?, gstPaise?, documentId? }   -> tds_rate_pct, tds_paise, net_paise computed   409 DUPLICATE_INVOICE · 422 NOT_CONTRACTOR
+POST /api/v1/contractor-invoices/:id/decide   contractor.manage   { status: approved|rejected, reason? }  (TDS recomputed on approval)
+POST /api/v1/contractor-invoices/:id/paid     contractor.pay      { paymentRef, paidOn? }
+GET  /api/v1/reports/tds-26q?from=&to=        -> { rows: [{ employee_name, pan, section, invoices, amount_paise, tds_paise }], totals, missingPan: [] }
+POST /api/v1/payroll/bonus/compute            payroll.process     { ratePct, minimumWagePaise?, people: [{ employeeId, monthlyWagePaise, monthsWorked, daysWorked }] } -> per-person eligible / basis / bonus (no writes)
+```
+
+Payslip lines `LWF_EE` (deduction) and `LWF_ER` (employer) now appear in
+the months a state collects LWF; render them like PT. Payroll input builder
+already excludes contractors; the freeze API answers 422
+`CONTRACTOR_NOT_ON_PAYROLL` if one is posted.
+
+Build: **People → Contractors**: list with section/rate chips and contract
+end dates (expiring in 30 days highlighted); a terms drawer (PAN validates
+5-4-1, GSTIN 15 chars; the entity type is inferred from PAN's 4th letter and
+shown read-only unless overridden). **Pay → Contractor invoices**: a queue by
+status with amount / GST / TDS / net columns, approve/reject/mark-paid
+actions, the invoice PDF attached; **Me → My invoices** for contractors to
+file their own (units × rate pre-filled from terms). **Reports → TDS 26Q**:
+quarter picker, table, a red list of "PAN missing — 20% deducted".
+**Pay → Bonus**: a calculator page — pick a year and rate, it posts the
+people and shows eligible/ineligible with the reason.
+
+## 2.69 Group console & reseller (Phase C6, org_admin · `group.manage`)
+
+```
+GET  /api/v1/groups                          -> { groups: [I administer], memberships: [invitations/memberships of THIS company: { group_id, name, kind, owner_name, status }] }
+POST /api/v1/groups                          { name, kind: group|reseller }
+GET/POST /api/v1/groups/:id/members          POST { adminEmail }  → status 'invited' until the other company accepts
+POST /api/v1/groups/:id/admins               { userId }
+POST /api/v1/groups/:id/accept · /leave      the MEMBER company's org admin consents / withdraws
+GET  /api/v1/groups/:id/overview             -> { group, companies: [{ tenantId, name, headcount, joinersThisMonth, exitsThisMonth, presentToday, onLeaveToday, lastLockedPayroll: { period, netPaise, employees } | null, openApprovals, openTickets, complianceScore }], totals }
+GET  /api/v1/groups/:id/book                 reseller: [{ tenant_id, display_name, plan_code, status, current_period_end, employees, created_at }]
+POST /api/v1/groups/:id/provision            reseller: { legalName, displayName, planCode, adminEmail, adminName, stateCode?, organisationType? }
+```
+
+Build: **Company → Group** (owner side): a card grid, one per company, with
+the aggregate numbers and a compliance-score ring; totals strip on top;
+members tab with invite-by-email and pending/accepted chips. Say plainly on
+the page: "You see totals, never individual records; each view is recorded
+in the member's audit." **Company → Memberships** (member side): pending
+invitations with Accept / Decline, current memberships with Leave and the
+consent text. **Reseller book**: table of companies with plan and renewal
+date, a "Provision a company" form; no drill-down into a company.
+
+## 2.70 Report builder & scheduled delivery (Phase C7, `report.read`)
+
+```
+GET  /api/v1/report-builder/catalogue   -> { models: [{ key, label, help, defaultColumns, fields: [{ key, label, type: text|number|money|date|boolean, dimension? }] }] }  — only models the caller may read
+POST /api/v1/report-builder/run  ?format=csv   spec: { model, columns?, filters?: [{ field, op: eq|neq|in|gte|lte|gt|lt|contains|is_null|not_null, value }], groupBy?: [dimension keys], measures?: [{ field | '*', fn: count|sum|avg|min|max, label? }], sort?: [{ field, dir }], limit? (≤5000) }
+                                          -> { columns: [{ key, label, type }], rows, total, truncated, csv }     422 UNKNOWN_MODEL / UNKNOWN_FIELD / VALIDATION_FAILED · 403 PERMISSION_DENIED (model)
+GET/POST /api/v1/report-builder/saved      POST { id?, name, description?, spec, shared }   409 REPORT_EXISTS
+GET  /api/v1/report-builder/saved/:id ?format=csv  -> { report, result }  · DELETE
+GET/POST /api/v1/report-builder/schedules  POST { reportId, frequency: daily|weekly|monthly, dayOfWeek?, dayOfMonth? (1–28), hour?, recipients: [emails ≤20] }  · POST /schedules/:id/pause|resume|delete
+```
+
+Models: people, attendance, leave, payroll (payroll.read), expenses, tickets,
+approvals. A manager's result is already cut to their team; the payroll
+model is simply absent from their catalogue.
+
+Build: **Reports → Builder** — a three-pane builder: model picker (cards
+from the catalogue with help text), a field list you drag into Columns or
+Group by (only `dimension` fields drop into Group by; measures appear when
+grouping), a filter bar (operator by type: date pickers, number ranges,
+text contains, multi-select "in"), then a live preview table that re-runs
+on change (debounce 400ms) with the row count and a "truncated at 5000"
+notice. Grouped results also render as a bar chart (first dimension × first
+measure). Save / Share toggle / Download CSV / Schedule drawer (cadence,
+recipients as chips, "runs with your permissions" note). **Reports → Saved
+& scheduled**: list with owner, shared badge, next run, last error in red
+and a Resume button on a paused schedule.
+
+## 2.71 Anomaly guards (Phase D1, payroll & attendance)
+
+```
+POST /api/v1/payroll/runs/:id/guards        payroll.process  -> { findings: [{ id, area, code, severity: blocking|warning|info, run_id, employee_id, employee_name, message, detail, status: open|dismissed|resolved, found_at, dismiss_reason }], opened, blocking }
+GET  /api/v1/anomalies?area=payroll|attendance&runId=&status=open    (payroll.read / attendance.read; attendance cut to scope)
+POST /api/v1/anomalies/:id/dismiss          { reason ≥ 5 chars }   blocking payroll → payroll.approve; warning → payroll.process; attendance → attendance.correct
+POST /api/v1/payroll/runs/:id/approve       now answers 409 ANOMALIES_OPEN while a blocking finding is open (the guards run inside approve)
+```
+
+Codes: DUPLICATE_BANK_ACCOUNT, DUPLICATE_PAN, EXITED_STILL_PAID, PAID_BEFORE_JOINING,
+DAYS_EXCEED_CALENDAR, PAID_TWICE_IN_PERIOD, TOTAL_NET_JUMP (blocking) ·
+JOINER_FULL_MONTH, ABSENT_BUT_FULL_PAY, HEADCOUNT_JUMP, OVERLONG_DAY,
+REGULARISATION_RATE (warning) · PERFECT_TEAM_WEB_ONLY (info).
+
+Build: on the **payroll run page**, a "Checks" step between Validate and
+Approve: a list grouped blocking / warning / info with the message, the
+person, a "Dismiss with reason" inline form; the Approve button is disabled
+with the count while blockers are open. **Time → Anomalies**: attendance
+findings as a feed for supervisors.
+
+## 2.72 Sandbox (Phase D2, org_admin)
+
+```
+GET  /api/v1/sandbox           -> { isSandbox, sandbox: { id, display_name, organisation_type, sandbox_expires_on, admin_email, headcount } | null, loginHint }
+POST /api/v1/sandbox           { organisationType?, days? ≤ 90 }   409 SANDBOX_EXISTS
+POST /api/v1/sandbox/reset · DELETE /api/v1/sandbox
+```
+
+Build: **Company → Sandbox**: a card with the expiry countdown, "Open
+sandbox" (signs in at the same login with the sandbox admin email and the
+shown password — the login page is the same app; the tenant resolves by
+email), Reset, Delete. When `isSandbox` is true for the CURRENT tenant, the
+shell shows a persistent amber banner "Sandbox — nothing here is real and
+nothing is sent" on every page.
+
+## 2.73 Trust page & security posture (Phase D3)
+
+```
+GET  /api/v1/trust               PUBLIC  -> { status: operational|degraded|outage|maintenance, commitments: [{ key, title, detail }], subprocessors, uptime: { days, readyPct, p95LatencyMs, daily: [{ day, readyPct }] }, incidents: [{ title, severity, started_at, resolved_at, updates }] }
+GET  /api/v1/security-posture    settings.write -> { score, advice: [], mfa: { admins, adminsWithMfa, users, usersWithMfa, requiredForAdmins }, admins: [...], apiKeys, webhooks, audit: { chainOk, eventsChecked, lastSealedDate }, retention, anomalies, sessions }
+```
+
+Build: **/trust** (public, no login): status pill, a 30-day uptime bar
+(one cell per day, colour by readyPct, never colour alone — tooltip with the
+number), the commitments as a plain list, subprocessors table, incident
+timeline. **Company → Security**: the posture score ring, the advice as a
+checklist with deep links, the admin table (MFA tick, last login), and the
+chain-verified badge.
+
+## 2.74 Network benchmarks (Phase D4, opt-in · `benchmarks.share_enabled`)
+
+```
+GET  /api/v1/benchmarks?month=YYYY-MM   report.read (scope all) -> { sharing, segment, contributors, minimum: 10, metrics: [{ key, label, lowerIsBetter, mine, p25, median, p75, shown }] }
+POST /api/v1/benchmarks/opt-out
+```
+
+Build: **Reports → Benchmarks**: an opt-in explainer first (what is
+shared — six ratios, never pay — and the 10-company floor), then one row per
+metric: your value as a marker on a p25–p75 band with the median tick; when
+`shown` is false, the band is replaced by "fewer than 10 companies in your
+segment yet". Opt-out button with the "deletes what you contributed" note.
+
+## 2.75 Grounded assistant (Phase D5)
+
+```
+POST /api/v1/assistant/ask        { question ≤ 500 } -> { intent | null, confidence, text, sources: [{ type, id?, label }], suggestions, data?, queryId }
+POST /api/v1/assistant/feedback   { queryId, helpful }
+GET  /api/v1/assistant/intents    -> { intents, examples }
+GET  /api/v1/assistant/gaps?days= settings.write -> [{ sample_question, asks, last_asked }]
+```
+
+Intents: leave.balance, leave.pending, payroll.payday, payroll.payslip,
+holidays.upcoming, attendance.today (needs attendance.read; scoped),
+attendance.mine, policy.lookup (full-text over published policies),
+people.manager, approvals.pending. Answers are plain text with newlines;
+`data` carries the structured rows when there are any.
+
+Build: a **help drawer** reachable from the shell (keyboard: `?`): the
+example chips, a single input, the answer rendered as text with a
+"Sources" line of chips (a policy chip opens the policy; a payslip chip
+opens the payslip), thumbs up/down. No chat history UI — it is Q&A, not a
+conversation; say so in the empty state. **Company → Assistant gaps**: the
+unanswered-question table for HR.
+
 ---
 
 # Part 3 — What to build, in order
+
+## Handover: the blueprint UI package (§2.51 – §2.75, items 37 – 61)
+
+The backend for every blueprint phase (A1–A7, B1–B6, C1–C7, D1–D5) is
+built, tested (`npm run verify` green: 17 modules, 100+ suites, 24 launch
+checks) and committed. Nothing in §2.51–§2.75 has a screen yet. Take them in
+this order — each row is one PR, each PR ends with `npm run check:responsive`
+green and screenshots in `docs/ui-checks/`:
+
+| # | Screen(s) | Brief | Why first |
+|---|---|---|---|
+| 1 | Approvals inbox: bulk actions, HR-fallback badge, reminders | §2.51 | every other module raises approvals |
+| 2 | Time: muster roll, calendar, breaks/late reason, control room, kiosk | §2.52 §2.53 §2.58 | the daily screen for most tenants |
+| 3 | People: letters, probation, org chart, positions, transfers, profile changes | §2.54 §2.61 | HR's week |
+| 4 | Security: MFA enrolment & admin policy, PII reveal, API keys / webhooks | §2.56 §2.64 §2.73 | launch blocker for enterprise |
+| 5 | Signup: organisation-type presets | §2.57 | first impression |
+| 6 | Pay: compliance calendar + registers, journal/Tally, reconciliation, per-diem, anomaly checks, contractors, bonus | §2.62 §2.65 §2.68 §2.71 | payroll admin's month-end |
+| 7 | Work: assets, work reports, project profitability | §2.59 §2.63 | field/ops tenants |
+| 8 | Engage: policies, surveys, celebrations, recognition wall, WhatsApp opt-in, branding | §2.60 §2.63 §2.66 | adoption |
+| 9 | Growth: learning, 360°, recommendations | §2.66 §2.67 | performance cycle |
+| 10 | Company: group console, reseller book, sandbox, security posture, benchmarks, assistant gaps | §2.69 §2.72 §2.73 §2.74 §2.75 | platform |
+| 11 | Reports: builder, saved & scheduled | §2.70 | power users |
+| 12 | Shell: assistant drawer (`?`), sandbox banner, public /trust | §2.75 §2.72 §2.73 | cross-cutting |
+
+Rules that apply to every row: the nav model lives in `web/src/app/nav.ts`
+and a module's entry appears only when `GET /api/v1/me`.modules[key] is
+true; every permission-gated action is hidden (not disabled) when the
+permission is absent from `me.permissions`; money renders in rupees from
+paise with `toLocaleString('en-IN')`; every list that can be empty has an
+empty state that says what creates the first row; nothing polls — subscribe
+to the SSE events named in each section.
 
 1. **Chat UI.** The largest visible hole. Conversation list, thread, composer,
    attachments. Subscribe to `chat.message` (§2.7) — do not poll.
@@ -2192,6 +2469,18 @@ login page and shell; **Account → Notifications**: WhatsApp opt-in with number
 47. **Org chart, positions, transfers, profile change requests** (§2.61).
 48. **Journal, payment reconciliation, per-diem, profitability** (§2.62).
 49. **Work reports, branding, WhatsApp opt-in** (§2.63).
+50. **Integrations hub** (§2.64).
+51. **Compliance calendar, score, registers** (§2.65).
+52. **Learning, recognition wall, points** (§2.66).
+53. **360° feedback, recommendations** (§2.67).
+54. **Contractors, invoices, 26Q, bonus calculator** (§2.68).
+55. **Group console, memberships, reseller book** (§2.69).
+56. **Report builder, saved reports, schedules** (§2.70).
+57. **Anomaly checks step on the payroll run; attendance anomalies feed** (§2.71).
+58. **Sandbox card + sandbox banner** (§2.72).
+59. **Public /trust page; Company → Security posture** (§2.73).
+60. **Benchmarks** (§2.74).
+61. **Assistant help drawer; gaps table** (§2.75).
 
 ## Running it
 

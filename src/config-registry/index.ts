@@ -190,6 +190,20 @@ const attendance = defineConfig('attendance', {
     help: 'The punch is always accepted; the app then asks why, and the reason shows next to the late mark in the control room and the muster.',
     scopable: ['department', 'location', 'grade'],
   }),
+  max_daily_hours: int({
+    default: 14,
+    min: 8,
+    max: 24,
+    label: 'Guard: maximum hours in a day',
+    help: 'The nightly attendance guard flags a day worked longer than this — usually a missed punch-out, sometimes a safety issue.',
+  }),
+  regularisation_rate_alert_pct: int({
+    default: 25,
+    min: 1,
+    max: 100,
+    label: 'Guard: regularisation rate alert (%)',
+    help: 'Flag a manager whose team had more than this share of days regularised over 30 days.',
+  }),
   auto_checkout_after_minutes: int({
     default: 0,
     min: 0,
@@ -296,6 +310,18 @@ const performance = defineConfig('performance', {
     help: 'Goals with weights and check-ins, review cycles (self review, manager review, HR calibration, acknowledgement) and performance improvement plans.',
     disableEffect: 'soft',
   }),
+  recommendation_approval_chain: enumOf(['manager_then_hr', 'hr_only', 'manager_hr_finance', 'dept_head_hr'] as const, {
+    default: 'manager_hr_finance',
+    label: 'Promotion / increment approval chain',
+    help: 'Who approves a promotion or increment recommendation when no approval policy matches. On approval the designation and compensation change on the effective date, citing the appraisal.',
+  }),
+  feedback_min_group: int({
+    default: 3,
+    min: 2,
+    max: 10,
+    label: '360° minimum group size',
+    help: 'Feedback from a relationship group (peers, reports, stakeholders) is shown only when at least this many have answered. Below it the group is withheld, never shown one by one.',
+  }),
 })
 
 const people = defineConfig('people', {
@@ -329,6 +355,16 @@ const surveys = defineConfig('surveys', {
     default: true,
     label: 'Surveys & pulse',
     help: 'Pulse surveys, eNPS and a suggestion box. Anonymous by construction: individual answers are never readable; results are aggregates that withhold small groups.',
+    disableEffect: 'soft',
+  }),
+})
+
+const learning = defineConfig('learning', {
+  enabled: flag({
+    entitlement: 'learning',
+    default: true,
+    label: 'Learning & recognition',
+    help: 'A course catalogue with nominations, completion and expiring certifications; mandatory training reaches its whole audience and new joiners automatically. Peer recognition with badges, a company wall and a points balance that can be redeemed or paid out.',
     disableEffect: 'soft',
   }),
 })
@@ -382,6 +418,20 @@ const payroll = defineConfig('payroll', {
     max: 100,
     label: 'Net pay variance warning (%)',
     help: 'Flag an employee whose net pay moves more than this against the previous period.',
+  }),
+  guard_headcount_change_pct: int({
+    default: 20,
+    min: 1,
+    max: 100,
+    label: 'Guard: headcount change against last month (%)',
+    help: 'The anomaly guard warns when the number of people paid moves more than this against the previous locked run.',
+  }),
+  guard_total_change_pct: int({
+    default: 15,
+    min: 1,
+    max: 100,
+    label: 'Guard: total net pay change against last month (%)',
+    help: 'The anomaly guard BLOCKS approval when total net pay moves more than this against the previous locked run, until someone dismisses the finding with a reason.',
   }),
   require_separate_approver: bool({
     default: true,
@@ -593,6 +643,15 @@ const approvals = defineConfig('approvals', {
   }),
 })
 
+const benchmarks = defineConfig('benchmarks', {
+  share_enabled: bool({
+    default: false,
+    label: 'Contribute to network benchmarks',
+    help: 'Share six anonymised operational ratios (attrition, attendance, lateness, leave, overtime, approval turnaround — never pay) under a one-way hash, and see your company against companies of the same type and size. Nothing is shown for a segment with fewer than 10 contributors. Opting out deletes what you contributed.',
+    risk: 'high',
+  }),
+})
+
 const security = defineConfig('security', {
   mfa_required_for_admins: bool({
     default: false,
@@ -624,9 +683,11 @@ export const REGISTRY: Readonly<Record<string, Definition>> = Object.freeze({
   ...people,
   ...assets,
   ...surveys,
+  ...learning,
   ...branding,
   ...integrations,
   ...security,
+  ...benchmarks,
   ...helpdesk,
   ...chat,
   ...mail,

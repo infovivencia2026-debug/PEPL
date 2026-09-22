@@ -29,6 +29,14 @@ import { remindPolicies } from '../comms/engage.ts'
 import { applyDueTransfers } from '../people/structure.ts'
 import { deliverWhatsApp } from '../comms/whatsapp.ts'
 import { enqueueWebhookEvents, deliverWebhooks } from '../control-plane/integrations.ts'
+import { generateObligations, remindObligations } from '../payroll/compliance.ts'
+import { nominateMandatory, remindTraining } from '../people/learning.ts'
+import { applyDueRecommendations, remindFeedback } from '../people/feedback.ts'
+import { runDueSchedules } from '../reports/saved.ts'
+import { runAttendanceGuards } from '../payroll/guards.ts'
+import { purgeExpiredSandboxes } from '../control-plane/sandbox.ts'
+import { recordUptimeSample } from '../control-plane/trust.ts'
+import { contribute as contributeBenchmarks } from '../control-plane/benchmarks.ts'
 import { distributeRun, pendingRuns } from '../payroll/distribute.ts'
 import { ensurePeriod, upcomingMonth } from '../payroll/periods.ts'
 import { closePeriods, runDunning } from '../control-plane/billing.ts'
@@ -45,14 +53,17 @@ export interface JobResult {
   durationMs: number
 }
 
-async function activeTenants(): Promise<string[]> {
+async function activeTenants(opts: { excludeSandbox?: boolean } = {}): Promise<string[]> {
   const { rows } = await controlDb.query<{ id: string }>(
     `SELECT t.id FROM tenants t
        JOIN tenant_entitlements e ON e.tenant_id = t.id
-      WHERE t.status = 'active' AND e.status IN ('trialing','active','past_due')`,
+      WHERE t.status = 'active' AND e.status IN ('trialing','active','past_due') AND ($1::boolean IS FALSE OR NOT t.is_sandbox)`,
+    [opts.excludeSandbox ?? false],
   )
   return rows.map((r) => r.id)
 }
+/** Jobs that send anything OUT of the building never run for a sandbox. */
+const OUTBOUND_JOBS = new Set(['notifications.email', 'notifications.whatsapp', 'integrations.webhooks', 'notifications.push', 'reports.scheduled'])
 
 /** Runs one job across every active tenant, isolating failures per tenant. */
 async function perTenant(
@@ -60,7 +71,7 @@ async function perTenant(
   run: (tenantId: string) => Promise<number>,
 ): Promise<JobResult> {
   const started = Date.now()
-  const tenants = await activeTenants()
+  const tenants = await activeTenants({ excludeSandbox: OUTBOUND_JOBS.has(job) })
   const errors: { tenantId: string; message: string }[] = []
   let affected = 0
 
@@ -387,6 +398,18 @@ export async function runProbationReviews(): Promise<JobResult> {
     }))
 }
 
+/** Nightly: materialise the next quarter of statutory obligations and remind about the ones due or overdue. */
+export async function runCompliance(): Promise<JobResult> {
+  return perTenant('compliance.calendar', async (tenantId) =>
+    withTenant(tenantId, async (tx) => {
+      const cfg = await resolveConfig(tx, tenantId)
+      if (!cfg.isEnabled('payroll.enabled')) return 0
+      const today = new Date().toISOString().slice(0, 10)
+      await generateObligations(tx, cfg, { from: today, to: new Date(Date.now() + 120 * 86_400_000).toISOString().slice(0, 10) })
+      return remindObligations(tx, today)
+    }))
+}
+
 /** Every minute: queue new audit events for subscribed webhooks and deliver what is due. */
 export async function runWebhooks(): Promise<JobResult> {
   return perTenant('integrations.webhooks', async (tenantId) =>
@@ -411,7 +434,7 @@ export async function runWhatsAppDelivery(): Promise<JobResult> {
 
 /** Nightly: approved transfers whose effective date has arrived land as assignment changes. */
 export async function runDueTransfers(): Promise<JobResult> {
-  return perTenant('people.transfers', async (tenantId) => withTenant(tenantId, (tx) => applyDueTransfers(tx)))
+  return perTenant('people.transfers', async (tenantId) => withTenant(tenantId, async (tx) => (await applyDueTransfers(tx)) + (await applyDueRecommendations(tx)) + (await remindFeedback(tx))))
 }
 
 /** Nightly: nudge everyone still to acknowledge a published policy. */
@@ -550,6 +573,72 @@ export const JOBS = {
   'people.transfers': runDueTransfers,
   'notifications.whatsapp': runWhatsAppDelivery,
   'integrations.webhooks': runWebhooks,
+  'compliance.calendar': runCompliance,
+  'learning.nightly': runLearning,
+  'reports.scheduled': runScheduledReports,
+  'attendance.anomalies': runAttendanceAnomalies,
+  'control.sandbox_expiry': runSandboxExpiry,
+  'platform.heartbeat': runHeartbeat,
+  'benchmarks.contribute': runBenchmarks,
 } as const
 
 export type JobName = keyof typeof JOBS
+
+/** Nightly: every mandatory course reaches its audience (new joiners, lapsed certifications), then due/overdue/expiring nudges. */
+export async function runLearning(): Promise<JobResult> {
+  return perTenant('learning.nightly', async (tenantId) =>
+    withTenant(tenantId, async (tx) => {
+      const cfg = await resolveConfig(tx, tenantId)
+      if (!cfg.isEnabled('learning.enabled')) return 0
+      return (await nominateMandatory(tx)) + (await remindTraining(tx))
+    }))
+}
+
+/** Hourly: mail every saved report whose schedule is due, as its owner. */
+export async function runScheduledReports(): Promise<JobResult> {
+  return perTenant('reports.scheduled', async (tenantId) =>
+    withTenant(tenantId, async (tx) => {
+      const cfg = await resolveConfig(tx, tenantId)
+      const { rows } = await tx.query<{ display_name: string }>(`SELECT display_name FROM tenants WHERE id = $1`, [tenantId])
+      return runDueSchedules(tx, { tenantId, senderEmail: cfg.get<string>('notifications.sender_email') || null, companyName: rows[0]?.display_name ?? 'Your company' })
+    }))
+}
+
+/** Nightly: attendance anomaly guards (overlong days, regularisation rate, too-perfect teams). */
+export async function runAttendanceAnomalies(): Promise<JobResult> {
+  return perTenant('attendance.anomalies', async (tenantId) =>
+    withTenant(tenantId, async (tx) => {
+      const cfg = await resolveConfig(tx, tenantId)
+      if (!cfg.isEnabled('attendance.enabled')) return 0
+      return (await runAttendanceGuards(tx, cfg)).opened
+    }))
+}
+
+/** Nightly: purge sandboxes past their expiry date. */
+export async function runSandboxExpiry(): Promise<JobResult> {
+  const started = Date.now()
+  const purged = await purgeExpiredSandboxes()
+  return { job: 'control.sandbox_expiry', tenants: purged, affected: purged, errors: [], durationMs: Date.now() - started }
+}
+
+/** Every minute: one readiness sample for the trust page's uptime figure. */
+export async function runHeartbeat(): Promise<JobResult> {
+  const started = Date.now()
+  await recordUptimeSample()
+  return { job: 'platform.heartbeat', tenants: 0, affected: 1, errors: [], durationMs: Date.now() - started }
+}
+
+/** Nightly: opted-in companies contribute last month's anonymised ratios. */
+export async function runBenchmarks(): Promise<JobResult> {
+  const now = new Date()
+  const month = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - 1, 1)).toISOString().slice(0, 7)
+  return perTenant('benchmarks.contribute', async (tenantId) =>
+    withTenant(tenantId, async (tx) => {
+      const cfg = await resolveConfig(tx, tenantId)
+      if (!cfg.get<boolean>('benchmarks.share_enabled')) return 0
+      const t = (await tx.query<{ organisation_type: string | null; is_sandbox: boolean }>(`SELECT organisation_type, is_sandbox FROM tenants WHERE id = $1`, [tenantId])).rows[0]
+      if (!t || t.is_sandbox) return 0
+      await contributeBenchmarks(tx, { tenantId, organisationType: t.organisation_type, month })
+      return 1
+    }))
+}

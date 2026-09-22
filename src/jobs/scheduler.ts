@@ -48,6 +48,13 @@ export const SCHEDULE: Schedule[] = [
   { job: 'notifications.push', everyMs: MINUTE },
   { job: 'notifications.whatsapp', everyMs: MINUTE },
   { job: 'integrations.webhooks', everyMs: MINUTE },
+  { job: 'compliance.calendar', everyMs: HOUR, due: (now) => now.getHours() === 8 },
+  { job: 'learning.nightly', everyMs: HOUR, due: (now) => now.getHours() === 7 },
+  { job: 'reports.scheduled', everyMs: HOUR },
+  { job: 'attendance.anomalies', everyMs: HOUR, due: (now) => now.getHours() === 5 },
+  { job: 'control.sandbox_expiry', everyMs: HOUR, due: (now) => now.getHours() === 4 },
+  { job: 'platform.heartbeat', everyMs: MINUTE },
+  { job: 'benchmarks.contribute', everyMs: HOUR, due: (now) => now.getHours() === 3 },
 
   // Operational hygiene.
   { job: 'helpdesk.sla', everyMs: 15 * MINUTE },

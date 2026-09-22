@@ -35,6 +35,10 @@ export const PERMISSIONS = [
   'asset.read', 'asset.manage',
   'policy.read', 'policy.manage', 'survey.read', 'survey.manage',
   'integration.manage',
+  'compliance.read', 'compliance.manage',
+  'learning.read', 'learning.manage', 'recognition.manage',
+  'contractor.read', 'contractor.manage', 'contractor.pay',
+  'group.manage',
 ] as const
 
 export type Permission = (typeof PERMISSIONS)[number]
@@ -55,6 +59,7 @@ export const ROLE_PERMISSIONS: Readonly<Record<string, { permissions: Permission
     org_admin: {
       scope: 'all',
       permissions: [
+        'compliance.read', 'compliance.manage',
         'integration.manage',
         'policy.read', 'policy.manage', 'survey.read', 'survey.manage',
         'asset.read', 'asset.manage',
@@ -68,6 +73,9 @@ export const ROLE_PERMISSIONS: Readonly<Record<string, { permissions: Permission
     hr_admin: {
       scope: 'all',
       permissions: [
+        'learning.read', 'learning.manage', 'recognition.manage',
+        'contractor.read', 'contractor.manage',
+        'compliance.read', 'compliance.manage',
         'policy.read', 'policy.manage', 'survey.read', 'survey.manage',
         'asset.read', 'asset.manage',
         'letter.read', 'letter.issue', 'letter.manage',
@@ -92,6 +100,8 @@ export const ROLE_PERMISSIONS: Readonly<Record<string, { permissions: Permission
     payroll_admin: {
       scope: 'all',
       permissions: [
+        'compliance.read', 'compliance.manage',
+        'contractor.read', 'contractor.manage', 'contractor.pay',
         'expense.read', 'expense.claim',
         'employee.read',
         'compensation.read', 'compensation.write',
@@ -108,6 +118,8 @@ export const ROLE_PERMISSIONS: Readonly<Record<string, { permissions: Permission
       // must be able to see the batches already generated, or they cannot tell a
       // retry from a second payment.
       permissions: [
+        'compliance.read',
+        'contractor.read', 'contractor.pay',
         'timesheet.read',
         'expense.read', 'expense.write',
         'payroll.read', 'bank.read', 'bank.export', 'report.read',
@@ -117,7 +129,7 @@ export const ROLE_PERMISSIONS: Readonly<Record<string, { permissions: Permission
     manager: {
       scope: 'reports',
       permissions: [
-        'policy.read', 'survey.read',
+        'policy.read', 'survey.read', 'learning.read',
         'asset.read',
         'letter.read',
         'attendance.kiosk',
@@ -150,6 +162,7 @@ export const ROLE_PERMISSIONS: Readonly<Record<string, { permissions: Permission
     auditor: {
       scope: 'all',
       permissions: [
+        'compliance.read',
         'timesheet.read',
         'expense.read',
         'employee.read', 'attendance.read', 'leave.read', 'payroll.read',

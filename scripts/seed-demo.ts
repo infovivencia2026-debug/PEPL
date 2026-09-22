@@ -8,6 +8,7 @@
  * accumulating copies.
  */
 import { controlDb, provisionTenant } from '../src/control-plane/index.ts'
+import { purgeTenant } from '../src/control-plane/sandbox.ts'
 import { setSetting } from '../src/config/write.ts'
 import { withTenant } from '../src/db/tenant-tx.ts'
 import { closePools } from '../src/db/pool.ts'
@@ -78,40 +79,6 @@ const PEOPLE: Person[] = [
  * control-plane purge described in platform-control-plane.md §6, which honours
  * statutory retention and is two-person approved.
  */
-async function purgeTenant(tenantId: string): Promise<void> {
-  const client = await controlDb.connect()
-  try {
-    // BASE TABLES only: views such as current_employee_profile also expose a
-    // tenant_id column, and DELETE against one fails at rewrite time.
-    const { rows: tables } = await client.query<{ table_name: string }>(
-      `SELECT c.relname AS table_name
-         FROM pg_class c
-         JOIN pg_namespace n ON n.oid = c.relnamespace
-         JOIN pg_attribute a ON a.attrelid = c.oid
-        WHERE n.nspname = 'public' AND c.relkind = 'r'
-          AND a.attname = 'tenant_id' AND NOT a.attisdropped`)
-
-    await client.query('BEGIN')
-    await client.query(`SET LOCAL session_replication_role = replica`)
-    for (const t of tables) {
-      await client.query(`DELETE FROM "${t.table_name}" WHERE tenant_id = $1`, [tenantId])
-    }
-    await client.query(`DELETE FROM control_plane.subscriptions WHERE tenant_id = $1`, [tenantId])
-    await client.query(`DELETE FROM control_plane.provisioning_jobs WHERE tenant_id = $1`, [tenantId])
-    await client.query(`DELETE FROM control_plane.support_access_grants WHERE tenant_id = $1`, [tenantId])
-    await client.query(`DELETE FROM control_plane.platform_audit WHERE tenant_id = $1`, [tenantId])
-    await client.query(`DELETE FROM control_plane.audit_seals WHERE tenant_id = $1`, [tenantId])
-    await client.query(`DELETE FROM tenants WHERE id = $1`, [tenantId])
-    await client.query('COMMIT')
-    console.log(`purged previous demo tenant ${tenantId}`)
-  } catch (err) {
-    await client.query('ROLLBACK')
-    throw err
-  } finally {
-    client.release()
-  }
-}
-
 async function main(): Promise<void> {
   // Replace any previous demo tenant so re-running is safe.
   const existing = await controlDb.query<{ id: string }>(

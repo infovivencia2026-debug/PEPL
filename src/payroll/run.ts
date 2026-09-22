@@ -8,6 +8,8 @@
  */
 import type { PoolClient } from 'pg'
 import { computePayroll, validateRun, type EngineOptions, type PayrollInput, type StatutoryConfig } from './engine.ts'
+import { lwfFor, type LwfRate } from './statutory.ts'
+import { assertNoOpenBlockers } from './guards.ts'
 import { allowanceFor } from './declarations.ts'
 import { fiscalYearOf, monthsRemainingInFY } from './tds.ts'
 import { finalizeSettlements, releaseSettlements, settlementForFreeze, type SettlementOptions } from './exit.ts'
@@ -93,6 +95,11 @@ export async function freezeInputs(
   const { rows: period } = await tx.query<{ period_start: string; period_end: string }>(
     `SELECT period_start::text, period_end::text FROM payroll_periods WHERE id = $1`, [run.period_id])
   if (!period[0]) throw new PayrollError('PERIOD_NOT_FOUND', `run ${runId} has no period`)
+  // A contractor is paid on invoice, never through the run: no PF, ESI, PT or Form 16.
+  if (rows.length) {
+    const { rows: contractors } = await tx.query<{ employee_id: string }>(`SELECT employee_id FROM contractor_terms WHERE employee_id = ANY($1::uuid[])`, [rows.map((r) => r.employeeId)])
+    if (contractors.length) throw new PayrollError('CONTRACTOR_NOT_ON_PAYROLL', `${contractors.length} of these people are contractors paid on invoice; remove them from the run`)
+  }
   const periodStart = new Date(period[0].period_start)
   const settlementOpts: SettlementOptions = extra.settlement ?? { encashmentDivisor: 30, noticeDivisor: 30 }
   const fiscalYear = fiscalYearOf(periodStart)
@@ -243,12 +250,19 @@ export async function unfreezeInputs(tx: PoolClient, runId: string): Promise<voi
 export async function calculate(
   tx: PoolClient,
   runId: string,
-  opts: Omit<EngineOptions, 'statutory'> & { statutory: StatutoryConfig },
+  opts: Omit<EngineOptions, 'statutory'> & { statutory: StatutoryConfig; lwfRates?: readonly LwfRate[] },
 ): Promise<{ gross: bigint; deductions: bigint; net: bigint }> {
   const tid = await tenantId(tx)
   const run = await getRun(tx, runId)
   if (run.status !== 'inputs_frozen') {
     throw new PayrollError('INPUTS_NOT_FROZEN', `calculate requires inputs_frozen, not ${run.status}`)
+  }
+  // LWF is collected in specific months; bind the reference rates to this run's period.
+  if (opts.lwfRates && !opts.lwfAmountPaise) {
+    const { rows: [p] } = await tx.query<{ m: number }>(`SELECT extract(month FROM period_end)::int AS m FROM payroll_periods WHERE id = $1`, [run.period_id])
+    const rates = opts.lwfRates
+    const month = p?.m ?? 0
+    opts = { ...opts, lwfAmountPaise: (state, gross) => lwfFor(rates, state, month, gross) }
   }
 
   const inputs = await readInputs(tx, runId)
@@ -329,6 +343,8 @@ export async function approve(
   if (run.status !== 'validated') {
     throw new PayrollError('NOT_VALIDATED', `approve requires validated, not ${run.status}`)
   }
+  // The anomaly guards must have run and left nothing blocking open.
+  await assertNoOpenBlockers(tx, runId)
   if (opts.requireSeparateApprover && run.processed_by_user_id === approverUserId) {
     throw new PayrollError(
       'SEPARATION_OF_DUTY',

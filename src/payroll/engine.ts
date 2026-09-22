@@ -60,6 +60,12 @@ export interface PayrollInput {
 export interface EngineOptions {
   statutory: StatutoryConfig
   ptAmountPaise: (stateCode: string, grossPaise: bigint) => bigint
+  /**
+   * Labour Welfare Fund for the run's month, by state: employee share (a
+   * deduction) and employer share. Absent or zero means the state levies none
+   * this month. Bound by the caller to the period, like PT is bound to slabs.
+   */
+  lwfAmountPaise?: (stateCode: string, grossPaise: bigint) => { employee: bigint; employer: bigint }
   /** payroll.pf_on_full_wage — contribute above the ceiling rather than capping. */
   pfOnFullWage: boolean
   /** payroll.lop_basis */
@@ -217,6 +223,11 @@ export function computePayroll(input: PayrollInput, opts: EngineOptions): Comput
   if (pt > 0n) {
     lines.push({ code: 'PT', type: 'deduction', amountPaise: pt, note: { state: input.stateCode } })
   }
+
+  // 8b. Labour Welfare Fund, in the months the state collects it.
+  const lwf = opts.lwfAmountPaise?.(input.stateCode, grossPaise)
+  if (lwf && lwf.employee > 0n) lines.push({ code: 'LWF_EE', type: 'deduction', amountPaise: lwf.employee, note: { state: input.stateCode } })
+  if (lwf && lwf.employer > 0n) lines.push({ code: 'LWF_ER', type: 'employer_contribution', amountPaise: lwf.employer, note: { state: input.stateCode } })
 
   // 9. TDS. Taxable gross excludes the employee's own PF contribution, which is
   // deductible, and any exempt one-off; the projection and slab work live in

@@ -17,6 +17,7 @@ import { settleRequisitionDecision, settleOfferDecision } from '../people/recrui
 import { settleRemoteDecision } from '../attendance/remote.ts'
 import { settleSwapDecision, settleOtDecision } from '../attendance/roster.ts'
 import { settleTransferDecision } from '../people/structure.ts'
+import { settleRecommendationDecision } from '../people/feedback.ts'
 
 export interface DecisionArgs {
   requestId: string
@@ -49,6 +50,7 @@ export async function settleDecision(tx: PoolClient, cfg: ResolvedConfig, args: 
     case 'shift_swap': await settleSwapDecision(tx, { approvalRequestId: args.requestId, status: args.status, actorUserId: args.actorUserId }); break
     case 'overtime': await settleOtDecision(tx, { approvalRequestId: args.requestId, status: args.status }); break
     case 'transfer': await settleTransferDecision(tx, { approvalRequestId: args.requestId, status: args.status, actorUserId: args.actorUserId }); break
+    case 'recommendation': await settleRecommendationDecision(tx, { approvalRequestId: args.requestId, status: args.status, actorUserId: args.actorUserId }); break
     case 'requisition': await settleRequisitionDecision(tx, { approvalRequestId: args.requestId, status: args.status }); break
     case 'offer': await settleOfferDecision(tx, { approvalRequestId: args.requestId, status: args.status }); break
     case 'timesheet': {
