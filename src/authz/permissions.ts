@@ -34,6 +34,7 @@ export const PERMISSIONS = [
   'letter.read', 'letter.issue', 'letter.manage',
   'asset.read', 'asset.manage',
   'policy.read', 'policy.manage', 'survey.read', 'survey.manage',
+  'integration.manage',
 ] as const
 
 export type Permission = (typeof PERMISSIONS)[number]
@@ -54,6 +55,7 @@ export const ROLE_PERMISSIONS: Readonly<Record<string, { permissions: Permission
     org_admin: {
       scope: 'all',
       permissions: [
+        'integration.manage',
         'policy.read', 'policy.manage', 'survey.read', 'survey.manage',
         'asset.read', 'asset.manage',
         'letter.read', 'letter.issue', 'letter.manage',

@@ -168,6 +168,15 @@ export interface Session {
 export async function resolveSession(token: string): Promise<Session> {
   const client = await appPool.connect()
   try {
+    // An API key (pk_…) is a service user's standing credential: no MFA step,
+    // no expiry beyond its own, revocable like a session. Everything after this
+    // line — permissions, scope, module gates, audit — sees an ordinary user.
+    if (token.startsWith('pk_')) {
+      const { rows } = await client.query<{ tenant_id: string; user_id: string; id: string }>(`SELECT * FROM auth_api_key_by_hash($1)`, [hashToken(token)])
+      const k = rows[0]
+      if (!k) throw new AuthError('INVALID_SESSION', 'API key is invalid, expired or revoked')
+      return { tenantId: k.tenant_id, userId: k.user_id, sessionId: `apikey:${k.id}`, mfaPending: false, mfaVerifiedAt: null }
+    }
     const { rows } = await client.query<{ tenant_id: string; user_id: string; id: string; mfa_pending: boolean; mfa_verified_at: string | null }>(
       `SELECT * FROM auth_session_by_hash($1)`,
       [hashToken(token)],

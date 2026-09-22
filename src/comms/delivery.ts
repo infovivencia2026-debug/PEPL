@@ -157,6 +157,7 @@ export async function deliverEmails(
     return result
   }
 
+  const footer = (await tx.query<{ f: string | null }>(`SELECT email_footer AS f FROM tenant_branding`)).rows[0]?.f ?? null
   for (const notification of await pendingEmails(tx, args.limit ?? 100)) {
     if (!notification.recipient_email) {
       await markEmailFailed(tx, notification.id, 'the recipient has no email address')
@@ -164,7 +165,8 @@ export async function deliverEmails(
       continue
     }
     try {
-      const { subject, bodyHtml } = renderNotificationEmail(notification, args.companyName)
+      const { subject, bodyHtml: rendered } = renderNotificationEmail(notification, args.companyName)
+      const bodyHtml = footer ? rendered.replace(/<\/body>/i, `<p style="color:#6b7280;font-size:12px;margin-top:24px">${escapeHtml(footer)}</p></body>`) : rendered
       await sendMail(tx, {
         account: sender,
         userId: sender.user_id,

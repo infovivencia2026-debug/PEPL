@@ -46,6 +46,8 @@ export const SCHEDULE: Schedule[] = [
   { job: 'payroll.payslips', everyMs: 15 * MINUTE },
   // Push is what people expect to buzz within a minute of the event.
   { job: 'notifications.push', everyMs: MINUTE },
+  { job: 'notifications.whatsapp', everyMs: MINUTE },
+  { job: 'integrations.webhooks', everyMs: MINUTE },
 
   // Operational hygiene.
   { job: 'helpdesk.sla', everyMs: 15 * MINUTE },

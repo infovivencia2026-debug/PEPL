@@ -333,6 +333,26 @@ const surveys = defineConfig('surveys', {
   }),
 })
 
+const branding = defineConfig('branding', {
+  enabled: flag({
+    entitlement: 'branding',
+    default: true,
+    label: 'Branding & custom domain',
+    help: 'Your product name, colours and logo on the app, payslips and emails; a custom domain such as people.yourcompany.in. Colours and headers work on every plan; the custom domain is Enterprise.',
+    disableEffect: 'soft',
+  }),
+})
+
+const integrations = defineConfig('integrations', {
+  enabled: flag({
+    entitlement: 'integrations',
+    default: true,
+    label: 'Integrations, API keys & webhooks',
+    help: 'API keys that act as a service user with a role; webhooks signed with HMAC on the audit vocabulary; connections to Tally, RazorpayX, Google/Microsoft, SMS, biometric devices and e-sign.',
+    disableEffect: 'soft',
+  }),
+})
+
 const payroll = defineConfig('payroll', {
   enabled: flag({
     default: true,
@@ -516,6 +536,11 @@ const notifications = defineConfig('notifications', {
     label: 'Send notifications by email',
     help: 'Requires a sender mailbox below. Without one, notifications stay in the app.',
   }),
+  whatsapp_enabled: bool({
+    default: false,
+    label: 'Send on WhatsApp',
+    help: 'Approvals, payslips, leave decisions and reminders go to people who opted in with a number, through the provider configured under Company → WhatsApp. Off: nothing leaves.',
+  }),
   push_enabled: bool({
     default: true,
     label: 'Send notifications to devices',
@@ -599,6 +624,8 @@ export const REGISTRY: Readonly<Record<string, Definition>> = Object.freeze({
   ...people,
   ...assets,
   ...surveys,
+  ...branding,
+  ...integrations,
   ...security,
   ...helpdesk,
   ...chat,

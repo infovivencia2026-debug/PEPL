@@ -59,12 +59,14 @@ import { register as roster } from './routes/roster.ts'
 import { register as assets } from './routes/assets.ts'
 import { register as engage } from './routes/engage.ts'
 import { register as structure } from './routes/structure.ts'
+import { register as engageOps } from './routes/engage-ops.ts'
+import { register as integrations } from './routes/integrations.ts'
 
 export const router = new Router()
 
 for (const register of [
   system, config, people, attendance, leave, inbox,
-  payroll, helpdesk, incentives, comms, activity, roles, documents, chat, mail, imports, payments, holidays, leavePolicy, taxDeclarations, push, filings, exits, account, privacy, org, geofences, shifts, structures, incentiveAdmin, approvalPolicy, loans, reports, datasetImports, billing, expenses, timesheets, exitWorkflow, recruitment, performance, letters, roster, assets, engage, structure,
+  payroll, helpdesk, incentives, comms, activity, roles, documents, chat, mail, imports, payments, holidays, leavePolicy, taxDeclarations, push, filings, exits, account, privacy, org, geofences, shifts, structures, incentiveAdmin, approvalPolicy, loans, reports, datasetImports, billing, expenses, timesheets, exitWorkflow, recruitment, performance, letters, roster, assets, engage, structure, engageOps, integrations,
 ]) {
   register(router)
 }

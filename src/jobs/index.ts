@@ -27,6 +27,8 @@ import { openDueProbationReviews } from '../people/letters.ts'
 import { alertShortages } from '../attendance/roster.ts'
 import { remindPolicies } from '../comms/engage.ts'
 import { applyDueTransfers } from '../people/structure.ts'
+import { deliverWhatsApp } from '../comms/whatsapp.ts'
+import { enqueueWebhookEvents, deliverWebhooks } from '../control-plane/integrations.ts'
 import { distributeRun, pendingRuns } from '../payroll/distribute.ts'
 import { ensurePeriod, upcomingMonth } from '../payroll/periods.ts'
 import { closePeriods, runDunning } from '../control-plane/billing.ts'
@@ -385,6 +387,28 @@ export async function runProbationReviews(): Promise<JobResult> {
     }))
 }
 
+/** Every minute: queue new audit events for subscribed webhooks and deliver what is due. */
+export async function runWebhooks(): Promise<JobResult> {
+  return perTenant('integrations.webhooks', async (tenantId) =>
+    withTenant(tenantId, async (tx) => {
+      const cfg = await resolveConfig(tx, tenantId)
+      if (!cfg.isEnabled('integrations.enabled')) return 0
+      await enqueueWebhookEvents(tx)
+      return (await deliverWebhooks(tx, { master: process.env.PEPL_MAIL_KEY })).delivered
+    }))
+}
+
+/** Every minute: notifications to opted-in people through the company's WhatsApp provider. */
+export async function runWhatsAppDelivery(): Promise<JobResult> {
+  return perTenant('notifications.whatsapp', async (tenantId) =>
+    withTenant(tenantId, async (tx) => {
+      const cfg = await resolveConfig(tx, tenantId)
+      if (!cfg.get<boolean>('notifications.whatsapp_enabled')) return 0
+      const r = await deliverWhatsApp(tx, { master: process.env.PEPL_MAIL_KEY })
+      return r.sent
+    }))
+}
+
 /** Nightly: approved transfers whose effective date has arrived land as assignment changes. */
 export async function runDueTransfers(): Promise<JobResult> {
   return perTenant('people.transfers', async (tenantId) => withTenant(tenantId, (tx) => applyDueTransfers(tx)))
@@ -524,6 +548,8 @@ export const JOBS = {
   'roster.shortage': runRosterShortage,
   'policies.remind': runPolicyReminders,
   'people.transfers': runDueTransfers,
+  'notifications.whatsapp': runWhatsAppDelivery,
+  'integrations.webhooks': runWebhooks,
 } as const
 
 export type JobName = keyof typeof JOBS

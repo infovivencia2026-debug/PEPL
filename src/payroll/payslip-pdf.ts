@@ -36,6 +36,8 @@ interface SlipRow {
   department: string | null
   date_of_joining: string | null
   company_name: string
+  payslip_header: string | null
+  payslip_footer: string | null
 }
 
 interface LineRow {
@@ -113,7 +115,9 @@ export async function loadPayslip(
             pp.pay_date::text, r.status::text AS run_status, r.revision,
             e.employee_number AS employee_code, e.first_name, e.last_name,
             a.designation, a.department, e.date_of_joining::text,
-            t.display_name AS company_name
+            t.display_name AS company_name,
+            (SELECT payslip_header FROM tenant_branding b WHERE b.tenant_id = t.id) AS payslip_header,
+            (SELECT payslip_footer FROM tenant_branding b WHERE b.tenant_id = t.id) AS payslip_footer
        FROM payslips p
        JOIN payroll_runs r     ON (r.tenant_id, r.id) = (p.tenant_id, p.run_id)
        JOIN payroll_periods pp ON (pp.tenant_id, pp.id) = (r.tenant_id, r.period_id)
@@ -166,6 +170,7 @@ export function renderPayslipPdf(slip: SlipRow, lines: LineRow[]): Buffer {
   page.text(slip.company_name, MARGIN, y, { font: 'bold', size: 16 })
   page.textRight('Payslip', RIGHT, y, { font: 'bold', size: 16, grey: 0.45 })
   y -= 18
+  if (slip.payslip_header) { page.text(slip.payslip_header, MARGIN, y, { size: 9, grey: 0.4 }); y -= 14 }
   page.text(`Pay period ${slip.period_label}`, MARGIN, y, { size: 9.5, grey: 0.4 })
   page.textRight(
     slip.revision > 1 ? `Revision ${slip.revision}` : `Paid ${dateLabel(slip.pay_date)}`,
@@ -258,6 +263,7 @@ export function renderPayslipPdf(slip: SlipRow, lines: LineRow[]): Buffer {
     MARGIN, MARGIN + 12, { size: 8, grey: 0.5 })
   page.textRight(`Payslip ${slip.id.slice(0, 8)}`, RIGHT, MARGIN + 12, { size: 8, grey: 0.5 })
 
+  if (slip.payslip_footer) page.text(slip.payslip_footer, MARGIN, 40, { size: 8, grey: 0.5 })
   return renderPdf(page, `Payslip ${slip.period_label} — ${name}`)
 }
 

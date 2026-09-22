@@ -1965,6 +1965,143 @@ will change.
 
 ---
 
+## 2.58 Rosters, shift swaps, optional holidays, overtime approval (Phase B1)
+
+```
+GET  /api/v1/roster?from=&to=&employeeId=              attendance.read  -> { rows: [{ employeeId, name, cells: [{ date, shiftCode, off, source: day|standing|pattern|swap|none }] }] }
+POST /api/v1/roster/plan     { employeeId, days: [{ date, shiftId|null, off? }] }        attendance.correct   409 PERIOD_FROZEN · 404 SHIFT_NOT_FOUND
+POST /api/v1/roster/pattern  { employeeIds[], from, to, cycle: ['A','A','A','A','A','A','OFF'], stagger }      rotation with staggered offs
+GET  /api/v1/roster/shortages?from=&to=                -> [{ date, shiftCode, planned, minimum }]   (shifts now carry minHeadcount)
+GET/POST /api/v1/roster/swaps                          POST { counterpartEmployeeId, date, reason }  409 SWAP_OPEN
+POST /api/v1/roster/swaps/:id/respond { accept }       the colleague; then the manager approves in the inbox (entity_type 'shift_swap') unless attendance.swap_requires_approval is off
+GET/POST /api/v1/holidays/optional/picks               POST { holidayId }   422 OPTIONAL_HOLIDAY_CAP · 422 OPTIONAL_HOLIDAYS_OFF (leave.optional_holidays_allowed = 0)
+POST /api/v1/holidays/optional/picks/:holidayId/remove
+GET/POST /api/v1/attendance/overtime                   POST { date, minutes, reason }   409 OT_REQUEST_OPEN; inbox entity_type 'overtime'; payroll.ot_requires_approval caps the freeze
+```
+
+Build: **Time → Roster** — week grid (people × days), cell = shift code chip or
+OFF, colour by source with a legend; drag/tap to set; "Apply rotation" dialog;
+a shortage banner per day; **Me → My roster** with "Swap" on a day → pick a
+colleague → they get an Accept/Decline card; optional-holiday picker on the
+holiday calendar (shows picks left); "Request overtime" on a day.
+
+---
+
+## 2.59 Assets (Phase B2, `assets.enabled`)
+
+```
+GET/POST /api/v1/assets/categories                     asset.read / asset.manage   { code, name, clearanceArea: it|admin|finance|manager, returnable }
+GET/POST /api/v1/assets  ?status=&categoryId=&employeeId=&q=   POST { categoryId, tag, name, serialNo?, purchasedOn?, costPaise?, warrantyUntil?, locationCode? }   409 ASSET_TAG_TAKEN
+GET  /api/v1/assets/summary                            -> { total, byStatus, byCategory[], warrantyExpiring }
+GET  /api/v1/assets/:id                                -> { asset (with holder), history[] }
+POST /api/v1/assets/:id/status { status: in_stock|in_repair|lost|retired }   409 ASSET_ISSUED
+POST /api/v1/assets/:id/issue  { employeeId, condition? }                    409 ASSET_UNAVAILABLE
+GET  /api/v1/assets/assignments?employeeId=me|<id>&open=true
+POST /api/v1/assets/assignments/:id/acknowledge        employee confirms receipt
+POST /api/v1/assets/assignments/:id/return { condition: good|damaged|lost, note?, recoveryPaise? }
+POST /api/v1/assets/:id/maintenance · POST /api/v1/assets/maintenance/:id/close { costPaise?, backInStock? }
+```
+
+Exit clearance: IT/admin/manager answer **409 ASSETS_OUTSTANDING** listing the
+items until they are returned or cleared with a recovery.
+
+Build: **People → Assets** register (status chips, holder, warranty warning),
+item page with history and Issue / Return / Repair actions; **Me → My assets**
+with an Acknowledge button; the exit clearance card shows the outstanding items.
+
+---
+
+## 2.60 Policies, surveys, celebrations (Phase B3, `surveys.enabled`)
+
+```
+GET/POST /api/v1/policies                    policy.read / policy.manage   POST { code, title, body|documentId, requiresAcknowledgement, appliesTo, dueDays }
+POST /api/v1/policies/:id/publish            tells the audience; retires the previous version of the code
+POST /api/v1/policies/:id/acknowledge        409 POLICY_STATE unless published
+GET  /api/v1/policies/:id/compliance         -> { audience, acknowledged, overdue, pending: [{ name, department, dueOn }] }
+GET/POST /api/v1/surveys                     survey.read / survey.manage   POST { title, kind: pulse|enps|custom|suggestion_box, questions: [{ id, text, type: scale|nps|text|choice, options? }], anonymous (default true), minGroup (default 5), audience, closesAt }
+POST /api/v1/surveys/:id/open · /close
+POST /api/v1/surveys/:id/respond { answers: { [questionId]: value } }   409 ALREADY_RESPONDED
+GET  /api/v1/surveys/:id/results?by=department|location   -> { invited, responded, rows: [{ segment, question_id, responses, avg_value, distribution, texts }], enps }
+GET  /api/v1/celebrations?from=&to=          -> birthdays and work anniversaries in scope
+```
+
+**Anonymity is real**: on an anonymous survey no session — not even HR's — can
+read a response row; results are aggregates and a segment under `minGroup` is
+simply absent. Say so on the survey screen ("Your answers cannot be traced to
+you; groups smaller than 5 are never shown").
+
+Build: **Engage → Policies** (list with Acknowledge; HR: editor, Publish,
+compliance table with Remind); **Engage → Surveys** (employee: answer form once;
+HR: builder, results with bar charts per question, eNPS gauge, segment picker);
+**Me / Team**: celebrations strip.
+
+---
+
+## 2.61 Org chart, positions, transfers, profile changes (Phase B4)
+
+```
+GET  /api/v1/org/chart?root=&depth=                 -> { roots: [ChartNode], total, unplaced }   ChartNode { employeeId, name, designation, department, directReports, reports[] }
+GET  /api/v1/employees/:id/reporting-line
+GET/POST /api/v1/positions  ?vacant=true            POST { code, title, department, designation, locationCode?, seats }   GET /positions/headcount
+POST /api/v1/positions/:id/status { active|frozen|closed }   409 POSITION_OCCUPIED
+POST /api/v1/employees/:id/position { positionId|null }      409 POSITION_FULL
+GET/POST /api/v1/transfers                          POST { employeeId, effectiveFrom, department?, designation?, locationCode?, managerEmployeeId?, positionId?, reason }   409 TRANSFER_OPEN; inbox entity_type 'transfer'; applied on the date
+GET/POST /api/v1/profile-changes  ?mine=true        POST { changes: { lastName?, dateOfBirth?, gender?, personalEmail?, phone?, address?, emergencyContact? }, evidenceDocumentId?, note }   409 CHANGE_REQUEST_OPEN
+POST /api/v1/profile-changes/:id/decide { approve, note? }   HR
+```
+
+Build: **People → Org chart** (collapsible tree, search-to-focus, "unplaced"
+banner); **Positions** table with seats/filled bars; "Transfer" action on a
+profile → form → shows as pending with the effective date; **Me → My profile**:
+locked fields get a "Request a change" link → diff form with evidence upload;
+**People → Requests** for HR to approve.
+
+---
+
+## 2.62 Pay operations (Phase B5)
+
+```
+GET/POST /api/v1/payroll/ledger-mappings            payroll.read / payroll.process   { componentCode, debitAccount, creditAccount, costCentreBy: none|department|location|cost_centre }
+GET  /api/v1/payroll/runs/:id/journal?format=json|csv|tally    locked run only (409 RUN_NOT_LOCKED) -> { lines: [{ account, costCentre, debitPaise, creditPaise }], balanced, unmapped[] }
+POST /api/v1/payments/batches/:id/reconcile { lines: [{ reference|accountNumber+amountPaise, status: settled|failed|returned, utr?, reason? }] }
+GET  /api/v1/payroll/runs/:id/payment-status        -> { settled, failed, pending, failures: [{ employeeId, amountPaise, reason }] }
+GET/POST /api/v1/expenses/per-diem-rates            { cityClass: metro|tier1|tier2|other|international, gradeCode?, ratePaise, halfDayPct }
+POST /api/v1/expenses/claims  { …, perDiem: { cityClass, days, halfDays? } }   priced by the table, no receipt; 422 PER_DIEM_RATE_MISSING
+GET  /api/v1/projects/profitability?from=&to=      -> [{ project_code, hours, billable_hours, revenue_paise, cost_paise, margin_paise, margin_pct }]
+```
+
+Build: **Pay → Run → Journal** tab (balanced badge, table, Download CSV / Tally
+XML, "unmapped" warning linking to Ledger mappings); **Payments** page gets an
+"Upload bank return" (CSV → lines) and a settled/failed/pending strip with a
+"Re-pay failed" list; expense claim form gets a **Per-diem** mode (city class,
+days, half days → live amount); **Work → Projects → Profitability** table with
+margin colouring (text + colour).
+
+---
+
+## 2.63 Work reports, branding, WhatsApp (Phase B6)
+
+```
+GET/POST /api/v1/work-reports/templates             task.read / task.write   { code, name, frequency: daily|per_visit|weekly|ad_hoc, fields: [{ key, label, type: text|number|date|choice|photo|geo|boolean, required, options? }], appliesTo }
+GET/POST /api/v1/work-reports  ?template=&from=&to=&status=   POST { template, reportDate?, values, projectId?, geo?, photoDocumentIds? }   409 REPORT_EXISTS (daily) · 403 NOT_APPLICABLE
+POST /api/v1/work-reports/:id/review { status: reviewed|returned, note? }
+GET  /api/v1/work-reports/missing?template=&date=  -> who punched in but has not filed
+GET  /api/v1/branding                               PUBLIC: branding for the request host (custom domain) → theme the login page before sign-in
+GET/PATCH /api/v1/settings/branding                 { productName, primaryColor, accentColor, logoDocumentId, payslipHeader, payslipFooter, emailFooter, customDomain }   409 DOMAIN_TAKEN; domain needs branding.enabled (Enterprise)
+GET/POST /api/v1/me/whatsapp  { phone: '+91…' } · POST /me/whatsapp/opt-out
+GET/POST /api/v1/settings/whatsapp  { provider: meta_cloud|generic_webhook, endpoint, secret, fromNumber?, templates: { eventType: templateName } } · POST /settings/whatsapp/disable   needs notifications.whatsapp_enabled
+```
+
+Build: **Work → Reports** — a form rendered FROM the template's fields (one
+component per type; photo = upload; geo = capture), list with review actions,
+a "not filed today" list for supervisors; **Company → Branding** (colour
+pickers, logo upload, live preview of the shell, domain with DNS instructions);
+apply `GET /branding` at boot: product name + colours as CSS variables on the
+login page and shell; **Account → Notifications**: WhatsApp opt-in with number;
+**Company → WhatsApp**: provider form (secret write-only), event list.
+
+---
+
 # Part 3 — What to build, in order
 
 1. **Chat UI.** The largest visible hole. Conversation list, thread, composer,
@@ -2049,6 +2186,12 @@ will change.
 41. **Letters + Probation** (§2.55).
 42. **MFA + masking** (§2.56): login code screen, Account → Security, recheck dialog, reveal buttons.
 43. **Signup organisation type + preset action** (§2.57).
+44. **Roster + swaps + optional holidays + OT requests** (§2.58).
+45. **Assets** (§2.59).
+46. **Policies, surveys, celebrations** (§2.60).
+47. **Org chart, positions, transfers, profile change requests** (§2.61).
+48. **Journal, payment reconciliation, per-diem, profitability** (§2.62).
+49. **Work reports, branding, WhatsApp opt-in** (§2.63).
 
 ## Running it
 

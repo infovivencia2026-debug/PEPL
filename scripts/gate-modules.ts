@@ -22,7 +22,7 @@ import { PERMISSIONS } from '../src/authz/permissions.ts'
 /** Module name → permission prefix, where they differ. */
 const PERMISSION_PREFIX: Record<string, string> = {
   recruitment: 'recruit', expenses: 'expense', timesheets: 'timesheet', helpdesk: 'ticket',
-  chat: 'announcement', mail: 'mail', notifications: 'settings', documents: 'document', payroll: 'payroll', assets: 'asset', surveys: 'survey',
+  chat: 'announcement', mail: 'mail', notifications: 'settings', documents: 'document', payroll: 'payroll', assets: 'asset', surveys: 'survey', branding: 'settings', integrations: 'integration',
 }
 /** Self-service modules whose routes use authed(null): every signed-in user owns their own rows. */
 const SELF_SERVICE = new Set(['mail'])
