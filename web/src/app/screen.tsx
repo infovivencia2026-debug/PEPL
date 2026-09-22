@@ -21,6 +21,7 @@ import { Communications } from '../Communications'
 import { EngagePage } from '../engage/Engage'
 import { GrowthPage } from '../growth/Growth'
 import { CompanyPage } from '../company/Company'
+import { ReportBuilder } from '../reports/Builder'
 import { DocumentsPage, ImportPage } from '../DataTools'
 import { PaymentsPage } from '../PaymentsPage'
 import { MyTaxDeclaration, TaxDeclarationsQueue } from '../TaxDeclarations'
@@ -109,7 +110,7 @@ export function screenFor({
       ? <PayrollPage {...props} refresh={load} screen={route.split('/')[1]} />
       : <PayrollPage {...props} refresh={load} />
   else if (section === 'tasks') page = <TasksPage {...props} screen={route.split('/')[1] || 'tasks'} />
-  else if (section === 'reports') page = <ReportsPage {...props} />
+  else if (section === 'reports') page = route.split('/')[1] === 'builder' ? <ReportBuilder data={data} /> : <ReportsPage {...props} />
   else if (section === 'activity') page = <ActivityPage {...props} />
   else if (section === 'settings') page = <SettingsPage {...props} />
   return page

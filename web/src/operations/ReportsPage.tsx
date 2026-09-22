@@ -93,7 +93,9 @@ export function ReportsPage({ data }: Props) {
         title="Clarity for your next move"
         description="Useful perspectives, built from your workspace’s real records."
         eyebrow="Reports & insights"
-      />
+      >
+        <a className="btn secondary" href="#/reports/builder">Build your own</a>
+      </PageHeader>
       <div className="report-grid">
         {reports
           .filter((r) => data.permissions.includes(r.permission))
