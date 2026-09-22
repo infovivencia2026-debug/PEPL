@@ -59,6 +59,7 @@ import { NAV, MORE, getRoute } from './app/nav'
 import { screenFor } from './app/screen'
 import { removeCurrentPushSubscription } from './push'
 import { PasswordRecovery } from './Account'
+import { Signup } from './Signup'
 export function App() {
   const [data, setData] = useState<Workspace | null>(null),
     [loggedOut, setLoggedOut] = useState(false),
@@ -378,6 +379,8 @@ export function App() {
             <PasswordRecovery token={new URLSearchParams(location.search).get('token')} />
           ) : route === 'forgot-password' ? (
             <PasswordRecovery />
+          ) : route === 'signup' && (loggedOut || !data) ? (
+            <Signup onSignedIn={async () => { setLoggedOut(false); await load() }} />
           ) : loading ? (
             <Skeleton />
           ) : mfa ? (

@@ -49,6 +49,18 @@ async function main(): Promise<void> {
 
     // Generic: `npm run shoot -- route <hash-route> [name]` shoots one screen at
     // desktop and phone. SHOOT_EMAIL picks the persona.
+    if (only === 'public') {
+      const route = process.argv[3] ?? 'signup'
+      const fresh = await browser.newContext({ viewport: { width: 1440, height: 900 }, deviceScaleFactor: 2 }); const fp = await fresh.newPage()
+      fp.on('pageerror', (e) => console.error('pageerror:', e.message)); fp.on('console', (m) => { if (m.type() === 'error') console.error('console:', m.text().slice(0, 300)) })
+      await fp.goto(`${BASE}/#/${route}`); await fp.waitForTimeout(1500)
+      if (process.env.SHOOT_CLICK) { await fp.getByRole('button', { name: new RegExp(process.env.SHOOT_CLICK, 'i') }).first().click(); await fp.waitForTimeout(600) }
+      for (const pair of (process.env.SHOOT_FILL ?? '').split(';').filter(Boolean)) { const [label, value] = pair.split('=') as [string, string]; await fp.getByLabel(new RegExp(label, 'i')).first().fill(value) }
+      if (process.env.SHOOT_CLICK2) { await fp.getByRole('button', { name: new RegExp(process.env.SHOOT_CLICK2, 'i') }).first().click(); await fp.waitForTimeout(1200) }
+      await fp.screenshot({ path: `${OUT}/${process.argv[4] ?? route}.png`, fullPage: true }); console.log(`${OUT}/${process.argv[4] ?? route}.png`)
+      await fresh.close(); return
+    }
+
     if (only === 'route') {
       const route = process.argv[3] ?? 'dashboard'
       const name = process.argv[4] ?? route.replace(/[^\w-]+/g, '-')

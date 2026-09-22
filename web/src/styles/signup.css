@@ -1,0 +1,27 @@
+/* Signup and organisation-type presets. */
+
+.signup-page { min-height: 100vh; display: flex; align-items: flex-start; justify-content: center; padding: 32px 16px; }
+.signup-page > .card { width: min(880px, 100%); padding: 32px; }
+.signup-page h1 { font-size: clamp(24px, 3vw, 32px); margin: 8px 0 14px; letter-spacing: -.8px; font-weight: 550; }
+.signup-page h2 { font-size: 15px; margin: 18px 0 8px; color: var(--muted); font-weight: 550; text-transform: uppercase; letter-spacing: .6px; }
+.signup-steps { list-style: none; display: flex; gap: 18px; margin: 10px 0 6px; padding: 0; font-size: 12px; color: var(--muted); }
+.signup-steps li { padding-bottom: 6px; border-bottom: 2px solid var(--border); }
+.signup-steps li.now { color: var(--primary); border-bottom-color: var(--primary); font-weight: 550; }
+.signup-steps li.done { color: #2d5a3c; border-bottom-color: var(--chart-1); }
+.signup-form { display: flex; flex-direction: column; gap: 10px; }
+.signup-form .decision-actions { align-items: center; }
+
+.preset-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 12px; margin: 14px 0; }
+.preset-card { position: relative; text-align: left; padding: 16px 16px 14px; border-radius: 16px; border: 1px solid var(--border); background: var(--surface); color: var(--foreground); display: flex; flex-direction: column; gap: 6px; min-height: 160px; transition: border-color .15s, box-shadow .15s, transform .15s; }
+.preset-card:hover { border-color: var(--primary); }
+.preset-card:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
+.preset-card.picked { border-color: var(--primary); box-shadow: 0 0 0 3px #174f4622; background: linear-gradient(#fff, #f3f8f4); }
+.preset-card strong { font-size: 15px; font-weight: 550; padding-right: 28px; }
+.preset-card p { margin: 0; font-size: 12.5px; color: var(--foreground); line-height: 1.45; }
+.preset-card small { color: var(--muted); font-size: 11px; }
+.preset-card ul { list-style: none; margin: 6px 0 0; padding: 0; display: flex; flex-wrap: wrap; gap: 4px; }
+.preset-card ul li { font-size: 10px; text-transform: uppercase; letter-spacing: .4px; background: var(--primary-soft); color: var(--primary); border-radius: 6px; padding: 3px 7px; }
+.preset-check { position: absolute; top: 12px; right: 12px; width: 22px; height: 22px; border-radius: 50%; border: 1.5px solid var(--border); display: inline-flex; align-items: center; justify-content: center; color: #fff; }
+.preset-card.picked .preset-check { background: var(--primary); border-color: var(--primary); }
+@media (prefers-reduced-motion: reduce) { .preset-card { transition: none; } }
+@media (max-width: 720px) { .signup-page > .card { padding: 20px; } }
