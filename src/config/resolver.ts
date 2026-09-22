@@ -22,6 +22,14 @@ export interface ResolvedConfig {
   readonly asOf: string
   get<T extends ConfigValue>(key: string, scope?: Scope): T
   isEnabled(key: string, scope?: Scope): boolean
+  /**
+   * Whether the PLAN grants this key, ignoring whether the company has switched
+   * it on. "Off because you turned it off" and "off because you did not buy it"
+   * are different answers and only one of them is a sales conversation.
+   */
+  isEntitled(key: string): boolean
+  /** The entitlement a key is sold under, or null when it is included in every plan. */
+  entitlementOf(key: string): string | null
   limit(name: string): number
   /** Keys whose effective value differs from the registry default. */
   changedKeys(): string[]
@@ -115,6 +123,14 @@ export async function resolveConfig(
       // tenant's aspirational setting.
       if (!entitled(key)) return def.default as T
       return rawValue(key, scope) as T
+    },
+
+    isEntitled(key: string): boolean {
+      return entitled(key)
+    },
+
+    entitlementOf(key: string): string | null {
+      return getDefinition(key).entitlement ?? null
     },
 
     isEnabled(key: string, scope?: Scope): boolean {

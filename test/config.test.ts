@@ -132,6 +132,30 @@ describe('entitlements cannot be widened by a tenant setting', () => {
     expect([pro.isEnabled('expenses.enabled'), pro.isEnabled('performance.enabled'), pro.isEnabled('recruitment.enabled')]).toEqual([true, true, true])
   })
 
+  it('tells a module switched off apart from one the plan never sold', async () => {
+    // The two look identical to a caller that only asks isEnabled, and they are
+    // completely different conversations: one is a settings toggle, the other is
+    // an account manager. Sales-led selling depends on the browser knowing which.
+    await grantPlan(A.id, { payroll: true, helpdesk: false })
+    await withTenant(A.id, async (tx) => {
+      await setSetting(tx, { key: 'payroll.enabled', value: false, reason: 'not this year' })
+    })
+    const cfg = await withTenant(A.id, (tx) => resolveConfig(tx, A.id))
+
+    // Sold, but the company turned it off.
+    expect(cfg.isEnabled('payroll.enabled')).toBe(false)
+    expect(cfg.isEntitled('payroll.enabled')).toBe(true)
+
+    // Never sold, whatever the setting says.
+    expect(cfg.isEnabled('helpdesk.enabled')).toBe(false)
+    expect(cfg.isEntitled('helpdesk.enabled')).toBe(false)
+    expect(cfg.entitlementOf('helpdesk.enabled')).toBe('helpdesk')
+
+    // A module included in every plan is sold to everyone.
+    expect(cfg.entitlementOf('leave.enabled')).toBeNull()
+    expect(cfg.isEntitled('leave.enabled')).toBe(true)
+  })
+
   it('losing an entitlement closes the feature without touching the setting', async () => {
     await grantPlan(A.id, { payroll: false })
     const cfg = await withTenant(A.id, (tx) => resolveConfig(tx, A.id))

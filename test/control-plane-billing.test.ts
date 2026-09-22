@@ -40,6 +40,12 @@ describe('signup and billing', () => {
     expect(plans.status).toBe(200)
     expect((plans.body.plans as { code: string }[]).map((p) => p.code)).toContain('professional')
 
+    // Cheapest first, because a plan table is read left to right and a sales
+    // deck is built on that order. The prices are text in the payload, so an
+    // unqualified ORDER BY on the aliased column sorts 12000 before 2000.
+    const prices = (plans.body.plans as { base_price_paise: string }[]).map((p) => Number(p.base_price_paise))
+    expect(prices).toEqual([...prices].sort((a, b) => a - b))
+
     expect((await api('POST', '/signup', { legalName: 'NewCo', adminEmail: 'bad', adminName: 'F', password: 'a-long-passphrase' })).status).toBe(422)
     expect((await api('POST', '/signup', { legalName: 'NewCo', adminEmail: email, adminName: 'F', password: 'short' })).body.error?.code).toBe('WEAK_PASSWORD')
 

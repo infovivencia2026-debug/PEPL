@@ -111,14 +111,26 @@ export function open(handler: (req: Req) => Promise<Res> | Res) {
 
 /** Refuses the request when the tenant has not enabled or bought the module. */
 export function requireModule(ctx: Ctx, key: string): void {
-  if (!ctx.config.isEnabled(key)) {
+  if (ctx.config.isEnabled(key)) return
+  const module = key.split('.')[0]
+  // A module can be dark for two very different reasons, and collapsing them
+  // leaves the browser unable to say which. "Switch it on in Settings" and
+  // "this is sold on a higher plan" are not the same sentence, and only the
+  // second one is a conversation with an account manager.
+  if (!ctx.config.isEntitled(key)) {
     throw new HttpError(
       403,
-      'MODULE_NOT_AVAILABLE',
-      `${key.split('.')[0]} is not enabled for this company, or is not included in the current plan`,
-      { key },
+      'PLAN_UPGRADE_REQUIRED',
+      `${module} is not included in this company's plan`,
+      { key, entitlement: ctx.config.entitlementOf(key) },
     )
   }
+  throw new HttpError(
+    403,
+    'MODULE_NOT_AVAILABLE',
+    `${module} is switched off for this company`,
+    { key },
+  )
 }
 
 export const ok = (body: unknown): Res => ({ status: 200, body })

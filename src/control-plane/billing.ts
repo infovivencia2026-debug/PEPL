@@ -30,7 +30,11 @@ export interface Plan {
 export async function listPlans(): Promise<Plan[]> {
   const { rows } = await controlDb.query<Plan>(
     `SELECT code, name, base_price_paise::text, per_employee_price_paise::text, features, limits
-       FROM control_plane.plans WHERE status = 'active' ORDER BY base_price_paise, code`)
+       FROM control_plane.plans WHERE status = 'active'
+      -- Qualified, because the select list aliases base_price_paise to its ::text
+      -- cast and an unqualified ORDER BY binds to the OUTPUT column: the plans
+      -- then sort lexicographically and 12000 comes before 2000.
+      ORDER BY plans.base_price_paise, plans.code`)
   return rows
 }
 

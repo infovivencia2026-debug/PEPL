@@ -10,10 +10,12 @@ import { domainApi } from '../domainApi'
 import { money, dateLabel } from '../api'
 import { Button, Card, Empty, ErrorBox, Modal, PageHeader, Skeleton, Tabs } from '../ui'
 import type { Workspace } from '../types'
+import { PlanAndModules } from './Plan'
 
 export function CompanyPage({ data, screen = 'security' }: { data: Workspace; screen?: string }) {
   const VIEWS: Array<[string, string, boolean]> = [
     ['security', 'Security posture', data.permissions.includes('settings.write')],
+    ['plan', 'Plan & modules', data.permissions.includes('settings.write')],
     ['group', 'Group', data.permissions.includes('group.manage')],
     ['sandbox', 'Sandbox', data.permissions.includes('settings.write')],
     ['benchmarks', 'Benchmarks', data.permissions.includes('report.read') && data.user.scope === 'all'],
@@ -22,6 +24,7 @@ export function CompanyPage({ data, screen = 'security' }: { data: Workspace; sc
   const shown = VIEWS.filter((v) => v[2])
   const HEAD: Record<string, [string, string]> = {
     security: ['Security posture', 'Who holds the keys, whether the chain verifies, and what to tighten.'],
+    plan: ['Plan & modules', 'What this company pays for, what it includes, and what the other plans add.'],
     group: ['Group & reseller', 'Companies under this one — totals only, by their consent.'],
     sandbox: ['Sandbox', 'A throwaway twin of this company, full of sample data, that never sends anything.'],
     benchmarks: ['Benchmarks', 'How this company compares with others of its type and size.'],
@@ -34,7 +37,7 @@ export function CompanyPage({ data, screen = 'security' }: { data: Workspace; sc
     <>
       <PageHeader title={title} description={description} eyebrow={`Company · ${title}`} />
       {tabs}
-      {screen === 'group' ? <GroupConsole data={data} /> : screen === 'sandbox' ? <Sandbox /> : screen === 'benchmarks' ? <Benchmarks /> : screen === 'assistant' ? <Gaps /> : <Posture />}
+      {screen === 'plan' ? <PlanAndModules /> : screen === 'group' ? <GroupConsole data={data} /> : screen === 'sandbox' ? <Sandbox /> : screen === 'benchmarks' ? <Benchmarks /> : screen === 'assistant' ? <Gaps /> : <Posture />}
     </>
   )
 }
