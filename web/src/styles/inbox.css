@@ -1,0 +1,58 @@
+/* The approval inbox: selection, provenance, the decision tray. */
+
+.approval-summary { position: relative; }
+.approval-summary .select-all {
+  margin-left: auto; display: inline-flex; align-items: center; gap: 8px; min-height: 44px; padding: 0 14px;
+  border-radius: 12px; border: 1px solid #234b3c22; background: #ffffffa6; color: var(--primary); font-weight: 550; font-size: 12px;
+}
+.approval-summary .select-all:hover { background: #fff; }
+.approval-summary .select-all:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
+
+.approval-card { transition: box-shadow .2s, border-color .2s, transform .2s; }
+.approval-card.selected { border-color: var(--primary); box-shadow: 0 0 0 3px #174f4622, var(--shadow-card); }
+.select-box { display: flex; align-items: center; gap: 12px; cursor: pointer; min-height: 44px; }
+.select-box input { width: 20px; height: 20px; margin: 0; accent-color: var(--primary); flex: none; cursor: pointer; }
+.select-box input:focus-visible { outline: 2px solid var(--primary); outline-offset: 3px; }
+
+.approval-card .age { font-size: 11px; color: var(--muted); white-space: nowrap; padding: 6px 10px; border-radius: 8px; background: var(--surface-muted); font-variant-numeric: tabular-nums; }
+.approval-card .age.stale { background: #fcf1d9; color: #7a5f1f; }
+.approval-card .age.stale::before { content: '⏱ '; }
+
+.provenance { list-style: none; margin: 14px 0 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.provenance li { display: flex; align-items: center; gap: 8px; font-size: 12px; line-height: 1.45; padding: 7px 10px; border-radius: 9px; }
+.provenance li.amber { background: #fcf1d9; color: #7a5f1f; }
+.provenance li.green { background: #eaf3e5; color: #3f6a3f; }
+.provenance li.muted { background: var(--surface-muted); color: var(--muted); }
+.provenance svg { flex: none; }
+
+.bulk-result { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin: 0 0 18px; padding: 12px 14px 12px 18px; border-radius: 14px; background: #eaf3e5; color: #2f5a3a; font-size: 13px; }
+.bulk-result.partial { background: #fcf1d9; color: #6b4f14; }
+.bulk-result .btn.ghost { margin-left: auto; min-width: 44px; min-height: 44px; padding: 0; justify-content: center; }
+
+.decision-tray {
+  position: sticky; bottom: 12px; z-index: 5; margin-top: 24px;
+  display: flex; align-items: center; gap: 14px; flex-wrap: wrap;
+  padding: 14px 18px; border-radius: 18px;
+  background: linear-gradient(125deg, #123f36, #245948); color: #e9f2ea;
+  box-shadow: 0 18px 40px -18px #0b2a2699, inset 0 1px 0 #c4dec640;
+  animation: tray-in .24s ease-out;
+}
+.decision-tray strong { font-size: 15px; letter-spacing: -.2px; white-space: nowrap; }
+.decision-tray .tray-field { flex: 1 1 260px; margin: 0; }
+.decision-tray .tray-field input { width: 100%; background: #ffffff14; border: 1px solid #ffffff2e; color: #fff; border-radius: 12px; padding: 11px 14px; min-height: 44px; }
+.decision-tray .tray-field input::placeholder { color: #d2e4d0b3; }
+.decision-tray .tray-field input:focus-visible { outline: 2px solid #f2c768; outline-offset: 1px; }
+.decision-tray .decision-actions { margin: 0; }
+.decision-tray .btn.ghost { color: #e9f2ea; }
+.decision-tray .btn.ghost:hover:not(:disabled) { background: #ffffff1a; }
+@keyframes tray-in { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
+@media (prefers-reduced-motion: reduce) { .decision-tray { animation: none; } .approval-card { transition: none; } }
+
+@media (max-width: 720px) {
+  .approval-summary { flex-wrap: wrap; }
+  .approval-summary .select-all { margin-left: 0; width: 100%; justify-content: center; }
+  .approval-full-head { flex-direction: column; align-items: flex-start; gap: 10px; }
+  .decision-tray { bottom: 76px; }
+  .decision-tray .decision-actions { width: 100%; }
+  .decision-tray .decision-actions .btn { flex: 1; }
+}

@@ -15,6 +15,8 @@ import { closePools } from '../src/db/pool.ts'
 import { createUser } from '../src/auth/index.ts'
 import { changeAssignment, changeCompensation } from '../src/people/history.ts'
 import { appendEntry, accrueMonthly } from '../src/leave/ledger.ts'
+import { applyLeave } from '../src/leave/apply.ts'
+import { resolveConfig } from '../src/config/resolver.ts'
 import { recordPunch, recomputeDay } from '../src/attendance/index.ts'
 
 const COMPANY = 'Acme Manufacturing Pvt Ltd'
@@ -149,6 +151,7 @@ async function main(): Promise<void> {
      String(L(50_000)), String(L(500_000)), String(L(12_500))])
 
   const ids: Record<string, string> = {}
+  const userIds: Record<string, string> = {}
 
   await withTenant(tenantId, async (tx) => {
     // admin login
@@ -173,7 +176,7 @@ async function main(): Promise<void> {
         [tenantId, p.number, p.first, p.last])
       ids[p.number] = rows[0]!.id
 
-      await createUser(tx, {
+      userIds[p.number] = await createUser(tx, {
         tenantId, email: p.email, fullName: `${p.first} ${p.last}`,
         password: PASSWORD, roles: [p.role], employeeId: rows[0]!.id,
       })
@@ -266,6 +269,19 @@ async function main(): Promise<void> {
        VALUES ($1,'2026-09',DATE '2026-09-01',DATE '2026-09-30',DATE '2026-10-01')
        ON CONFLICT (tenant_id, label) DO NOTHING`,
       [tenantId])
+
+    // Pending approvals so the manager's inbox has something to decide — one from
+    // each of the team, and one from the manager himself, which routes to HR.
+    const cfg = await resolveConfig(tx, tenantId)
+    const el = types.find((t) => t.code === 'EL')!
+    const day = (offset: number): string => new Date(Date.now() + offset * 86_400_000).toISOString().slice(0, 10)
+    for (const [num, from, to, reason] of [
+      ['ACM-004', 21, 23, 'Family wedding in Kochi'],
+      ['ACM-005', 28, 28, 'Passport appointment'],
+      ['ACM-003', 35, 39, 'Annual trip — team briefed'],
+    ] as const) {
+      await applyLeave(tx, cfg, { employeeId: ids[num]!, requestedByUserId: userIds[num]!, leaveTypeId: el.id, startDate: day(from), endDate: day(to), reason })
+    }
 
     // An announcement awaiting acknowledgement.
     await tx.query(

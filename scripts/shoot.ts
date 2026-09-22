@@ -47,6 +47,28 @@ async function main(): Promise<void> {
   try {
     await login(page)
 
+    // Generic: `npm run shoot -- route <hash-route> [name]` shoots one screen at
+    // desktop and phone. SHOOT_EMAIL picks the persona.
+    if (only === 'route') {
+      const route = process.argv[3] ?? 'dashboard'
+      const name = process.argv[4] ?? route.replace(/[^\w-]+/g, '-')
+      await page.goto(`${BASE}/#/${route}`)
+      await page.waitForTimeout(1200)
+      // SHOOT_CLICK="Select all" clicks a button by name before the shot (to show a selected state)
+      if (process.env.SHOOT_CLICK) { await page.getByRole('button', { name: new RegExp(process.env.SHOOT_CLICK, 'i') }).first().click(); await page.waitForTimeout(500) }
+      await page.screenshot({ path: `${OUT}/${name}.png`, fullPage: true })
+      console.log(`${OUT}/${name}.png`)
+      const mobile = await browser.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, isMobile: true, hasTouch: true })
+      const mp = await mobile.newPage()
+      await login(mp)
+      await mp.goto(`${BASE}/#/${route}`)
+      await mp.waitForTimeout(1200)
+      await mp.screenshot({ path: `${OUT}/${name}-mobile.png`, fullPage: true })
+      console.log(`${OUT}/${name}-mobile.png`)
+      await mobile.close()
+      return
+    }
+
     if (!only || only === 'dashboard') {
       await page.screenshot({ path: `${OUT}/verify-dashboard.png` })
       console.log(`${OUT}/verify-dashboard.png`)

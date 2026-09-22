@@ -295,6 +295,18 @@ export interface InboxItem {
   step_no: number
   created_at: Date
   age_hours: number
+  /** The role this step was meant for (manager, hr, finance, dept_head). */
+  approver_role: string | null
+  /** True when the step landed here because the requester had no approver (or was their own). */
+  routed_to_hr: boolean
+  /** Set when someone delegated their step to this approver. */
+  delegated_from: string | null
+  /** Last time the nightly job nudged the approver about this step. */
+  reminded_at: Date | null
+  /** Who raised it and for whom. */
+  requested_by: string | null
+  subject_employee_id: string | null
+  subject_name: string | null
 }
 
 /**
@@ -305,7 +317,12 @@ export async function inbox(tx: PoolClient, approverUserId: string): Promise<Inb
   const { rows } = await tx.query<InboxItem>(
     `SELECT r.id AS request_id, r.entity_type, r.entity_id, r.title,
             s.step_no, r.created_at,
-            EXTRACT(EPOCH FROM (now() - r.created_at)) / 3600 AS age_hours
+            EXTRACT(EPOCH FROM (now() - r.created_at)) / 3600 AS age_hours,
+            s.approver_role, s.routed_to_hr, s.reminded_at,
+            (SELECT full_name FROM app_users d WHERE d.id = s.delegated_from_user_id) AS delegated_from,
+            (SELECT full_name FROM app_users q WHERE q.id = r.requested_by_user_id) AS requested_by,
+            r.subject_employee_id,
+            (SELECT concat_ws(' ', e.first_name, e.last_name) FROM employees e WHERE e.id = r.subject_employee_id) AS subject_name
        FROM approval_requests r
        JOIN approval_steps s
          ON (s.tenant_id, s.approval_request_id) = (r.tenant_id, r.id)

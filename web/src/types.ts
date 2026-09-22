@@ -48,6 +48,13 @@ export interface Approval {
   step_no: number
   created_at: string
   age_hours: number
+  approver_role?: string | null
+  routed_to_hr?: boolean
+  delegated_from?: string | null
+  reminded_at?: string | null
+  requested_by?: string | null
+  subject_employee_id?: string | null
+  subject_name?: string | null
 }
 export interface Payroll {
   id: string
