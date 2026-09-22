@@ -119,7 +119,9 @@ export async function deleteSandbox(parentTenantId: string): Promise<void> {
 export async function resetSandbox(args: { parentTenantId: string; requestedByUserId: string }): Promise<Sandbox> {
   const s = await sandboxOf(args.parentTenantId)
   if (!s) throw new SandboxError('NOT_FOUND', 'this company has no sandbox')
-  const days = Math.max(1, Math.round((Date.parse(s.sandbox_expires_on) - Date.now()) / 86_400_000))
+  // the expiry is a DATE (midnight); rounding the remaining milliseconds loses a day, so a reset quietly shortened the sandbox
+  const today = new Date().toISOString().slice(0, 10)
+  const days = Math.max(1, Math.round((Date.parse(s.sandbox_expires_on) - Date.parse(today)) / 86_400_000))
   await purgeTenant(s.id)
   return createSandbox({ parentTenantId: args.parentTenantId, adminEmail: s.admin_email, adminName: 'Sandbox Admin', organisationType: s.organisation_type ?? undefined, days, requestedByUserId: args.requestedByUserId })
 }

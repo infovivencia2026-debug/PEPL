@@ -2350,28 +2350,35 @@ unanswered-question table for HR.
 
 # Part 3 — What to build, in order
 
-## Handover: the blueprint UI package (§2.51 – §2.75, items 37 – 61)
+## The blueprint UI package — BUILT
 
-The backend for every blueprint phase (A1–A7, B1–B6, C1–C7, D1–D5) is
-built, tested (`npm run verify` green: 17 modules, 100+ suites, 24 launch
-checks) and committed. Nothing in §2.51–§2.75 has a screen yet. Take them in
-this order — each row is one PR, each PR ends with `npm run check:responsive`
-green and screenshots in `docs/ui-checks/`:
+Rows 1–12 of the handover are implemented, screenshotted and committed
+(`fba05be` … `208f669`). What exists now:
 
-| # | Screen(s) | Brief | Why first |
-|---|---|---|---|
-| 1 | Approvals inbox: bulk actions, HR-fallback badge, reminders | §2.51 | every other module raises approvals |
-| 2 | Time: muster roll, calendar, breaks/late reason, control room, kiosk | §2.52 §2.53 §2.58 | the daily screen for most tenants |
-| 3 | People: letters, probation, org chart, positions, transfers, profile changes | §2.54 §2.61 | HR's week |
-| 4 | Security: MFA enrolment & admin policy, PII reveal, API keys / webhooks | §2.56 §2.64 §2.73 | launch blocker for enterprise |
-| 5 | Signup: organisation-type presets | §2.57 | first impression |
-| 6 | Pay: compliance calendar + registers, journal/Tally, reconciliation, per-diem, anomaly checks, contractors, bonus | §2.62 §2.65 §2.68 §2.71 | payroll admin's month-end |
-| 7 | Work: assets, work reports, project profitability | §2.59 §2.63 | field/ops tenants |
-| 8 | Engage: policies, surveys, celebrations, recognition wall, WhatsApp opt-in, branding | §2.60 §2.63 §2.66 | adoption |
-| 9 | Growth: learning, 360°, recommendations | §2.66 §2.67 | performance cycle |
-| 10 | Company: group console, reseller book, sandbox, security posture, benchmarks, assistant gaps | §2.69 §2.72 §2.73 §2.74 §2.75 | platform |
-| 11 | Reports: builder, saved & scheduled | §2.70 | power users |
-| 12 | Shell: assistant drawer (`?`), sandbox banner, public /trust | §2.75 §2.72 §2.73 | cross-cutting |
+| # | Screens | Commit |
+|---|---|---|
+| 1 | Approvals inbox: selection, bulk tray, provenance (routed to HR / delegated / reminded) | `fba05be` |
+| 2 | Time: muster roll, My month, control room, kiosk QR, break/resume, late reason, camera scan | `e3f3c43` |
+| 3 | People: letters, probation, org chart, positions, change requests, transfer | `573ed0a` |
+| 4 | Security: login code gate, enrolment, Account card, admin reset, recheck-and-retry, audited Reveal | `796a90b` |
+| 5 | Signup with organisation-type presets; "Start from a preset" in Settings | `03cf1d0` |
+| 6 | Pay: checks step, journal + ledger mappings, compliance calendar & registers, contractors/26Q, bonus, bank-return reconciliation | `f2eab5e` |
+| 7 | Work: assets, work reports from templates, project profitability | `3ebe05f` |
+| 8 | Engage: policies, anonymous surveys, recognition wall, celebrations | `b5fbf1e` |
+| 9 | Growth: learning compliance, 360° feedback, recommendations | `bc71a01` |
+| 10 | Company: security posture, group console, sandbox, benchmarks, assistant gaps | `613eef0` |
+| 11 | Report builder: models, grouping, filters, live preview, saved reports, schedules | `e8d5914` |
+| 12 | Shell: assistant drawer (`?`), sandbox banner, public `/trust` | `208f669` |
+
+Two backend bugs were found and fixed while building: route matching now
+prefers the most literal route (`/org/:kind` had swallowed `/org/chart`), and
+the browser payroll-lock path now enforces the same fresh-code rule as the
+public API.
+
+Screenshots for every row are in `docs/ui-checks/`. `npm run shoot -- route
+<hash-route> <name>` (plus `public`, `mfa`, and the `SHOOT_CLICK` /
+`SHOOT_SELECT` / `SHOOT_FILL` / `SHOOT_TYPE` / `SHOOT_EVAL` variables) is the
+rig used throughout.
 
 Rules that apply to every row: the nav model lives in `web/src/app/nav.ts`
 and a module's entry appears only when `GET /api/v1/me`.modules[key] is
