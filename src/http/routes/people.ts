@@ -195,7 +195,15 @@ export function register(router: Router): void {
     authed('employee.read', async (ctx) => {
       const id = asUuid(ctx.req.params.id, 'id')
       assertScope(ctx.auth, id)
-      return ok({ accounts: await listBankAccounts(ctx.tx, id, ctx.req.query.get('history') === 'true') })
+      const accounts = await listBankAccounts(ctx.tx, id, ctx.req.query.get('history') === 'true')
+      // The full account number is for the person and for an audited reveal; everyone else gets the masked form.
+      const own = ctx.auth.employeeId === id
+      if (!own && ctx.req.query.get('reveal') === 'true' && can(ctx.auth, 'bank.export')) {
+        await emit(ctx.tx, { action: 'access.tier3.revealed', entityType: 'employee', entityId: id, subjectEmployeeId: id, actorUserId: ctx.auth.userId, metadata: { document: 'bank_accounts' } })
+        return ok({ accounts, masked: false })
+      }
+      if (own) return ok({ accounts, masked: false })
+      return ok({ accounts: accounts.map((a) => ({ ...a, account_number: a.account_masked })), masked: true })
     }))
 
   router.post('/api/v1/employees/:id/bank-accounts',

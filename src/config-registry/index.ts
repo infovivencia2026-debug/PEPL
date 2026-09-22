@@ -157,6 +157,31 @@ const attendance = defineConfig('attendance', {
     label: 'WFH / field duty approval chain',
     help: 'Who approves remote and field-duty requests when no approval policy matches.',
   }),
+  breaks_deducted: bool({
+    default: true,
+    label: 'Recorded breaks reduce worked time',
+    help: 'When a person records a break, its minutes come off the day. Off: breaks are noted but the day is punch-in to punch-out.',
+    scopable: ['department', 'location'],
+  }),
+  late_reason_required: bool({
+    default: false,
+    label: 'Ask for a reason on a late punch',
+    help: 'The punch is always accepted; the app then asks why, and the reason shows next to the late mark in the control room and the muster.',
+    scopable: ['department', 'location', 'grade'],
+  }),
+  auto_checkout_after_minutes: int({
+    default: 0,
+    min: 0,
+    max: 720,
+    label: 'Close a forgotten punch-out after (minutes past shift end)',
+    help: 'A day with a punch-in and no punch-out is closed at the shift end once this long has passed (12 hours after punch-in for people with no shift), and flagged. 0 turns it off.',
+    scopable: ['department', 'location'],
+  }),
+  qr_punch_enabled: bool({
+    default: false,
+    label: 'QR / kiosk punch',
+    help: 'A manager\'s phone or a wall tablet shows a code that changes every minute; scanning it is a punch at that site with no location fix needed.',
+  }),
   correction_window_days: int({
     default: 30,
     min: 0,
@@ -249,6 +274,16 @@ const performance = defineConfig('performance', {
     label: 'Performance',
     help: 'Goals with weights and check-ins, review cycles (self review, manager review, HR calibration, acknowledgement) and performance improvement plans.',
     disableEffect: 'soft',
+  }),
+})
+
+const people = defineConfig('people', {
+  probation_review_days_ahead: int({
+    default: 14,
+    min: 0,
+    max: 90,
+    label: 'Open a probation review this many days before it ends',
+    help: 'The nightly job opens a review and tells the manager and HR. Confirming issues the confirmation letter and makes the employment permanent; extending moves the end date.',
   }),
 })
 
@@ -479,6 +514,15 @@ const approvals = defineConfig('approvals', {
   }),
 })
 
+const security = defineConfig('security', {
+  mfa_required_for_admins: bool({
+    default: false,
+    label: 'Administrators must use two-factor authentication',
+    help: 'Org admins, HR admins, payroll admins and finance users are asked to enrol an authenticator app before they can do anything else. Anyone may enrol voluntarily regardless.',
+    risk: 'high',
+  }),
+})
+
 const privacy = defineConfig('privacy', {
   erasure_after_days: int({
     default: 2922,
@@ -498,6 +542,8 @@ export const REGISTRY: Readonly<Record<string, Definition>> = Object.freeze({
   ...timesheets,
   ...recruitment,
   ...performance,
+  ...people,
+  ...security,
   ...helpdesk,
   ...chat,
   ...mail,

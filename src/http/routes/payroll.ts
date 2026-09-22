@@ -24,7 +24,7 @@ import {
   emit,
   loadStatutory,
   ptFor,
-  computeTds,
+  computeTds, requireRecentMfa,
 } from './deps.ts'
 import { componentFlags } from '../../payroll/structures.ts'
 import { distributeRun } from '../../payroll/distribute.ts'
@@ -206,6 +206,7 @@ export function register(router: Router): void {
     { summary: 'Lock the run. Irreversible; corrections become revisions', tag: 'payroll',
       permission: 'payroll.lock' },
     authed('payroll.lock', async (ctx) => {
+      await requireRecentMfa(ctx)
       const id = asUuid(ctx.req.params.id, 'id')
       await lock(ctx.tx, id, ctx.auth.userId, {
         requireSeparateApprover: ctx.config.get<boolean>('payroll.require_separate_approver'),

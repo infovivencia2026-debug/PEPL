@@ -22,6 +22,8 @@ import { runOutbox } from '../mail/outbox.ts'
 import { deliverEmails } from '../comms/delivery.ts'
 import { deliverPush } from '../comms/push.ts'
 import { escalateStale, remindStale } from '../approvals/policy.ts'
+import { autoCheckout } from '../attendance/ops.ts'
+import { openDueProbationReviews } from '../people/letters.ts'
 import { distributeRun, pendingRuns } from '../payroll/distribute.ts'
 import { ensurePeriod, upcomingMonth } from '../payroll/periods.ts'
 import { closePeriods, runDunning } from '../control-plane/billing.ts'
@@ -371,6 +373,25 @@ export async function runPushKeygen(): Promise<JobResult> {
   return { job: 'push.keygen', tenants: 0, affected: 1, errors: [], durationMs: 0 }
 }
 
+/** Opens probation reviews two weeks ahead of probation_end and tells the manager and HR. */
+export async function runProbationReviews(): Promise<JobResult> {
+  return perTenant('people.probation', async (tenantId) =>
+    withTenant(tenantId, async (tx) => {
+      const cfg = await resolveConfig(tx, tenantId)
+      return openDueProbationReviews(tx, cfg.get<number>('people.probation_review_days_ahead'))
+    }))
+}
+
+/** Closes days nobody punched out of, per the company's setting. */
+export async function runAutoCheckout(): Promise<JobResult> {
+  return perTenant('attendance.auto_checkout', async (tenantId) =>
+    withTenant(tenantId, async (tx) => {
+      const cfg = await resolveConfig(tx, tenantId)
+      return autoCheckout(tx, { afterMinutes: cfg.get<number>('attendance.auto_checkout_after_minutes'), timezone: cfg.get<string>('attendance.timezone'),
+        policy: { timezone: cfg.get<string>('attendance.timezone'), weekPattern: cfg.get<'five_day' | 'six_day' | 'alternate_saturday' | 'roster'>('attendance.week_pattern'), breaksDeducted: cfg.get<boolean>('attendance.breaks_deducted') } })
+    }))
+}
+
 /** Skips steps pending past the company's limit so requests reach the next approver. */
 export async function runApprovalEscalation(): Promise<JobResult> {
   return perTenant('approvals.escalate', async (tenantId) =>
@@ -476,6 +497,8 @@ export const JOBS = {
   'billing.dunning': () => runBillingDunning(),
   'push.keygen': runPushKeygen,
   'approvals.escalate': runApprovalEscalation,
+  'attendance.auto_checkout': runAutoCheckout,
+  'people.probation': runProbationReviews,
 } as const
 
 export type JobName = keyof typeof JOBS

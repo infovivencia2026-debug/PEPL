@@ -50,9 +50,17 @@ function bearer(req: Req): string {
  * `permission` is asserted before the handler runs; scope checks belong inside,
  * where the target employee is known.
  */
+/** Routes a not-yet-verified (or not-yet-enrolled) session may still reach. */
+const MFA_ALLOWED = /^\/api\/v1\/auth\/(mfa(\/|$)|logout$|me$)/
+const ADMIN_ROLES = new Set(['org_admin', 'hr_admin', 'payroll_admin', 'finance'])
+
 export function authed(permission: Permission | null, handler: AuthedHandler) {
   return async (req: Req): Promise<Res> => {
     const session = await resolveSession(bearer(req))
+    const path = req.path
+    if (session.mfaPending && !MFA_ALLOWED.test(path)) {
+      throw new HttpError(401, 'MFA_REQUIRED', 'enter the code from your authenticator to finish signing in')
+    }
 
     const pending: PeplEvent[] = []
 
@@ -62,6 +70,12 @@ export function authed(permission: Permission | null, handler: AuthedHandler) {
         const auth = await loadAuthzContext(tx, session)
         if (permission) assertPermission(auth, permission)
         const config = await resolveConfig(tx, session.tenantId)
+        // The company can insist that admins carry a second factor: until they
+        // enrol, every route but enrolment answers 403 with the reason.
+        if (config.get<boolean>('security.mfa_required_for_admins') && !MFA_ALLOWED.test(path) && auth.roles.some((r) => ADMIN_ROLES.has(r))) {
+          const on = (await tx.query<{ on: boolean }>(`SELECT EXISTS (SELECT 1 FROM user_mfa WHERE user_id = $1 AND enabled_at IS NOT NULL) AS on`, [session.userId])).rows[0]!.on
+          if (!on) throw new HttpError(403, 'MFA_ENROLMENT_REQUIRED', 'this company requires administrators to set up two-factor authentication')
+        }
         return handler({
           tx, auth, session, config, req,
           publish: (event) => { pending.push(event) },
@@ -75,6 +89,19 @@ export function authed(permission: Permission | null, handler: AuthedHandler) {
     for (const event of pending) publish(session.tenantId, event)
     return result
   }
+}
+
+/**
+ * For irreversible money actions: the session must have passed the second
+ * factor within `withinMinutes` — when the user has one. A user without MFA
+ * is not blocked (the company decides enrolment via the setting), so this
+ * never locks payroll out; it makes a stolen cookie insufficient.
+ */
+export async function requireRecentMfa(ctx: Ctx, withinMinutes = 12 * 60): Promise<void> {
+  const on = (await ctx.tx.query<{ on: boolean }>(`SELECT EXISTS (SELECT 1 FROM user_mfa WHERE user_id = $1 AND enabled_at IS NOT NULL) AS on`, [ctx.session.userId])).rows[0]!.on
+  if (!on) return
+  const at = ctx.session.mfaVerifiedAt?.getTime() ?? 0
+  if (Date.now() - at > withinMinutes * 60_000) throw new HttpError(403, 'MFA_RECHECK_REQUIRED', 'confirm your authenticator code again before this action')
 }
 
 /** A route reachable without a session (login, health). */

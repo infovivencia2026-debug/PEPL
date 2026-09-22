@@ -12,7 +12,7 @@
  */
 import type { Router } from '../router.ts'
 import {
-  HttpError, authed, ok, requireBody, requireModule, asUuid, asDate, emit,
+  HttpError, authed, ok, requireBody, requireModule, asUuid, asDate, emit, requireRecentMfa,
 } from './deps.ts'
 import { generateBankFile, type BankFormat } from '../../payments/bank-file.ts'
 
@@ -32,6 +32,7 @@ export function register(router: Router): void {
       requestExample: { format: 'hdfc_neft_csv', valueDate: '2026-10-01' } },
     authed('bank.export', async (ctx) => {
       requireModule(ctx, 'payroll.enabled')
+      await requireRecentMfa(ctx)
       const b = requireBody<{ format: string; valueDate: string; bankAccountId?: string }>(
         ctx.req, ['format', 'valueDate'])
 

@@ -15,6 +15,8 @@ import {
   REGISTRY,
 } from './deps.ts'
 import { appPool } from '../../db/pool.ts'
+import { mfaStatus, beginSetup, enable as enableMfa, verify as verifyMfa, disable as disableMfa, adminReset } from '../../auth/mfa.ts'
+import { emit, asUuid, can } from './deps.ts'
 
 export function register(router: Router): void {
   router.get('/health', { summary: 'Liveness probe', tag: 'system', public: true },
@@ -84,7 +86,50 @@ export function register(router: Router): void {
         token: result.token,
         expiresAt: result.expiresAt.toISOString(),
         user: { id: result.userId, roles: result.roles },
+        mfaRequired: result.mfaRequired,
       })
+    }))
+
+  // ── two-factor authentication ──
+  router.get('/api/v1/auth/mfa', { summary: 'My second-factor status', tag: 'auth' },
+    authed(null, async (ctx) => ok({ ...(await mfaStatus(ctx.tx, ctx.auth.userId)), sessionVerifiedAt: ctx.session.mfaVerifiedAt?.toISOString() ?? null })))
+
+  router.post('/api/v1/auth/mfa/setup', { summary: 'Start enrolling an authenticator app: returns the otpauth URI to show as a QR and the secret to type', tag: 'auth' },
+    authed(null, async (ctx) => {
+      const email = (await ctx.tx.query<{ email: string }>(`SELECT email FROM app_users WHERE id = $1`, [ctx.auth.userId])).rows[0]!.email
+      const company = (await ctx.tx.query<{ d: string }>(`SELECT display_name AS d FROM tenants`)).rows[0]?.d ?? 'PEPL'
+      return ok(await beginSetup(ctx.tx, { userId: ctx.auth.userId, email, issuer: `PEPL · ${company}` }))
+    }))
+
+  router.post('/api/v1/auth/mfa/enable', { summary: 'Finish enrolment with a code from the app; returns 8 recovery codes, shown once', tag: 'auth', requestExample: { code: '123456' } },
+    authed(null, async (ctx) => {
+      const b = requireBody<{ code: string }>(ctx.req, ['code'])
+      const r = await enableMfa(ctx.tx, { userId: ctx.auth.userId, code: b.code, sessionId: ctx.session.sessionId })
+      await emit(ctx.tx, { action: 'security.mfa.enabled', entityType: 'user', entityId: ctx.auth.userId, actorUserId: ctx.auth.userId })
+      return ok(r)
+    }))
+
+  router.post('/api/v1/auth/mfa/verify', { summary: 'Second step of login (or a re-check before a sensitive action): an authenticator code or a recovery code', tag: 'auth', requestExample: { code: '123456' } },
+    authed(null, async (ctx) => {
+      const b = requireBody<{ code: string }>(ctx.req, ['code'])
+      return ok(await verifyMfa(ctx.tx, { userId: ctx.auth.userId, sessionId: ctx.session.sessionId, code: b.code }))
+    }))
+
+  router.post('/api/v1/auth/mfa/disable', { summary: 'Turn the second factor off (needs a current code)', tag: 'auth', requestExample: { code: '123456' } },
+    authed(null, async (ctx) => {
+      const b = requireBody<{ code: string }>(ctx.req, ['code'])
+      await disableMfa(ctx.tx, { userId: ctx.auth.userId, sessionId: ctx.session.sessionId, code: b.code })
+      await emit(ctx.tx, { action: 'security.mfa.disabled', entityType: 'user', entityId: ctx.auth.userId, actorUserId: ctx.auth.userId })
+      return noContent()
+    }))
+
+  router.post('/api/v1/auth/mfa/reset/:userId', { summary: 'Admin: remove a colleague\'s second factor after a lost phone and sign them out everywhere', tag: 'auth', permission: 'settings.write' },
+    authed('settings.write', async (ctx) => {
+      const userId = asUuid(ctx.req.params.userId, 'userId')
+      if (userId === ctx.auth.userId) throw new HttpError(422, 'VALIDATION_FAILED', 'use /auth/mfa/disable for your own account')
+      await adminReset(ctx.tx, userId)
+      await emit(ctx.tx, { action: 'security.mfa.reset', entityType: 'user', entityId: userId, actorUserId: ctx.auth.userId })
+      return noContent()
     }))
 
   router.post('/api/v1/auth/logout', { summary: 'Revoke the current session', tag: 'auth' },

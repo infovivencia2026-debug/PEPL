@@ -58,6 +58,8 @@ export interface LoginResult {
   tenantId: string
   userId: string
   roles: string[]
+  /** True when the account has a second factor: the session is pending until POST /auth/mfa/verify. */
+  mfaRequired: boolean
 }
 
 /**
@@ -116,12 +118,13 @@ export async function login(args: {
     const token = randomBytes(32).toString('base64url')
     const expiresAt = new Date(Date.now() + SESSION_DAYS * 86_400_000)
 
+    const mfaRequired = (await client.query<{ on: boolean }>(`SELECT auth_mfa_enabled($1, $2) AS on`, [user.tenant_id, user.id])).rows[0]!.on
     await client.query('BEGIN')
     await client.query(`SELECT set_config('app.tenant_id', $1, true)`, [user.tenant_id])
     await client.query(
-      `INSERT INTO sessions (tenant_id, user_id, token_hash, expires_at, ip, user_agent)
-       VALUES ($1,$2,$3,$4,$5,$6)`,
-      [user.tenant_id, user.id, hashToken(token), expiresAt, args.ip ?? null, args.userAgent ?? null],
+      `INSERT INTO sessions (tenant_id, user_id, token_hash, expires_at, ip, user_agent, mfa_pending)
+       VALUES ($1,$2,$3,$4,$5,$6,$7)`,
+      [user.tenant_id, user.id, hashToken(token), expiresAt, args.ip ?? null, args.userAgent ?? null, mfaRequired],
     )
     await client.query(
       `UPDATE app_users SET last_login_at = now() WHERE tenant_id = $1 AND id = $2`,
@@ -142,6 +145,7 @@ export async function login(args: {
       tenantId: user.tenant_id,
       userId: user.id,
       roles: roleRows.rows.map((r) => r.role),
+      mfaRequired,
     }
   } catch (error) {
     await client.query('ROLLBACK')
@@ -155,19 +159,22 @@ export interface Session {
   tenantId: string
   userId: string
   sessionId: string
+  /** The login has not yet passed the second factor. */
+  mfaPending: boolean
+  mfaVerifiedAt: Date | null
 }
 
 /** Resolves a bearer token to a session, or throws. Revocation is immediate. */
 export async function resolveSession(token: string): Promise<Session> {
   const client = await appPool.connect()
   try {
-    const { rows } = await client.query<{ tenant_id: string; user_id: string; id: string }>(
+    const { rows } = await client.query<{ tenant_id: string; user_id: string; id: string; mfa_pending: boolean; mfa_verified_at: string | null }>(
       `SELECT * FROM auth_session_by_hash($1)`,
       [hashToken(token)],
     )
     const s = rows[0]
     if (!s) throw new AuthError('INVALID_SESSION', 'session is invalid or has expired')
-    return { tenantId: s.tenant_id, userId: s.user_id, sessionId: s.id }
+    return { tenantId: s.tenant_id, userId: s.user_id, sessionId: s.id, mfaPending: s.mfa_pending, mfaVerifiedAt: s.mfa_verified_at ? new Date(s.mfa_verified_at) : null }
   } finally {
     client.release()
   }
@@ -192,7 +199,7 @@ export async function revokeAllSessions(tx: PoolClient, userId: string): Promise
  */
 export async function loadAuthzContext(
   tx: PoolClient,
-  session: Session,
+  session: Pick<Session, 'tenantId' | 'userId' | 'sessionId'>,
 ): Promise<AuthzContext> {
   // Sequential: one PoolClient, one query at a time.
   const { rows: userRows } = await tx.query<{ employee_id: string | null }>(

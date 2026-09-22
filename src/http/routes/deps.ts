@@ -6,7 +6,7 @@
  */
 export { HttpError, type Req, type Router } from '../router.ts'
 export {
-  authed, open, ok, created, noContent, requireBody, requireModule,
+  authed, open, ok, created, noContent, requireBody, requireModule, requireRecentMfa,
   asDate, asInt, asUuid, type Ctx,
 } from '../context.ts'
 export { login, resolveSession, revokeAllSessions, revokeSession } from '../../auth/index.ts'

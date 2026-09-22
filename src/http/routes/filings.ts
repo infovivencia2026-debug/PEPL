@@ -16,6 +16,7 @@ import {
 } from '../../payroll/filings.ts'
 
 const IDS = 'id, employee_id, uan, pf_member_id, esi_number, pan, updated_at'
+const maskTail = (v: string | null, keep: number): string | null => v ? '•'.repeat(Math.max(0, v.length - keep)) + v.slice(-keep) : null
 const FY = /^\d{4}-\d{2}$/
 
 async function lockedRun(ctx: { tx: import('pg').PoolClient }, id: string) {
@@ -73,9 +74,19 @@ export function register(router: Router): void {
     authed('payroll.read', async (ctx) => {
       const id = asUuid(ctx.req.params.id, 'id')
       assertScope(ctx.auth, id)
-      const { rows } = await ctx.tx.query(
+      const { rows } = await ctx.tx.query<{ uan: string | null; pf_member_id: string | null; esi_number: string | null; pan: string | null }>(
         `SELECT ${IDS} FROM employee_statutory_ids WHERE employee_id = $1`, [id])
-      return ok({ statutoryIds: rows[0] ?? null })
+      const row = rows[0]
+      if (!row) return ok({ statutoryIds: null, masked: false })
+      // Masked by default for anyone but the person; a reveal is an audited tier-3 access.
+      const own = ctx.auth.employeeId === id
+      const reveal = ctx.req.query.get('reveal') === 'true'
+      if (own || !reveal) {
+        if (own) return ok({ statutoryIds: row, masked: false })
+        return ok({ statutoryIds: { ...row, uan: maskTail(row.uan, 4), pf_member_id: maskTail(row.pf_member_id, 4), esi_number: maskTail(row.esi_number, 4), pan: row.pan ? row.pan.slice(0, 2) + '******' + row.pan.slice(-2) : null }, masked: true })
+      }
+      await emit(ctx.tx, { action: 'access.tier3.revealed', entityType: 'employee', entityId: id, subjectEmployeeId: id, actorUserId: ctx.auth.userId, metadata: { document: 'statutory_ids' } })
+      return ok({ statutoryIds: row, masked: false })
     }))
 
   router.patch('/api/v1/employees/:id/statutory-ids',
