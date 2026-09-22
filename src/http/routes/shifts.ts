@@ -24,6 +24,7 @@ export function summaryPolicy(ctx: Ctx): (employeeId: string) => Promise<Summary
       lateMarksPerHalfDay: ctx.config.get<number>('attendance.late_marks_per_half_day', scope),
       weekPattern: ctx.config.get<SummaryPolicy['weekPattern']>('attendance.week_pattern', scope),
       defaultStateCode: ctx.config.get<string>('payroll.pt_state_code'),
+      otRequiresApproval: ctx.config.get<boolean>('payroll.ot_requires_approval'),
     }
   }
 }

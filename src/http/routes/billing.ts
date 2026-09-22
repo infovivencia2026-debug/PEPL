@@ -12,17 +12,33 @@ import {
 } from '../../control-plane/billing.ts'
 import { controlDb, grantSupportAccess, revokeSupportAccess } from '../../control-plane/index.ts'
 import { login } from '../../auth/index.ts'
+import { listPresets, applyPreset } from '../../control-plane/presets.ts'
+import { today as localToday } from '../../lib/timezone.ts'
 
 export function register(router: Router): void {
   router.get('/api/v1/plans',
     { summary: 'The plans on sale: prices (paise), modules and limits', tag: 'billing', public: true },
     open(async () => ok({ plans: await listPlans() })))
 
+  router.get('/api/v1/signup/presets',
+    { summary: 'Organisation types a new company can start from (what each switches on and seeds)', tag: 'billing', public: true },
+    open(async () => ok({ presets: listPresets() })))
+
+  router.post('/api/v1/settings/presets/:code/apply',
+    { summary: 'Admin: apply an organisation-type preset to this company (settings, shifts, leave types); payroll-affecting keys take effect from the first of next month', tag: 'config', permission: 'settings.write' },
+    authed('settings.write', async (ctx) => {
+      const today = localToday(ctx.config.get<string>('attendance.timezone'))
+      const nextMonth = new Date(Date.UTC(Number(today.slice(0, 4)), Number(today.slice(5, 7)), 1)).toISOString().slice(0, 10)
+      const r = await applyPreset(ctx.tx, { code: ctx.req.params.code!, actorUserId: ctx.auth.userId, payrollEffectiveFrom: nextMonth })
+      await emit(ctx.tx, { action: 'config.preset.applied', entityType: 'tenant', actorUserId: ctx.auth.userId, metadata: { preset: ctx.req.params.code, ...r } })
+      return ok(r)
+    }))
+
   router.post('/api/v1/signup',
     { summary: 'Create a company on the trial and sign its first admin in', tag: 'billing', public: true,
       requestExample: { legalName: 'Acme Technologies Pvt Ltd', adminEmail: 'hr@acme.com', adminName: 'Priya Sharma', password: 'a-long-passphrase', stateCode: 'TS' } },
     open(async (req: Req) => {
-      const b = requireBody<{ legalName: string; displayName?: string; adminEmail: string; adminName: string; password: string; stateCode?: string }>(
+      const b = requireBody<{ legalName: string; displayName?: string; adminEmail: string; adminName: string; password: string; stateCode?: string; organisationType?: string }>(
         req, ['legalName', 'adminEmail', 'adminName', 'password'])
       const { tenantId } = await signup({ ...b })
       // Straight into the product: the session comes from the same login path everyone uses.

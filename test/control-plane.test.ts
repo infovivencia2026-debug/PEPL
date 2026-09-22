@@ -41,7 +41,7 @@ describe('provisioning is one orchestrator, idempotent and resumable', () => {
   it('runs every step and leaves a usable tenant', async () => {
     const r = await newTenant()
     expect(r.stepsRun).toEqual([
-      'tenant', 'subscription', 'entitlements', 'admin_user', 'defaults', 'config_version',
+      'tenant', 'subscription', 'entitlements', 'admin_user', 'defaults', 'preset', 'config_version',
     ])
 
     const seeded = await withTenant(r.tenantId, async (tx) => ({
@@ -82,7 +82,7 @@ describe('provisioning is one orchestrator, idempotent and resumable', () => {
       { resumeJobId: job.rows[0]!.id },
     )
     expect(resumed.resumed).toBe(true)
-    expect(resumed.stepsRun).toEqual(['entitlements', 'admin_user', 'defaults', 'config_version'])
+    expect(resumed.stepsRun).toEqual(['entitlements', 'admin_user', 'defaults', 'preset', 'config_version'])
 
     const after = await controlPool.query<{ status: string }>(
       `SELECT status FROM control_plane.provisioning_jobs`,

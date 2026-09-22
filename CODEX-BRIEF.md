@@ -1801,6 +1801,170 @@ company-wide; `?format=csv` like the other reports.
 
 ---
 
+## 2.51 Hubs — the navigation model (Phase A8, UI-only)
+
+Replace the primary bar + flat "More" list with seven **hubs** that never
+change, plus **Company** for admins. Modules appear under a hub only when the
+workspace says `modules.<name>` is true AND the user holds the permission.
+Every hub gets a **Reports** tab listing the reports that belong to it.
+
+| Hub | Who | Contains (existing screens → new home) |
+|---|---|---|
+| **Me** | everyone | Today (punch card + mode banner + tasks + approvals), My attendance (+ **My month** calendar, §2.53), My leave, My pay, My tax, My goals & appraisal, My documents, **My requests** (one list across leave / remote / expense / loan / ticket), Inbox |
+| **People** | HR, managers | Directory & profiles, Onboarding, Exit, Hiring (module), **Letters** (§2.55), **Probation** (§2.55), Org chart (later) |
+| **Time** | HR, managers, ops | Attendance register, **Muster** (§2.53), **Control room** (§2.54), Shifts, Leave, Holidays, Comp-off, Remote & field, Timesheets (module), **Kiosk** (§2.54) |
+| **Pay** | payroll, finance | Structures, Compensation, Payroll runs, Payslips, Statutory & filings, Form 16, Loans, Reimbursements, Bank files, Incentives |
+| **Work** | teams | Tasks, Projects, Expenses & travel (module), Field visits |
+| **Growth** | HR, managers | Goals, Review cycles, Calibration, PIPs |
+| **Engage** | everyone | Team chat, Mailbox (module), Helpdesk (module) |
+| **Company** | admins | Settings, **Modules** (§2.52), Roles, Approval policies, **Security** (§2.56), Billing, Audit, all Reports |
+
+Rules: the employee view of a thing lives under Me, the managing view under its hub
+(My leave vs Leave). A module switched off vanishes from every hub. On phone the
+hubs are a bottom bar of five (Me · Time · People · Engage · More).
+
+---
+
+## 2.52 Modules page & sellable modules (Phase A1)
+
+Expenses, timesheets, recruitment and performance are now **entitlements**:
+`modules.<name>` in the workspace is false when the plan does not include them,
+whatever the switch says. Plans: Starter (core only), Growth (+ payroll, expenses,
+timesheets, helpdesk), Professional (+ recruitment, performance, mail, assets,
+learning, surveys, integrations), Enterprise (+ branding).
+
+Build **Company → Modules**: one card per module from `GET /api/v1/config`
+(keys ending `.enabled`): label, help, the switch (PATCH the setting), and a
+"Included in your plan / Upgrade to <plan>" line when the entitlement is absent —
+the switch is disabled then, never hidden. Core modules (leave, attendance,
+documents, notifications) show "Always on".
+
+---
+
+## 2.53 Muster roll & My month (Phase A3)
+
+```
+GET /api/v1/reports/muster?month=YYYY-MM&department=&location=&employeeId=     attendance.read, scope-limited
+  -> { month, from, to, days: ['2026-10-01', …], legend: { P: 'Present', … },
+       rows: [{ employeeId, employeeNumber, name, department, designation,
+                days: [{ date, code, payable, lop, late, otMinutes, firstIn, lastOut, workedMinutes }],
+                totals: { present, half, absent, leave, unpaidLeave, weeklyOff, holiday, onDuty, remote, unmarked, late, otHours, payable, lop } }] }
+GET /api/v1/reports/muster?…&format=csv                                          Form-25 shaped: one column per day, then totals
+GET /api/v1/attendance/calendar?month=YYYY-MM[&employeeId=]                      -> { month, employeeId, days[], totals, legend }
+```
+
+Codes: `P ½ A L LH LWP WO H OD WFH NJ –` (– = no record). **Cells come from the
+same classification payroll freezes**, so totals here equal the payslip.
+
+Build: **Time → Muster** — sticky first column (employee), one narrow column per
+day, code + colour (never colour alone; legend at the bottom), totals on the right,
+filters month / department / location, Print and CSV; click a cell → the existing
+correction dialog. **Me → My month** — a calendar grid of the person's own cells,
+tapping a day shows in/out and worked time.
+
+---
+
+## 2.54 Attendance operations: breaks, late reason, auto-checkout, control room, QR kiosk (Phase A4)
+
+```
+POST /api/v1/attendance/break/start   { kind?: break|lunch|personal, localDate? }   409 NOT_PUNCHED_IN · 409 BREAK_OPEN
+POST /api/v1/attendance/break/end                                                   409 NO_OPEN_BREAK
+GET  /api/v1/attendance/breaks?date=&employeeId=                                    -> { breaks: [{ id, kind, started_at, ended_at, minutes }] }
+POST /api/v1/attendance/late-reason   { localDate, reason }                         409 NOT_LATE
+POST /api/v1/attendance/punch  now also returns { lateMinutes, reasonRequired } — when reasonRequired, ask "Why late?" and POST /late-reason
+POST /api/v1/attendance/punch  { …, qr: '<scanned payload>' }                       a kiosk scan: no geo needed; 422 QR_INVALID | QR_EXPIRED
+GET  /api/v1/attendance/control-room?date=                                          managers/HR (403 for self scope)
+  -> { date, counts: { expected, in, out, late, onBreak, missing, onLeave, remote, field, weeklyOff, holiday, autoClosed },
+       in[], late[], missing[], onLeave[], onBreak[]  (each: { employeeId, name, department, location, firstIn, lastOut, lateMinutes, lateReason, onBreak, mode, autoClosed }),
+       byLocation: [{ location, expected, in, missing }] }
+GET  /api/v1/attendance/qr?siteId=                                                  attendance.kiosk (managers, HR) -> { payload, siteId, siteName, expiresAt }
+POST /api/v1/attendance/qr/rotate                                                   attendance.correct: every code dies at once
+```
+
+Settings (Company → Settings → Attendance): `breaks_deducted`, `late_reason_required`,
+`auto_checkout_after_minutes`, `qr_punch_enabled`. Days the job closed carry
+`auto_closed: true` — show "closed automatically at shift end" on the day.
+
+Build: punch card gets **Break / Resume** (timer while on break); a "Why were you
+late?" sheet after a late punch-in; **Time → Control room** — a live board
+(refresh via SSE `attendance.*` events or every 60 s) with the count tiles, the
+four lists as tabs, and a by-location strip; **Time → Kiosk** — full-screen page
+for a wall tablet showing the QR (payload as a QR code, regenerate every 60 s,
+site picker); **Scan** in the employee punch card (camera → payload → punch).
+
+---
+
+## 2.55 Letters & probation (Phase A5)
+
+```
+GET  /api/v1/letters/templates[?includeRetired=true]     letter.read  -> { templates: [{ id, code, name, title, body, category, confidential, status }], fields: [...] }
+POST /api/v1/letters/templates                           letter.manage { code, name, title, body, category?, confidential? }   body uses {{employee.name}} … {{custom.anything}}
+POST /api/v1/letters/templates/:code/retire              letter.manage
+POST /api/v1/letters/preview                             letter.issue  { code, employeeId, custom? } -> { title, text, missing: ['custom.purpose'], category }
+POST /api/v1/letters/issue                               letter.issue  { code, employeeId, custom?, signatory?, notifyEmployee? } -> 201 { letter: { reference_no, … }, document }   422 MERGE_INCOMPLETE
+GET  /api/v1/letters?employeeId=&code=                   letter.read
+
+GET  /api/v1/probation/reviews?status=&mine=true         employee.read -> { reviews: [{ id, employee_id, probation_end, reviewer_employee_id, status, rating, remarks, extended_to, letter_id }] }
+POST /api/v1/probation/reviews/:id/decide                reviewer or HR  { decision: confirm|extend|separate, rating?, remarks?, extendedTo?, issueLetter? }   409 REVIEW_DECIDED
+POST /api/v1/probation/reviews/open-due                  employee.write { daysAhead } (the nightly job does this too)
+```
+
+Merge fields: `employee.name first_name number designation department location
+joining_date probation_end notice_days address email`, `ctc.annual annual_words
+monthly`, `company.name legal_name`, `today`, `reference_no`, `custom.*`.
+
+Build: **People → Letters** — template list with an editor (body textarea, a
+merge-field palette that inserts `{{…}}`), and an **Issue letter** flow: pick
+employee → template → preview (missing custom fields become inputs) → Issue →
+the PDF opens from documents. **People → Probation** — due reviews as cards with
+Confirm / Extend / Separate; the employee's profile shows probation status; the
+manager's Today shows "probation review due".
+
+---
+
+## 2.56 Two-factor authentication & masking (Phase A6)
+
+```
+POST /api/v1/auth/login      -> { token, expiresAt, user, mfaRequired }     when mfaRequired: show the code screen; every other call answers 401 MFA_REQUIRED until verified
+GET  /api/v1/auth/mfa        -> { enabled, pendingSetup, recoveryCodesLeft, enabledAt, sessionVerifiedAt }
+POST /api/v1/auth/mfa/setup  -> { secret, otpauth }        show otpauth as a QR + the secret as text
+POST /api/v1/auth/mfa/enable { code } -> { recoveryCodes: [8] }   show ONCE with copy/download; they are never shown again
+POST /api/v1/auth/mfa/verify { code }                       TOTP or a recovery code -> { method, recoveryCodesLeft }
+POST /api/v1/auth/mfa/disable { code }
+POST /api/v1/auth/mfa/reset/:userId                         settings.write (admin, lost phone)
+```
+
+Errors to handle everywhere: `401 MFA_REQUIRED` (go to the code screen),
+`403 MFA_ENROLMENT_REQUIRED` (company requires admins to enrol → go to setup),
+`403 MFA_RECHECK_REQUIRED` (payroll lock / bank file: ask for a code, POST
+/verify, retry). Setting: `security.mfa_required_for_admins`.
+
+Masking: `GET /employees/:id/statutory-ids` and `/bank-accounts` return
+`masked: true` with dotted values for anyone but the person; a **Reveal**
+button re-fetches with `?reveal=true` (audited) — show the eye icon only to
+users who can reveal.
+
+Build: **Account → Security** (status, Set up / Disable, recovery codes left,
+sessions); the login code screen; a recheck dialog component reused by lock and
+bank file; masked fields with reveal.
+
+---
+
+## 2.57 Organisation types at signup (Phase A7)
+
+```
+GET  /api/v1/signup/presets                     public -> { presets: [{ code, label, description, examples, modulesOn, shifts }] }
+POST /api/v1/signup                             { …, organisationType?: 'office'|'field_sales'|'education'|'manufacturing'|'retail'|'agency' }
+POST /api/v1/settings/presets/:code/apply       settings.write -> { settings, shifts }   re-apply (payroll keys from the 1st of next month)
+```
+
+Build: a **"What kind of organisation?"** step in signup — six cards with the
+label, one-line description, examples and what it switches on; and in Company →
+Settings a small "Start from a preset" action with a confirmation that lists what
+will change.
+
+---
+
 # Part 3 — What to build, in order
 
 1. **Chat UI.** The largest visible hole. Conversation list, thread, composer,
@@ -1878,6 +2042,13 @@ company-wide; `?format=csv` like the other reports.
 34. **Recruitment** (§2.48): requisitions, kanban pipeline, candidate page, interviews, offers, convert.
 35. **WFH & field duty** (§2.49): request + cancel, punch-card mode banner, field visit start/end, team remote calendar.
 36. **Performance** (§2.50): my goals + appraisal, team review queue, HR cycles + calibration table + distribution chart; PIPs.
+37. **Hubs navigation** (§2.51) — do this FIRST; every item below lands in a hub.
+38. **Modules page** (§2.52).
+39. **Muster + My month** (§2.53).
+40. **Attendance ops** (§2.54): break button, late-reason sheet, control room, kiosk page, scan-to-punch.
+41. **Letters + Probation** (§2.55).
+42. **MFA + masking** (§2.56): login code screen, Account → Security, recheck dialog, reveal buttons.
+43. **Signup organisation type + preset action** (§2.57).
 
 ## Running it
 

@@ -250,7 +250,9 @@ export async function recomputeDay(
   const shift = await shiftFor(tx, employeeId, workDate)
   let lateMinutes = 0, earlyMinutes = 0, otMinutes = 0
   const zone = policy.timezone ?? 'Asia/Kolkata'
-  const weeklyOff = shift ? evaluateShiftDay(shift, workDate, { firstIn: null, lastOut: null }, zone).isWeeklyOff
+  const plannedOff = (await tx.query<{ is_off: boolean }>(`SELECT is_off FROM roster_days WHERE employee_id = $1 AND work_date = $2::date`, [employeeId, workDate])).rows[0]
+  const weeklyOff = plannedOff ? plannedOff.is_off
+    : shift ? evaluateShiftDay(shift, workDate, { firstIn: null, lastOut: null }, zone).isWeeklyOff
     : isWeeklyOff(workDate, policy.weekPattern)
 
   // A weekly off is not an absence. Nobody was expected in, so the day carries

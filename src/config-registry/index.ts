@@ -18,6 +18,14 @@ const leave = defineConfig('leave', {
     help: 'Leave types, policies, balances and approvals.',
     disableEffect: 'soft',
   }),
+  optional_holidays_allowed: int({
+    default: 0,
+    min: 0,
+    max: 10,
+    label: 'Optional (restricted) holidays a person may pick per year',
+    help: 'Holidays marked optional in the calendar are off only for people who pick them, up to this many a year. 0 turns the feature off.',
+    scopable: ['location', 'grade'],
+  }),
   comp_off_enabled: bool({
     default: true,
     label: 'Compensatory off for work on off days',
@@ -157,6 +165,19 @@ const attendance = defineConfig('attendance', {
     label: 'WFH / field duty approval chain',
     help: 'Who approves remote and field-duty requests when no approval policy matches.',
   }),
+  swap_requires_approval: bool({
+    default: true,
+    label: 'Shift swaps need manager approval',
+    help: 'Off: once the colleague accepts, both rosters change on the spot.',
+    scopable: ['department', 'location'],
+  }),
+  roster_shortage_alert_days: int({
+    default: 7,
+    min: 0,
+    max: 30,
+    label: 'Warn about under-strength shifts this many days ahead',
+    help: 'Shifts with a minimum headcount that the roster does not meet are reported to HR and managers nightly. 0 turns it off.',
+  }),
   breaks_deducted: bool({
     default: true,
     label: 'Recorded breaks reduce worked time',
@@ -287,6 +308,16 @@ const people = defineConfig('people', {
   }),
 })
 
+const assets = defineConfig('assets', {
+  enabled: flag({
+    entitlement: 'assets',
+    default: true,
+    label: 'Assets',
+    help: 'Laptops, phones, SIMs, ID cards, uniforms, PPE, tools, licence seats: a register with issue and return, maintenance, and an exit clearance that will not sign while a leaver still holds an item.',
+    disableEffect: 'soft',
+  }),
+})
+
 const payroll = defineConfig('payroll', {
   enabled: flag({
     default: true,
@@ -326,6 +357,14 @@ const payroll = defineConfig('payroll', {
   // The employer's own registration numbers. Not behaviour — identity on a
   // return — but they belong with the company's other payroll settings rather
   // than in a table of four strings.
+  ot_requires_approval: bool({
+    default: false,
+    label: 'Overtime must be approved in advance',
+    help: 'Only pre-approved overtime minutes reach the payroll freeze; unapproved extra hours are recorded but not paid.',
+    risk: 'high',
+    affects: ['payroll'],
+    scopable: ['department', 'location', 'grade'],
+  }),
   ot_pay: enumOf(['none', 'single', 'double'] as const, {
     default: 'none',
     label: 'Overtime pay',
@@ -543,6 +582,7 @@ export const REGISTRY: Readonly<Record<string, Definition>> = Object.freeze({
   ...recruitment,
   ...performance,
   ...people,
+  ...assets,
   ...security,
   ...helpdesk,
   ...chat,

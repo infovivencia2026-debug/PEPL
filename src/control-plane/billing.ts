@@ -41,7 +41,7 @@ export async function listPlans(): Promise<Plan[]> {
  */
 export async function signup(args: {
   legalName: string; displayName?: string; adminEmail: string; adminName: string; password: string
-  stateCode?: string; planCode?: string
+  stateCode?: string; planCode?: string; organisationType?: string
 }): Promise<{ tenantId: string; adminUserId: string }> {
   const email = args.adminEmail.trim().toLowerCase()
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) throw new ControlPlaneError('VALIDATION_FAILED', 'adminEmail must be an address')
@@ -57,7 +57,7 @@ export async function signup(args: {
 
   const { tenantId } = await provisionTenant({
     legalName: args.legalName.trim(), displayName: (args.displayName ?? args.legalName).trim(),
-    planCode, adminEmail: email, adminName: args.adminName.trim(), stateCode: args.stateCode,
+    planCode, adminEmail: email, adminName: args.adminName.trim(), stateCode: args.stateCode, organisationType: args.organisationType,
   })
   // The provisioner creates the admin without a password; the form gave us one.
   const hash = await hashPassword(args.password)

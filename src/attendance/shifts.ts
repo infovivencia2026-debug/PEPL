@@ -27,6 +27,7 @@ export interface Shift {
   grace_in_min: number
   grace_out_min: number
   break_min: number
+  min_headcount: number
   full_day_min: number
   half_day_min: number
   ot_after_min: number
@@ -35,7 +36,7 @@ export interface Shift {
   status: 'active' | 'retired'
 }
 
-const COLUMNS = `id, code, name, start_time::text, end_time::text, grace_in_min, grace_out_min, break_min,
+const COLUMNS = `id, code, name, start_time::text, end_time::text, grace_in_min, grace_out_min, break_min, min_headcount,
   full_day_min, half_day_min, ot_after_min, ot_eligible, weekly_off_days, status`
 
 export interface ShiftInput {
@@ -43,6 +44,8 @@ export interface ShiftInput {
   graceInMin?: number; graceOutMin?: number; breakMin?: number
   fullDayMin: number; halfDayMin: number; otAfterMin?: number; otEligible?: boolean
   weeklyOffDays?: number[]
+  /** Roster shortage alerts fire when fewer people are planned on a date. 0 = no minimum. */
+  minHeadcount?: number
 }
 
 const TIME = /^([01]\d|2[0-3]):[0-5]\d(:[0-5]\d)?$/
@@ -73,10 +76,10 @@ export async function createShift(tx: PoolClient, i: ShiftInput): Promise<Shift>
   if ((await tx.query(`SELECT 1 FROM shifts WHERE code = $1`, [code])).rowCount) throw new ShiftError('SHIFT_EXISTS', `shift ${code} already exists`)
   const { rows } = await tx.query<Shift>(
     `INSERT INTO shifts (tenant_id, code, name, start_time, end_time, grace_in_min, grace_out_min, break_min,
-                         full_day_min, half_day_min, ot_after_min, ot_eligible, weekly_off_days)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13) RETURNING ${COLUMNS}`,
+                         full_day_min, half_day_min, ot_after_min, ot_eligible, weekly_off_days, min_headcount)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14) RETURNING ${COLUMNS}`,
     [tid, code, i.name.trim(), i.startTime, i.endTime, i.graceInMin ?? 10, i.graceOutMin ?? 0, i.breakMin ?? 60,
-     i.fullDayMin, i.halfDayMin, i.otAfterMin ?? 0, i.otEligible ?? false, i.weeklyOffDays ?? [0]])
+     i.fullDayMin, i.halfDayMin, i.otAfterMin ?? 0, i.otEligible ?? false, i.weeklyOffDays ?? [0], i.minHeadcount ?? 0])
   return rows[0]!
 }
 
@@ -131,6 +134,12 @@ export async function rosterHistory(tx: PoolClient, employeeId: string): Promise
 
 /** The shift in force for a person on a date, or null when they are not rostered. */
 export async function shiftFor(tx: PoolClient, employeeId: string, workDate: string): Promise<Shift | null> {
+  // A day-level roster row (planned / pattern / swap) wins over the standing assignment.
+  const planned = await tx.query<Shift & { is_off: boolean }>(
+    `SELECT ${COLUMNS.replace(/\bid,/, 's.id,').replace(/\bstatus\b/, 's.status')}, r.is_off
+       FROM roster_days r LEFT JOIN shifts s ON (s.tenant_id, s.id) = (r.tenant_id, r.shift_id)
+      WHERE r.employee_id = $1 AND r.work_date = $2::date`, [employeeId, workDate])
+  if (planned.rows[0]) return planned.rows[0].is_off ? null : planned.rows[0]
   const { rows } = await tx.query<Shift>(
     `SELECT ${COLUMNS.replace(/\bid,/, 's.id,').replace(/\bstatus\b/, 's.status')}
        FROM shift_rosters r JOIN shifts s ON (s.tenant_id, s.id) = (r.tenant_id, r.shift_id)

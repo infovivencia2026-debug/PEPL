@@ -24,6 +24,7 @@ import { deliverPush } from '../comms/push.ts'
 import { escalateStale, remindStale } from '../approvals/policy.ts'
 import { autoCheckout } from '../attendance/ops.ts'
 import { openDueProbationReviews } from '../people/letters.ts'
+import { alertShortages } from '../attendance/roster.ts'
 import { distributeRun, pendingRuns } from '../payroll/distribute.ts'
 import { ensurePeriod, upcomingMonth } from '../payroll/periods.ts'
 import { closePeriods, runDunning } from '../control-plane/billing.ts'
@@ -382,6 +383,15 @@ export async function runProbationReviews(): Promise<JobResult> {
     }))
 }
 
+/** Nightly: shifts under their minimum headcount in the coming days. */
+export async function runRosterShortage(): Promise<JobResult> {
+  return perTenant('roster.shortage', async (tenantId) =>
+    withTenant(tenantId, async (tx) => {
+      const cfg = await resolveConfig(tx, tenantId)
+      return alertShortages(tx, cfg.get<number>('attendance.roster_shortage_alert_days'))
+    }))
+}
+
 /** Closes days nobody punched out of, per the company's setting. */
 export async function runAutoCheckout(): Promise<JobResult> {
   return perTenant('attendance.auto_checkout', async (tenantId) =>
@@ -499,6 +509,7 @@ export const JOBS = {
   'approvals.escalate': runApprovalEscalation,
   'attendance.auto_checkout': runAutoCheckout,
   'people.probation': runProbationReviews,
+  'roster.shortage': runRosterShortage,
 } as const
 
 export type JobName = keyof typeof JOBS

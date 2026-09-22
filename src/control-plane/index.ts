@@ -9,6 +9,7 @@
 import pg from 'pg'
 import { config } from '../config.ts'
 import { REGISTRY } from '../config-registry/index.ts'
+import { applyPresetAtProvisioning } from './presets.ts'
 
 export class ControlPlaneError extends Error {
   readonly code: string
@@ -34,6 +35,7 @@ const STEPS = [
   'entitlements',
   'admin_user',
   'defaults',
+  'preset',
   'config_version',
 ] as const
 export type ProvisioningStep = (typeof STEPS)[number]
@@ -45,6 +47,8 @@ export interface ProvisionInput {
   adminEmail: string
   adminName: string
   stateCode?: string
+  /** Organisation-type preset code (db/reference/presets.ts); omitted = plain Indian-SME defaults. */
+  organisationType?: string
 }
 
 export interface ProvisionResult {
@@ -133,6 +137,9 @@ export async function provisionTenant(
           break
         case 'defaults':
           await seedDefaults(client, tenantId)
+          break
+        case 'preset':
+          if (input.organisationType) await applyPresetAtProvisioning(client, tenantId, input.organisationType)
           break
         case 'config_version':
           await client.query(

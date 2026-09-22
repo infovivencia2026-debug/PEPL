@@ -124,6 +124,8 @@ async function main(): Promise<void> {
     planCode: 'professional',
     adminEmail: 'admin@acme.test',
     adminName: 'Acme Administrator',
+    // PEPL_DEMO_TYPE=manufacturing (or education, field_sales, retail, agency) seeds that organisation type's preset
+    organisationType: process.env.PEPL_DEMO_TYPE ?? 'office',
   })
   console.log(`tenant ${tenantId}`)
 

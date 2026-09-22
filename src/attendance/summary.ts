@@ -28,6 +28,8 @@ export interface SummaryPolicy {
   lateMarksPerHalfDay: number
   weekPattern: 'five_day' | 'six_day' | 'alternate_saturday' | 'roster'
   defaultStateCode: string
+  /** When true, only pre-approved overtime minutes count (payroll.ot_requires_approval). */
+  otRequiresApproval?: boolean
 }
 
 /**
@@ -140,6 +142,17 @@ export async function summarisePeriod(
         WHERE r.employee_id = $1 AND r.effective_from <= $3::date AND (r.effective_to IS NULL OR r.effective_to >= $2::date)
         ORDER BY r.effective_from DESC LIMIT 1`, [e.id, args.periodStart, args.periodEnd])
     const shiftOffs = roster[0]?.weekly_off_days ?? null
+    // Day-level plan (rotating offs, swaps) beats the standing shift's weekly offs.
+    const { rows: plannedRows } = await tx.query<{ work_date: string; is_off: boolean }>(
+      `SELECT work_date::text, is_off FROM roster_days WHERE employee_id = $1 AND work_date BETWEEN $2::date AND $3::date`, [e.id, args.periodStart, args.periodEnd])
+    const plannedOff = new Map(plannedRows.map((r) => [r.work_date, r.is_off]))
+    // Optional holidays the person picked are holidays for them alone.
+    const { rows: picks } = await tx.query<{ d: string }>(
+      `SELECT holiday_on::text AS d FROM optional_holiday_picks WHERE employee_id = $1 AND holiday_on BETWEEN $2::date AND $3::date`, [e.id, args.periodStart, args.periodEnd])
+    const myHolidays = new Set([...holidaySet, ...picks.map((p) => p.d)])
+    const approvedOt = policy.otRequiresApproval
+      ? new Map((await tx.query<{ d: string; m: number }>(`SELECT work_date::text AS d, minutes AS m FROM ot_requests WHERE employee_id = $1 AND status = 'approved' AND work_date BETWEEN $2::date AND $3::date`, [e.id, args.periodStart, args.periodEnd])).rows.map((r) => [r.d, r.m]))
+      : null
 
     let payable = 0, lop = 0, paidLeave = 0, unmarked = 0, lateMarks = 0, ot = 0
     const cells: MusterCell[] = []
@@ -152,10 +165,10 @@ export async function summarisePeriod(
       const date = iso(new Date(start.getTime() + i * DAY))
       if (date < e.date_of_joining || (e.date_of_exit && date > e.date_of_exit)) { cells.push({ date, code: 'NJ', payable: 0, lop: 0, ...blank }); continue }
       const d = byDate.get(date)
-      const off = shiftOffs ? shiftOffs.includes(new Date(date + 'T00:00:00Z').getUTCDay()) : isWeeklyOff(date, policy.weekPattern)
+      const off = plannedOff.has(date) ? plannedOff.get(date)! : shiftOffs ? shiftOffs.includes(new Date(date + 'T00:00:00Z').getUTCDay()) : isWeeklyOff(date, policy.weekPattern)
       if (!d) {
         if (off) { payable += 1; cells.push({ date, code: 'WO', payable: 1, lop: 0, ...blank }); continue }
-        if (holidaySet.has(date)) { payable += 1; cells.push({ date, code: 'H', payable: 1, lop: 0, ...blank }); continue }
+        if (myHolidays.has(date)) { payable += 1; cells.push({ date, code: 'H', payable: 1, lop: 0, ...blank }); continue }
         unmarked++
         if (policy.unmarkedDayIsLop) { lop += 1; cells.push({ date, code: '–', payable: 0, lop: 1, ...blank }) }
         else { payable += 1; cells.push({ date, code: '–', payable: 1, lop: 0, ...blank }) }
@@ -163,8 +176,9 @@ export async function summarisePeriod(
       }
       const fraction = Number(d.day_fraction)
       lateMarks += d.late_minutes > 0 ? 1 : 0
-      ot += d.ot_minutes
-      const detail = { late: d.late_minutes > 0, otMinutes: d.ot_minutes, firstIn: d.first_in, lastOut: d.last_out, workedMinutes: d.worked_minutes }
+      const otToday = approvedOt ? Math.min(d.ot_minutes, approvedOt.get(date) ?? 0) : d.ot_minutes
+      ot += otToday
+      const detail = { late: d.late_minutes > 0, otMinutes: otToday, firstIn: d.first_in, lastOut: d.last_out, workedMinutes: d.worked_minutes }
       let code: MusterCell['code'] = 'P', cp = 0, cl = 0
       switch (d.status) {
         case 'weekly_off': code = 'WO'; cp = 1; break

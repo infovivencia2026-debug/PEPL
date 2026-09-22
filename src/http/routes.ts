@@ -55,12 +55,14 @@ import { register as exitWorkflow } from './routes/exit-workflow.ts'
 import { register as recruitment } from './routes/recruitment.ts'
 import { register as performance } from './routes/performance.ts'
 import { register as letters } from './routes/letters.ts'
+import { register as roster } from './routes/roster.ts'
+import { register as assets } from './routes/assets.ts'
 
 export const router = new Router()
 
 for (const register of [
   system, config, people, attendance, leave, inbox,
-  payroll, helpdesk, incentives, comms, activity, roles, documents, chat, mail, imports, payments, holidays, leavePolicy, taxDeclarations, push, filings, exits, account, privacy, org, geofences, shifts, structures, incentiveAdmin, approvalPolicy, loans, reports, datasetImports, billing, expenses, timesheets, exitWorkflow, recruitment, performance, letters,
+  payroll, helpdesk, incentives, comms, activity, roles, documents, chat, mail, imports, payments, holidays, leavePolicy, taxDeclarations, push, filings, exits, account, privacy, org, geofences, shifts, structures, incentiveAdmin, approvalPolicy, loans, reports, datasetImports, billing, expenses, timesheets, exitWorkflow, recruitment, performance, letters, roster, assets,
 ]) {
   register(router)
 }
