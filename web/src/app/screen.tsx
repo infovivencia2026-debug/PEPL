@@ -18,6 +18,7 @@ import {
 } from '../Operations'
 import { PayrollPage } from '../Payroll'
 import { Communications } from '../Communications'
+import { EngagePage } from '../engage/Engage'
 import { DocumentsPage, ImportPage } from '../DataTools'
 import { PaymentsPage } from '../PaymentsPage'
 import { MyTaxDeclaration, TaxDeclarationsQueue } from '../TaxDeclarations'
@@ -64,6 +65,7 @@ export function screenFor({
       </Card>
     )
   else if (section === 'dashboard') page = <Dashboard data={data} act={props.act} />
+  else if (section === 'engage') page = <EngagePage data={data} screen={route.split('/')[1] || 'policies'} />
   else if (section === 'chat' || section === 'mail') page = <Communications key={section} mode={section} data={data} />
   else if (section === 'documents') page = <DocumentsPage data={data} />
   else if (section === 'import') page = <ImportPage />

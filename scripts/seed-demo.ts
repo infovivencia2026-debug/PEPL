@@ -16,6 +16,7 @@ import { createUser } from '../src/auth/index.ts'
 import { changeAssignment, changeCompensation } from '../src/people/history.ts'
 import { appendEntry, accrueMonthly } from '../src/leave/ledger.ts'
 import { applyLeave } from '../src/leave/apply.ts'
+import { recognise } from '../src/people/learning.ts'
 import { resolveConfig } from '../src/config/resolver.ts'
 import { recordPunch, recomputeDay } from '../src/attendance/index.ts'
 
@@ -269,6 +270,14 @@ async function main(): Promise<void> {
        VALUES ($1,'2026-09',DATE '2026-09-01',DATE '2026-09-30',DATE '2026-10-01')
        ON CONFLICT (tenant_id, label) DO NOTHING`,
       [tenantId])
+
+    // A couple of recognitions so the wall is not empty in the demo.
+    for (const [from, to, badge, note] of [
+      ['ACM-003', 'ACM-004', 'TEAM_PLAYER', 'Covered the release weekend without being asked.'],
+      ['ACM-001', 'ACM-006', 'CUSTOMER_HERO', 'Turned an angry customer into a referral.'],
+    ] as const) {
+      await recognise(tx, { badgeCode: badge, toEmployeeId: ids[to]!, fromUserId: userIds[from]!, fromEmployeeId: ids[from]!, isManager: true, message: note })
+    }
 
     // Pending approvals so the manager's inbox has something to decide — one from
     // each of the team, and one from the manager himself, which routes to HR.
