@@ -10,6 +10,7 @@ import {
   HttpError,
   requireBody,
   login,
+  completeCompanyChoice,
   revokeAllSessions,
   revokeSession,
   REGISTRY,
@@ -80,6 +81,29 @@ export function register(router: Router): void {
       const body = requireBody<{ email: string; password: string }>(req, ['email', 'password'])
       const result = await login({
         email: body.email, password: body.password,
+        ip: req.ip, userAgent: String(req.headers['user-agent'] ?? ''),
+      })
+      // One address can belong to several companies. The password has been
+      // proven at this point; the browser now asks which one, and no session
+      // exists until it answers.
+      if ('choose' in result) {
+        return ok({ chooseCompany: true, choiceToken: result.choiceToken, companies: result.companies })
+      }
+      return ok({
+        token: result.token,
+        expiresAt: result.expiresAt.toISOString(),
+        user: { id: result.userId, roles: result.roles },
+        mfaRequired: result.mfaRequired,
+      })
+    }))
+
+  router.post('/api/v1/auth/login/company',
+    { summary: 'Finish a login that opened more than one company', tag: 'auth', public: true,
+      requestExample: { choiceToken: 'from the login response', tenantId: 'the company to open' } },
+    open(async (req: Req) => {
+      const body = requireBody<{ choiceToken: string; tenantId: string }>(req, ['choiceToken', 'tenantId'])
+      const result = await completeCompanyChoice({
+        choiceToken: body.choiceToken, tenantId: body.tenantId,
         ip: req.ip, userAgent: String(req.headers['user-agent'] ?? ''),
       })
       return ok({

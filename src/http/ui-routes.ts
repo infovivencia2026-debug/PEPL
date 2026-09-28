@@ -9,7 +9,7 @@ import {
   requireModule,
   type Ctx,
 } from './context.ts'
-import { login, revokeSession } from '../auth/index.ts'
+import { login, completeCompanyChoice, revokeSession } from '../auth/index.ts'
 import { assertPermission, assertScope, can } from '../authz/permissions.ts'
 import { changeAssignment } from '../people/history.ts'
 import { applyCorrection, type CorrectionAction } from '../attendance/index.ts'
@@ -93,6 +93,30 @@ export function buildUiRouter() {
       const s = await login({
         email: textField(b.email, 'Email').toLowerCase(),
         password: textField(b.password, 'Password', 1024),
+        ip: req.ip,
+      })
+      // The password opened more than one company: no cookie yet, because a
+      // session belongs to exactly one of them. The browser asks, then posts
+      // the answer to /auth/login/company.
+      if ('choose' in s) {
+        return { status: 200, body: { chooseCompany: true, choiceToken: s.choiceToken, companies: s.companies } }
+      }
+      return {
+        status: 200,
+        body: { expiresAt: s.expiresAt },
+        headers: { 'set-cookie': cookie(s.token) },
+      }
+    },
+  )
+
+  r.post(
+    prefix + '/auth/login/company',
+    { summary: 'Browser: finish a login that opened more than one company', tag: 'auth' },
+    async (req) => {
+      const b = requireBody(req, ['choiceToken', 'tenantId'])
+      const s = await completeCompanyChoice({
+        choiceToken: textField(b.choiceToken, 'Choice token', 512),
+        tenantId: asUuid(b.tenantId, 'Company'),
         ip: req.ip,
       })
       return {

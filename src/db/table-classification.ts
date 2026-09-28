@@ -25,6 +25,10 @@ export const GLOBAL_TABLES: ReadonlySet<string> = new Set([
   'login_attempts',
   // Same reason: keyed by IP or hashed token, before a tenant exists.
   'rate_limit_buckets',
+  // A login that has proved its password and is choosing between the companies
+  // it opened. It exists precisely BEFORE a tenant is known, so it cannot be
+  // scoped to one; it holds an email and ids, never tenant data.
+  'login_choices',
 ])
 
 /** Tenant-scoped, but keyed on their own id rather than a tenant_id column. */

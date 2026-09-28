@@ -9,7 +9,7 @@ export {
   authed, open, ok, created, noContent, requireBody, requireModule, requireRecentMfa,
   asDate, asInt, asUuid, type Ctx,
 } from '../context.ts'
-export { login, resolveSession, revokeAllSessions, revokeSession } from '../../auth/index.ts'
+export { login, completeCompanyChoice, resolveSession, revokeAllSessions, revokeSession } from '../../auth/index.ts'
 export { assertScope, can, PERMISSIONS, ROLE_PERMISSIONS } from '../../authz/permissions.ts'
 export { withTenant } from '../../db/tenant-tx.ts'
 export { setSetting } from '../../config/write.ts'

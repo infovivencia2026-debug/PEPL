@@ -1,7 +1,7 @@
 import { useEffect, useState, type FormEvent } from 'react'
 import { domainApi } from './domainApi'
 import { ApprovalSubmission, type HeldChange } from './ApprovalSubmission'
-import { ArrowRight, Check } from 'lucide-react'
+import { ArrowRight, Building2, Check } from 'lucide-react'
 import { api } from './api'
 import { Button, ErrorBox, Modal } from './ui'
 import { toErrorView, type ErrorView } from './api'
@@ -172,18 +172,40 @@ export function ActionForm({
     </Modal>
   )
 }
+interface CompanyChoice { choiceToken: string; companies: Array<{ tenantId: string; name: string }> }
+
 export function Login({ onSuccess }: { onSuccess: () => Promise<void> }) {
   const [error, setError] = useState<ErrorView | null>(null),
-    [busy, setBusy] = useState(false)
+    [busy, setBusy] = useState(false),
+    // Set when one address opens more than one company. The password is already
+    // proven at this point; nothing is signed in until a company is picked.
+    [choice, setChoice] = useState<CompanyChoice | null>(null)
   async function submit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault()
     const b = Object.fromEntries(new FormData(e.currentTarget))
     setBusy(true)
     setError(null)
     try {
-      await api('/auth/login', b)
+      const r = await api<{ chooseCompany?: boolean } & CompanyChoice>('/auth/login', b)
+      if (r?.chooseCompany) { setChoice({ choiceToken: r.choiceToken, companies: r.companies }); return }
       await onSuccess()
     } catch (e) {
+      setError(toErrorView(e))
+    } finally {
+      setBusy(false)
+    }
+  }
+  async function pick(tenantId: string) {
+    if (!choice) return
+    setBusy(true)
+    setError(null)
+    try {
+      await api('/auth/login/company', { choiceToken: choice.choiceToken, tenantId })
+      await onSuccess()
+    } catch (e) {
+      // The token is spent whether or not it worked, so there is nothing to
+      // retry here: send them back to the start rather than to a dead button.
+      setChoice(null)
       setError(toErrorView(e))
     } finally {
       setBusy(false)
@@ -214,6 +236,32 @@ export function Login({ onSuccess }: { onSuccess: () => Promise<void> }) {
         <span className="login-footer">PEPL · People, at the heart.</span>
       </section>
       <section className="login-form">
+        {choice ? (
+          <div className="company-choice">
+            <div className="login-heading">
+              <span className="eyebrow">One more step</span>
+              <h2>Which company?</h2>
+              <p>This sign-in opens more than one. Pick where you want to work.</p>
+            </div>
+            {error && <ErrorBox message={error.message} requestId={error.requestId} />}
+            <ul className="company-list">
+              {choice.companies.map((c) => (
+                <li key={c.tenantId}>
+                  <button type="button" className="company-option" disabled={busy}
+                    onClick={() => { void pick(c.tenantId) }}>
+                    <Building2 size={18} aria-hidden="true" />
+                    <span>{c.name}</span>
+                    <ArrowRight size={16} aria-hidden="true" />
+                  </button>
+                </li>
+              ))}
+            </ul>
+            <button type="button" className="btn ghost" onClick={() => setChoice(null)}>
+              Use a different account
+            </button>
+          </div>
+        ) : (
+        <>
         <div className="login-heading">
           <span className="eyebrow">Welcome to your workspace</span>
           <h2>Good to have you here.</h2>
@@ -257,6 +305,8 @@ export function Login({ onSuccess }: { onSuccess: () => Promise<void> }) {
           <span className="status-dot" /> Your company. Your people. One secure
           space.
         </div>
+        </>
+        )}
       </section>
     </div>
   )

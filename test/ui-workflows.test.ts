@@ -98,7 +98,13 @@ beforeAll(async () => {
     'manager',
     'employee',
   ])
-    tokens[role] = (await login({ email: role + '@ui.test', password })).token
+  {
+    // These fixtures are one company each, so a login here always yields a
+    // session; being asked to choose would mean the fixture is wrong.
+    const result = await login({ email: role + '@ui.test', password })
+    if ('choose' in result) throw new Error(`${role}@ui.test exists in more than one company`)
+    tokens[role] = result.token
+  }
   server = createServer(createHandler(buildUiRouter()))
   await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve))
   const address = server.address()
