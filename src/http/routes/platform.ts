@@ -16,6 +16,7 @@
  * inside a tenant requires that tenant's consent, which is what the existing
  * support-access grant is for.
  */
+import { randomBytes } from 'node:crypto'
 import type { Router } from '../router.ts'
 import { HttpError, ok, created, requireBody, asUuid, type Req } from './deps.ts'
 import type { Res } from '../router.ts'
@@ -160,7 +161,7 @@ export function register(router: Router): void {
 
       // Generated here, shown once, never stored anywhere else — the operator
       // reads it out to the customer, who changes it at first sign-in.
-      const password = `pepl-${Math.random().toString(36).slice(2, 10)}-${Math.random().toString(36).slice(2, 6)}`
+      const password = `pepl-${randomBytes(6).toString('base64url')}-${randomBytes(3).toString('base64url')}`
       const planCode = b.planCode ?? 'trial'
       const { tenantId } = await signup({
         legalName: b.legalName, displayName: b.displayName ?? b.legalName,

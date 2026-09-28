@@ -109,7 +109,7 @@ const COMMANDS: Record<string, (p: string[], f: Record<string, string>) => Promi
       if (!f[required]) throw new Error(`--${required} is required`)
     }
     // A password the customer must change; ops reads it out once and it is not stored anywhere else.
-    const password = f.password ?? `pepl-${Math.random().toString(36).slice(2, 10)}-${Math.random().toString(36).slice(2, 6)}`
+    const password = f.password ?? `pepl-${randomBytes(6).toString('base64url')}-${randomBytes(3).toString('base64url')}`
     const planCode = f.plan ?? 'trial'
     const { tenantId } = await signup({
       legalName: f.name!, displayName: f['display-name'] ?? f.name!,
