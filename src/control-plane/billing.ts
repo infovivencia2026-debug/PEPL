@@ -72,8 +72,10 @@ export async function signup(args: {
   await controlDb.query(
     `INSERT INTO user_roles (tenant_id, user_id, role) VALUES ($1,$2,'org_admin') ON CONFLICT DO NOTHING`, [tenantId, adminUserId])
   await controlDb.query(
-    `UPDATE control_plane.subscriptions SET trial_ends_on = CURRENT_DATE + $2::int, billing_email = $3 WHERE tenant_id = $1`,
-    [tenantId, TRIAL_DAYS, email])
+    `UPDATE control_plane.subscriptions
+        SET trial_ends_on = CURRENT_DATE + $2::int, billing_email = $3, billing_state_code = $4
+      WHERE tenant_id = $1`,
+    [tenantId, TRIAL_DAYS, email, args.stateCode?.toUpperCase().trim() || null])
   await controlDb.query(
     `INSERT INTO control_plane.platform_audit (action, tenant_id, detail) VALUES ('tenant.signup', $1, $2::jsonb)`,
     [tenantId, JSON.stringify({ email, planCode })])
@@ -91,6 +93,8 @@ export interface BillingSummary {
   billing_gstin: string | null
   billing_address: string | null
   billing_email: string | null
+  /** Place of supply for GST; without it an invoice cannot pick CGST+SGST over IGST. */
+  billing_state_code: string | null
   /** What the next invoice would be at today's headcount. */
   estimate: { subtotal_paise: string; gst_paise: string; total_paise: string }
   outstanding: { count: number; total_paise: string; oldest_due_on: string | null }
@@ -112,9 +116,10 @@ export async function billingSummary(tenantId: string): Promise<BillingSummary> 
   const { rows } = await controlDb.query<{
     plan_code: string; status: string; trial_ends_on: string | null; current_period_start: string; current_period_end: string
     billing_gstin: string | null; billing_address: string | null; billing_email: string | null
+    billing_state_code: string | null
   }>(
     `SELECT plan_code, status, trial_ends_on::text, current_period_start::text, current_period_end::text,
-            billing_gstin, billing_address, billing_email
+            billing_gstin, billing_address, billing_email, billing_state_code
        FROM control_plane.subscriptions WHERE tenant_id = $1`, [tenantId])
   const sub = rows[0]
   if (!sub) throw new ControlPlaneError('NO_SUBSCRIPTION', 'this company has no subscription record')
@@ -131,13 +136,15 @@ export async function billingSummary(tenantId: string): Promise<BillingSummary> 
     current_period_start: sub.current_period_start, current_period_end: sub.current_period_end,
     active_employees: employees, employee_limit: plan.limits.employees ?? null,
     billing_gstin: sub.billing_gstin, billing_address: sub.billing_address, billing_email: sub.billing_email,
+    billing_state_code: sub.billing_state_code,
     estimate: { subtotal_paise: String(p.subtotal), gst_paise: String(p.gst), total_paise: String(p.total) },
     outstanding: { count: Number(out.n), total_paise: out.total, oldest_due_on: out.oldest },
   }
 }
 
 export async function updateBillingDetails(
-  tenantId: string, patch: { gstin?: string | null; address?: string | null; email?: string | null },
+  tenantId: string,
+  patch: { gstin?: string | null; address?: string | null; email?: string | null; stateCode?: string | null },
 ): Promise<void> {
   if (patch.gstin && !/^\d{2}[A-Z]{5}\d{4}[A-Z][1-9A-Z]Z[0-9A-Z]$/.test(patch.gstin.toUpperCase())) {
     throw new ControlPlaneError('VALIDATION_FAILED', 'that is not a valid GSTIN')
@@ -146,10 +153,12 @@ export async function updateBillingDetails(
     `UPDATE control_plane.subscriptions
         SET billing_gstin = CASE WHEN $2::boolean THEN $3 ELSE billing_gstin END,
             billing_address = CASE WHEN $4::boolean THEN $5 ELSE billing_address END,
-            billing_email = CASE WHEN $6::boolean THEN $7 ELSE billing_email END
+            billing_email = CASE WHEN $6::boolean THEN $7 ELSE billing_email END,
+            billing_state_code = CASE WHEN $8::boolean THEN $9 ELSE billing_state_code END
       WHERE tenant_id = $1`,
     [tenantId, 'gstin' in patch, patch.gstin?.toUpperCase().trim() || null,
-     'address' in patch, patch.address?.trim() || null, 'email' in patch, patch.email?.trim().toLowerCase() || null])
+     'address' in patch, patch.address?.trim() || null, 'email' in patch, patch.email?.trim().toLowerCase() || null,
+     'stateCode' in patch, patch.stateCode?.toUpperCase().trim() || null])
 }
 
 /**
@@ -157,6 +166,38 @@ export async function updateBillingDetails(
  * company is over the new plan's headcount limit — the software must never
  * silently hide employees to fit a cheaper tier.
  */
+/**
+ * What an upgrade costs for the rest of the period it happens in.
+ *
+ * Without this a customer who moves to a better plan on the second day gets
+ * twenty-eight days of it free, every time, which is a discount nobody decided
+ * to give. The charge is the DIFFERENCE between the plans for the days that
+ * remain, so the customer is never billed twice for what they already paid.
+ *
+ * A downgrade returns zero on purpose. Handing money back for service already
+ * delivered is a credit note, and choosing a cheaper plan is not a billing
+ * error; the lower price simply starts at the next period.
+ */
+export function prorationFor(
+  from: Plan,
+  to: Plan,
+  employees: number,
+  daysRemaining: number,
+  daysInPeriod: number,
+): { subtotalPaise: bigint; gstPaise: bigint; totalPaise: bigint } {
+  const nothing = { subtotalPaise: 0n, gstPaise: 0n, totalPaise: 0n }
+  if (daysRemaining <= 0 || daysInPeriod <= 0) return nothing
+
+  const before = priceFor(from, employees).subtotal
+  const after = priceFor(to, employees).subtotal
+  if (after <= before) return nothing
+
+  const subtotal = ((after - before) * BigInt(Math.min(daysRemaining, daysInPeriod))) / BigInt(daysInPeriod)
+  if (subtotal <= 0n) return nothing
+  const gst = (subtotal * BigInt(Math.round(GST_RATE * 10_000))) / 10_000n
+  return { subtotalPaise: subtotal, gstPaise: gst, totalPaise: subtotal + gst }
+}
+
 export async function switchPlan(tenantId: string, planCode: string): Promise<BillingSummary> {
   const plan = (await controlDb.query<Plan>(
     `SELECT code, name, base_price_paise::text, per_employee_price_paise::text, features, limits FROM control_plane.plans WHERE code = $1 AND status = 'active'`,
@@ -168,11 +209,54 @@ export async function switchPlan(tenantId: string, planCode: string): Promise<Bi
     throw new ControlPlaneError('OVER_PLAN_LIMIT',
       `${plan.name} allows ${plan.limits.employees} employees; you have ${employees}. Exit or choose a larger plan first.`)
   }
+  // Read the old plan and the period BEFORE the switch: afterwards there is no
+  // way to know what they were paying or how much of the period they had used.
+  const { rows: subRows } = await controlDb.query<{
+    plan_code: string; current_period_start: string; current_period_end: string; status: string
+  }>(
+    `SELECT plan_code, current_period_start::text, current_period_end::text, status
+       FROM control_plane.subscriptions WHERE tenant_id = $1`, [tenantId])
+  const sub = subRows[0]
+  const previous = sub
+    ? (await controlDb.query<Plan>(
+      `SELECT code, name, base_price_paise::text, per_employee_price_paise::text, features, limits
+         FROM control_plane.plans WHERE code = $1`, [sub.plan_code])).rows[0]
+    : undefined
+
   await controlDb.query(
     `UPDATE control_plane.subscriptions
         SET plan_code = $2, status = CASE WHEN status = 'trialing' THEN 'active' ELSE status END, trial_ends_on = NULL
       WHERE tenant_id = $1`, [tenantId, planCode])
   await projectEntitlements(controlDb, tenantId)
+
+  // A company still on trial has paid nothing for this period, so there is
+  // nothing to top up; it starts paying from its first full period.
+  if (sub && previous && sub.status !== 'trialing') {
+    const day = 86_400_000
+    const today = Date.parse((await controlDb.query<{ d: string }>('SELECT CURRENT_DATE::text AS d')).rows[0]!.d)
+    const daysRemaining = Math.max(0, Math.round((Date.parse(sub.current_period_end) - today) / day))
+    const daysInPeriod = Math.max(1, Math.round((Date.parse(sub.current_period_end) - Date.parse(sub.current_period_start)) / day))
+    const prorata = prorationFor(previous, plan, employees, daysRemaining, daysInPeriod)
+    if (prorata.totalPaise > 0n) {
+      const client = await controlDb.connect()
+      try {
+        const number = await nextInvoiceNumber(client, tenantId, sub.current_period_end)
+        await client.query(
+          `INSERT INTO control_plane.invoices
+             (tenant_id, number, period_start, period_end, plan_code, employees, base_paise, per_employee_paise,
+              subtotal_paise, gst_rate, gst_paise, total_paise, due_on)
+           VALUES ($1,$2,CURRENT_DATE,$3::date,$4,$5,0,0,$6,$7,$8,$9, CURRENT_DATE + $10::int)`,
+          [tenantId, number, sub.current_period_end, planCode, employees,
+           prorata.subtotalPaise.toString(), GST_RATE, prorata.gstPaise.toString(),
+           prorata.totalPaise.toString(), DUE_DAYS])
+        await client.query(
+          `INSERT INTO control_plane.platform_audit (action, tenant_id, detail) VALUES ('subscription.prorated', $1, $2::jsonb)`,
+          [tenantId, JSON.stringify({ invoice: number, from: previous.code, to: planCode, daysRemaining, daysInPeriod, totalPaise: prorata.totalPaise.toString() })])
+      } finally {
+        client.release()
+      }
+    }
+  }
   await controlDb.query(
     `INSERT INTO control_plane.platform_audit (action, tenant_id, detail) VALUES ('subscription.plan_changed', $1, $2::jsonb)`,
     [tenantId, JSON.stringify({ planCode, employees })])

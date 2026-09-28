@@ -21,8 +21,11 @@
 import { controlDb, changePlan, setSubscriptionStatus } from '../src/control-plane/index.ts'
 import {
   signup, listPlans, listInvoices, markInvoicePaid, voidInvoice,
-  billingSummary, closePeriods, runDunning, priceFor,
+  billingSummary, closePeriods, runDunning, priceFor, updateBillingDetails,
 } from '../src/control-plane/billing.ts'
+import { invoicePdf, supplierFromEnv } from '../src/control-plane/invoice-pdf.ts'
+import { issueCreditNote, listCreditNotes } from '../src/control-plane/credit-notes.ts'
+import { writeFileSync } from 'node:fs'
 import { closePools } from '../src/db/pool.ts'
 
 const rupees = (paise: string | bigint | number): string =>
@@ -187,6 +190,60 @@ Quote the reason: --reason "raised in error"`)
     console.log(`Invoice ${v.number} voided — ${rupees(v.total_paise)}. Reason: ${f.reason}`)
   },
 
+  async 'invoice-pdf'(p, f) {
+    const id = await findInvoice(p[0] ?? '')
+    const supplier = supplierFromEnv()
+    if (!supplier.gstin) {
+      console.warn('Warning: PEPL_GSTIN is not set, so this will NOT be a tax invoice.')
+    }
+    const pdf = await invoicePdf(id)
+    const out = f.out ?? pdf.fileName
+    writeFileSync(out, pdf.bytes)
+    console.log(`Wrote ${out} (${pdf.bytes.length} bytes). Email it to the customer's accounts address.`)
+  },
+
+  async 'billing-details'(p, f) {
+    const t = await resolveTenant(p[0] ?? '')
+    const patch: { gstin?: string; address?: string; email?: string; stateCode?: string } = {}
+    if (f.gstin !== undefined) patch.gstin = f.gstin
+    if (f.address !== undefined) patch.address = f.address
+    if (f.email !== undefined) patch.email = f.email
+    // The place of supply decides CGST+SGST against IGST, so it is the one
+    // field an invoice cannot be raised correctly without.
+    if (f.state !== undefined) patch.stateCode = f.state
+    if (!Object.keys(patch).length) throw new Error('nothing to change: pass --gstin, --address, --email or --state')
+    await updateBillingDetails(t.id, patch)
+    const b = await billingSummary(t.id)
+    console.log(`${t.name}
+  GSTIN            ${b.billing_gstin ?? '—'}
+  Address          ${b.billing_address ?? '—'}
+  Billing email    ${b.billing_email ?? '—'}
+  Place of supply  ${b.billing_state_code ?? '— (invoices will carry IGST)'}`)
+  },
+
+  async credit(p, f) {
+    if (!f.reason) throw new Error('--reason is required: a credit has to be explicable later')
+    if (p.length > 1) throw new Error(`unexpected extra words: ${p.slice(1).join(' ')}
+Quote the reason.`)
+    const id = await findInvoice(p[0] ?? '')
+    // --amount is the taxable value in RUPEES; GST is added at the invoice's own
+    // rate so nobody has to restate the tax by hand.
+    const subtotalPaise = f.amount ? Math.round(Number(f.amount) * 100) : undefined
+    if (f.amount && !Number.isFinite(subtotalPaise)) throw new Error('--amount must be a number of rupees')
+    const note = await issueCreditNote({ invoiceId: id, reason: f.reason, subtotalPaise })
+    console.log(`Credit note ${note.number} issued — ${rupees(note.total_paise)} (${rupees(note.subtotal_paise)} + GST).`)
+  },
+
+  async 'credit-notes'(p) {
+    const t = await resolveTenant(p[0] ?? '')
+    const rows = await listCreditNotes(t.id)
+    if (!rows.length) return console.log(`${t.name} has no credit notes.`)
+    console.log(`${t.name}
+`)
+    console.log(table(['NUMBER', 'ISSUED', 'TOTAL', 'REASON'],
+      rows.map((n) => [n.number, n.issued_on, rupees(n.total_paise), n.reason.slice(0, 44)])))
+  },
+
   async revenue() {
     const { rows } = await controlDb.query<{ plan_code: string; status: string; tenants: number; employees: number }>(
       `SELECT s.plan_code, s.status, count(*)::int AS tenants,
@@ -253,9 +310,18 @@ const USAGE = `PEPL back office
   npm run ops invoices <company>
   npm run ops pay <invoice-number> --ref "NEFT UTR..."   money arrived
   npm run ops void <invoice-number> --reason "..."       raised in error
+  npm run ops invoice-pdf <invoice-number> [--out file.pdf]  the GST tax invoice
+  npm run ops credit <invoice-number> --reason "..." [--amount 2500]
+                                                a PAID invoice is reduced by a credit
+                                                note; an unpaid one is voided instead
+  npm run ops credit-notes <company>
+  npm run ops billing-details <company> --gstin ... --address "..." --state TS
   npm run ops close-periods [--as-of 2026-11-01] raise invoices for periods that have ended
   npm run ops dunning                           apply the overdue/suspend/reactivate rules
   npm run ops revenue                           MRR by plan
+
+  PEPL_DEMO_SUFFIX=ravi npm run seed:demo       a demo company of this rep's own,
+                                                so two people can demo at once
 
 A company can be named by id or by any unambiguous part of its name.`
 

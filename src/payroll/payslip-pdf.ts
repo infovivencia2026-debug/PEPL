@@ -79,8 +79,18 @@ export function amountInWords(paise: bigint): string {
     n < 100 ? under100(n)
       : ones[Math.floor(n / 100)]! + ' hundred' + (n % 100 ? ' and ' + under100(n % 100) : '')
 
+  // Paise are dropped on a payslip because every figure there is rounded to the
+  // rupee as the line is written. An invoice is not: 18% GST lands on a paisa
+  // regularly, and on a tax invoice the amount in words is the controlling
+  // figure, so it has to say them.
+  const paiseRemainder = Number(paise % 100n)
+  const paiseWords = (n: number): string =>
+    ` and ${n < 20 ? ones[n]! : tens[Math.floor(n / 10)]! + (n % 10 ? '-' + ones[n % 10]! : '')} ${n === 1 ? 'paisa' : 'paise'}`
+
   let rupeeValue = Number(paise / 100n)
-  if (rupeeValue === 0) return 'Zero rupees only'
+  const wholeRupees = rupeeValue
+  if (rupeeValue === 0 && paiseRemainder === 0) return 'Zero rupees only'
+  if (rupeeValue === 0) return `Zero rupees${paiseWords(paiseRemainder)} only`
 
   const parts: string[] = []
   const scales: [number, string][] = [[10_000_000, 'crore'], [100_000, 'lakh'], [1000, 'thousand']]
@@ -94,7 +104,8 @@ export function amountInWords(paise: bigint): string {
   if (rupeeValue) parts.push(under1000(rupeeValue))
 
   const words = parts.join(' ')
-  return words.charAt(0).toUpperCase() + words.slice(1) + ' rupees only'
+  return words.charAt(0).toUpperCase() + words.slice(1) + (wholeRupees === 1 ? ' rupee' : ' rupees') +
+    (paiseRemainder ? paiseWords(paiseRemainder) : '') + ' only'
 }
 
 function dateLabel(value: string | null): string {

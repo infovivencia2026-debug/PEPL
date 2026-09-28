@@ -112,7 +112,9 @@ describe('money is formatted the way an Indian payslip prints it', () => {
 
   it('writes the amount in words for the cheque line', () => {
     expect(amountInWords(0n)).toBe('Zero rupees only')
-    expect(amountInWords(BigInt(L(1)))).toBe('One rupees only')
+    // Was 'One rupees only', which is what the code produced and not what a
+    // cheque line should say. The singular is the correction, not a relaxation.
+    expect(amountInWords(BigInt(L(1)))).toBe('One rupee only')
     expect(amountInWords(BigInt(L(37_500)))).toBe('Thirty-seven thousand five hundred rupees only')
     expect(amountInWords(BigInt(L(1_234_567))))
       .toBe('Twelve lakh thirty-four thousand five hundred and sixty-seven rupees only')

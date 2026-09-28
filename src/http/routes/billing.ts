@@ -13,6 +13,8 @@ import {
 import { controlDb, grantSupportAccess, revokeSupportAccess } from '../../control-plane/index.ts'
 import { login } from '../../auth/index.ts'
 import { listPresets, applyPreset } from '../../control-plane/presets.ts'
+import { invoicePdf } from '../../control-plane/invoice-pdf.ts'
+import { listCreditNotes } from '../../control-plane/credit-notes.ts'
 import { today as localToday } from '../../lib/timezone.ts'
 
 export function register(router: Router): void {
@@ -43,6 +45,12 @@ export function register(router: Router): void {
       const { tenantId } = await signup({ ...b })
       // Straight into the product: the session comes from the same login path everyone uses.
       const session = await login({ email: b.adminEmail, password: b.password, ip: req.ip, userAgent: String(req.headers['user-agent'] ?? '') })
+      // signup() refuses an address already in use, so the company this just
+      // created is the only one this password opens. If that ever stops being
+      // true, fail loudly here rather than hand back half a session.
+      if ('choose' in session) {
+        throw new HttpError(500, 'AMBIGUOUS_SIGNUP', 'this address already belongs to another company')
+      }
       return created({ tenantId, token: session.token, expiresAt: session.expiresAt.toISOString(), user: { id: session.userId, roles: session.roles } })
     }))
 
@@ -53,9 +61,9 @@ export function register(router: Router): void {
 
   router.patch('/api/v1/billing',
     { summary: 'Billing details for the invoice: GSTIN, address, billing email', tag: 'billing', permission: 'settings.write',
-      requestExample: { gstin: '36AAAAA0000A1Z5', address: 'Plot 12, HITEC City, Hyderabad 500081', email: 'accounts@acme.com' } },
+      requestExample: { gstin: '36AAAAA0000A1Z5', address: 'Plot 12, HITEC City, Hyderabad 500081', email: 'accounts@acme.com', stateCode: 'TS' } },
     authed('settings.write', async (ctx) => {
-      const b = requireBody<{ gstin?: string | null; address?: string | null; email?: string | null }>(ctx.req, [])
+      const b = requireBody<{ gstin?: string | null; address?: string | null; email?: string | null; stateCode?: string | null }>(ctx.req, [])
       await updateBillingDetails(ctx.auth.tenantId, b)
       await emit(ctx.tx, { action: 'billing.details.changed', entityType: 'subscription', actorUserId: ctx.auth.userId, after: { gstin: b.gstin ?? undefined, email: b.email ?? undefined } })
       return ok(await billingSummary(ctx.auth.tenantId))
@@ -74,6 +82,27 @@ export function register(router: Router): void {
   router.get('/api/v1/billing/invoices',
     { summary: 'Invoices, newest first', tag: 'billing', permission: 'settings.write' },
     authed('settings.write', async (ctx) => ok({ invoices: await listInvoices(ctx.auth.tenantId) })))
+
+  router.get('/api/v1/billing/credit-notes',
+    { summary: 'Credit notes raised against the invoices of this company, newest first', tag: 'billing', permission: 'settings.write' },
+    authed('settings.write', async (ctx) => ok({ creditNotes: await listCreditNotes(ctx.auth.tenantId) })))
+
+  router.get('/api/v1/billing/invoices/:id/pdf',
+    { summary: 'The GST tax invoice as a PDF, base64 encoded', tag: 'billing', permission: 'settings.write' },
+    authed('settings.write', async (ctx) => {
+      const id = asUuid(ctx.req.params.id, 'id')
+      // Scoped to the caller's own tenant before anything is rendered: invoice
+      // ids are not secrets, and this route runs on the control connection.
+      const owned = await listInvoices(ctx.auth.tenantId)
+      if (!owned.some((i) => i.id === id)) throw new HttpError(404, 'NOT_FOUND', 'no such invoice')
+      const pdf = await invoicePdf(id)
+      return ok({
+        fileName: pdf.fileName,
+        contentType: 'application/pdf',
+        sizeBytes: pdf.bytes.length,
+        contentBase64: pdf.bytes.toString('base64'),
+      })
+    }))
 
   // ── support access: the tenant approves; we never let ourselves in ──
   router.get('/api/v1/support-access',
