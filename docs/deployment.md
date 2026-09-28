@@ -174,6 +174,26 @@ database, which survives a bad migration and does not survive the disk or the
 provider. Copy it off the box — object storage, or `rsync` to somewhere else —
 before treating this as done.
 
+**Restoring needs root, and that is deliberate.** The dumps are `0600` in a
+`0700` directory because they contain salaries, bank accounts and PF/ESI
+numbers on a box shared with thirteen other applications. `postgres` therefore
+cannot read them, and `sudo -u postgres pg_restore /var/backups/...` fails with
+"Permission denied" in a way that reads like a broken backup. Stream it:
+
+```bash
+cat /var/backups/pepl/pepl-<stamp>.dump |
+  sudo -u postgres /usr/pgsql-18/bin/pg_restore --dbname=<target> --no-owner
+```
+
+`--jobs` is not available on a stream. That is the price of the dumps not
+being world-readable, and it is worth paying.
+
+A drill was run against a real production dump: every table restored, the
+audit hash chain verified with zero broken links, and 157 tables came back
+with `FORCE ROW LEVEL SECURITY` still on. Row counts differed from live by
+exactly the rows deleted after the dump was taken, which is what a
+point-in-time snapshot is supposed to do.
+
 There is a restore drill in the test suite (`test/restore-drill.test.ts`) that
 dumps, restores into a scratch database, compares every row count, re-checks
 RLS and re-verifies the audit chain. Run the same exercise against a real
@@ -192,6 +212,21 @@ npm run ops tenants                            # who is on the platform
 
 `/health` answers whenever the process is up. `/health/ready` answers only when
 it can actually serve — that is the one to point a monitor at.
+
+`deploy/pepl-healthcheck.sh` runs from cron every five minutes and does exactly
+that. It is SILENT while healthy, restarts `pepl-api` only after two
+consecutive failures, and refuses to restart more than once every 15 minutes —
+a blip during a deploy is not a reason to restart, and a restart loop against a
+real fault (a full disk, a dead database) turns one incident into a louder one
+while hiding the cause. When it gives up it says so in `/var/log/pepl-health.log`.
+
+It was tested by stopping the API on purpose: one failure logged and did not
+restart, the second restarted and recovered. A watchdog nobody has watched fire
+is an assumption.
+
+**There is still no ALERTING.** The watchdog heals a stuck process and writes a
+log; nothing tells a human. Point an uptime service at `https://pepl.onrol.in/health/ready`,
+or scrape `/metrics` with the bearer token in `PEPL_METRICS_TOKEN`.
 
 Jobs report failures into their own output and the scheduler logs them at
 `warn`. That is how `data.retention` failed silently every night for months, so
