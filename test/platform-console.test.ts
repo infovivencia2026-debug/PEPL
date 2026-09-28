@@ -18,6 +18,7 @@ import { controlDb } from '../src/control-plane/index.ts'
 import { upsertPlatformUser, setPlatformUserStatus } from '../src/control-plane/platform-auth.ts'
 import { signup } from '../src/control-plane/billing.ts'
 import { login } from '../src/auth/index.ts'
+import { totp, stepAt } from '../src/auth/mfa.ts'
 
 let server: Server
 let base: string
@@ -33,6 +34,32 @@ const api = async (method: string, path: string, body?: unknown, token?: string)
     body: body ? JSON.stringify(body) : undefined,
   })
   return { status: r.status, body: (r.status === 204 ? {} : await r.json()) as Record<string, unknown> & { error?: { code: string } } }
+}
+
+
+const B32 = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567'
+const base32Decode = (v: string): Buffer => {
+  let bits = 0, value = 0
+  const out: number[] = []
+  for (const c of v.toUpperCase().replace(/[^A-Z2-7]/g, '')) {
+    value = (value << 5) | B32.indexOf(c); bits += 5
+    if (bits >= 8) { out.push((value >>> (bits - 8)) & 0xff); bits -= 8 }
+  }
+  return Buffer.from(out)
+}
+
+/**
+ * Enrol and clear the second factor, as a real operator does on first sign-in.
+ * The console opens nothing until this has happened, so any test that wants to
+ * reach a route has to go through it.
+ */
+const enrolAndVerify = async (token: string): Promise<string> => {
+  const begun = await api('POST', '/api/platform/mfa/enrol', {}, token)
+  const secret = (begun.body as { secret?: string }).secret!
+  const code = totp(base32Decode(secret), stepAt())
+  const r = await api('POST', '/api/platform/mfa/verify', { code }, token)
+  if (r.status !== 200 && r.status !== 204) throw new Error(`could not verify: ${JSON.stringify(r.body)}`)
+  return secret
 }
 
 beforeAll(async () => {
@@ -122,6 +149,7 @@ describe('suspending an operator', () => {
     await upsertPlatformUser({ email: fresh, fullName: 'Leaver', password: 'another-long-passphrase' })
     const s = await api('POST', '/api/platform/login', { email: fresh, password: 'another-long-passphrase' })
     const token = s.body.token as string
+    await enrolAndVerify(token)
     expect((await api('GET', '/api/platform/tenants', undefined, token)).status).toBe(200)
 
     await setPlatformUserStatus(fresh, 'suspended')
@@ -135,14 +163,18 @@ describe('what an operator can and cannot see', () => {
   // A separate operator, because the suite above deliberately enrols a second
   // factor on `operator` and every later sign-in of theirs then demands it.
   const viewer = `viewer-${stamp}@pepl.test`
+  let viewerSecret = ''
   const VIEWER_PASSWORD = 'a-third-long-operator-passphrase'
   beforeAll(async () => {
     await upsertPlatformUser({ email: viewer, fullName: 'Read Only', password: VIEWER_PASSWORD })
+    const s = await api('POST', '/api/platform/login', { email: viewer, password: VIEWER_PASSWORD })
+    viewerSecret = await enrolAndVerify(s.body.token as string)
   })
 
   it('sees that a company exists and what it owes', async () => {
     const s = await api('POST', '/api/platform/login', { email: viewer, password: VIEWER_PASSWORD })
     const token = s.body.token as string
+    await api('POST', '/api/platform/mfa/verify', { code: totp(base32Decode(viewerSecret), stepAt()) }, token)
     const r = await api('GET', '/api/platform/tenants', undefined, token)
     expect(r.status).toBe(200)
     const tenants = r.body.tenants as Array<{ legal_name: string; employees: number }>
@@ -157,9 +189,34 @@ describe('what an operator can and cannot see', () => {
     // that tenant's consent, which is what support-access is for.
     const s = await api('POST', '/api/platform/login', { email: viewer, password: VIEWER_PASSWORD })
     const token = s.body.token as string
+    await api('POST', '/api/platform/mfa/verify', { code: totp(base32Decode(viewerSecret), stepAt()) }, token)
     for (const path of ['/api/platform/employees', '/api/platform/payroll', '/api/platform/tenants/x/employees']) {
       const r = await api('GET', path, undefined, token)
       expect(r.status).toBeGreaterThanOrEqual(400)
     }
+  })
+})
+
+describe('enrolment is not optional', () => {
+  it('an operator who has never enrolled opens nothing but enrolment', async () => {
+    // This was the gap: not-yet-enrolled meant "mfaPending false", so the
+    // session was fully open and an operator who never got round to enrolling
+    // kept password-only access to every customer's billing. The console's UI
+    // pushed them to enrol; the API did not require it.
+    const lazy = `never-enrols-${stamp}@pepl.test`
+    await upsertPlatformUser({ email: lazy, fullName: 'Never Enrols', password: 'yet-another-long-passphrase' })
+    const s = await api('POST', '/api/platform/login', { email: lazy, password: 'yet-another-long-passphrase' })
+    const token = s.body.token as string
+
+    const blocked = await api('GET', '/api/platform/tenants', undefined, token)
+    expect(blocked.status).toBe(403)
+    expect(blocked.body.error?.code).toBe('MFA_ENROLMENT_REQUIRED')
+
+    // ...but enrolling itself must stay reachable, or the requirement is
+    // unsatisfiable and the account is bricked.
+    const begun = await api('POST', '/api/platform/mfa/enrol', {}, token)
+    expect(begun.status).toBe(200)
+
+    await controlDb.query(`DELETE FROM control_plane.platform_users WHERE email = $1`, [lazy])
   })
 })

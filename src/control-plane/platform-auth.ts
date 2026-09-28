@@ -192,6 +192,17 @@ export async function resolvePlatformSession(token: string): Promise<ResolvedPla
 export async function requirePlatformSession(token: string | undefined): Promise<ResolvedPlatformSession> {
   if (!token) throw new PlatformAuthError('MISSING_TOKEN', 'sign in first')
   const session = await resolvePlatformSession(token)
+  // Never enrolled at all. This used to leave the session fully open so the
+  // operator could go and enrol -- which meant an operator who simply never
+  // enrolled kept password-only access to every customer's payroll, for ever.
+  // The console's UI pushed them into enrolment, but a UI is not a guard.
+  //
+  // The enrolment and verification routes do NOT come through here (they
+  // resolve the session directly), so enrolling is still reachable; nothing
+  // else is.
+  if (!session.user.mfa_enabled) {
+    throw new PlatformAuthError('MFA_ENROLMENT_REQUIRED', 'set up your second factor before using the console', 403)
+  }
   if (session.mfaPending) {
     throw new PlatformAuthError('MFA_REQUIRED', 'verify your second factor to continue', 403)
   }
