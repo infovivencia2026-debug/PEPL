@@ -23,7 +23,13 @@ export function EngagePage({ data, screen = 'policies' }: { data: Workspace; scr
     ['celebrations', 'Celebrations', true],
   ]
   const shown = VIEWS.filter((v) => v[2])
-  const tabs = <Tabs value={shown.find((v) => v[0] === screen)?.[1] ?? shown[0]?.[1] ?? ''} items={shown.map((v) => v[1])}
+  // The tabs already hide what this role cannot read -- but the BODY used to
+  // fall through to Policies for anything it did not recognise, and 'policies'
+  // was also the default. So a payroll admin, who holds no policy.read, landed
+  // on Engage and fetched /api/v1/policies for a 403 every time. Resolve to a
+  // view they actually have instead.
+  const view = shown.find((v) => v[0] === screen)?.[0] ?? shown[0]?.[0] ?? 'celebrations'
+  const tabs = <Tabs value={shown.find((v) => v[0] === view)?.[1] ?? shown[0]?.[1] ?? ''} items={shown.map((v) => v[1])}
     onChange={(label) => { const v = shown.find((x) => x[1] === label); window.location.hash = `#/engage${v && v[0] !== 'policies' ? `/${v[0]}` : ''}` }} />
   const HEAD: Record<string, [string, string]> = {
     policies: ['Policies', 'What everyone agreed to, and who still has to.'],
@@ -31,12 +37,12 @@ export function EngagePage({ data, screen = 'policies' }: { data: Workspace; scr
     recognition: ['Recognition', 'Say thank you where the company can see it.'],
     celebrations: ['Celebrations', 'Birthdays and work anniversaries coming up.'],
   }
-  const [title, description] = HEAD[screen] ?? HEAD.policies!
+  const [title, description] = HEAD[view] ?? HEAD.celebrations!
   return (
     <>
       <PageHeader title={title} description={description} eyebrow={`Engage · ${title}`} />
       {tabs}
-      {screen === 'surveys' ? <Surveys data={data} /> : screen === 'recognition' ? <Recognition data={data} /> : screen === 'celebrations' ? <Celebrations data={data} /> : <Policies data={data} />}
+      {view === 'surveys' ? <Surveys data={data} /> : view === 'recognition' ? <Recognition data={data} /> : view === 'celebrations' ? <Celebrations data={data} /> : <Policies data={data} />}
     </>
   )
 }

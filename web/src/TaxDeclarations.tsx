@@ -118,7 +118,10 @@ export function MyTaxDeclaration({ data }: { data: Workspace }) {
         <div className="preview-lines"><div className="preview-head"><span>Section</span><span>Declared</span><span>Allowed</span></div>{preview.map(line => <div key={line.key}><strong>{line.section}</strong><span>{rupees(line.declaredPaise)}</span><span>{rupees(line.allowedPaise)}</span>{line.note && <small>{line.note}</small>}</div>)}</div>
       </Card>
     </div>
-    {data.user.employeeId && <DocumentsPanel ownerType="employee" ownerId={data.user.employeeId} canWrite={data.permissions.includes('document.write')} category="tax proof" selectedIds={proofs} onSelectionChange={setProofs} />}
+    {/* document.read as well as an employee record: finance and auditor have a
+        record and payroll.read, but no document.read, so this panel asked for
+        their documents and got a 403 every time the screen opened. */}
+    {data.user.employeeId && data.permissions.includes('document.read') && <DocumentsPanel ownerType="employee" ownerId={data.user.employeeId} canWrite={data.permissions.includes('document.write')} category="tax proof" selectedIds={proofs} onSelectionChange={setProofs} />}
     {error && <p className="form-error" role="alert">{error}</p>}{notice && <p className="success-note" role="status">{notice}</p>}
     <div className="declaration-actions"><Button variant="secondary" disabled={busy} onClick={() => void save()}><FileCheck2 size={16} />{busy ? 'Saving…' : 'Save draft'}</Button><Button disabled={busy || !declaration || !['draft', 'rejected'].includes(declaration.status)} onClick={() => void submit()}><Send size={16} />Submit for verification</Button></div>
   </>
