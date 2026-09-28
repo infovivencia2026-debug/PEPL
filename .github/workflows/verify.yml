@@ -1,0 +1,95 @@
+# The gate, run by a machine.
+#
+# `npm run verify` is already the whole chain — typecheck, schema, the four
+# structural gates, 850+ tests, and 24 launch checks against a live database.
+# Nothing here re-implements any of it; CI's only job is to provide a Postgres
+# and run the same command a developer runs, so the two can never drift.
+#
+# Deliberately NOT set here: PEPL_DB. Locally a .env points it at pepl_dev;
+# with no .env the config defaults to pepl_test, which is what a throwaway CI
+# database should be. Setting it would be one more thing to keep in step.
+name: verify
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  # The suites share one database and TRUNCATE in setup, so two runs of the
+  # same branch would race each other's fixtures — the failure reads exactly
+  # like a real regression and has cost this project real time before.
+  group: verify-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    services:
+      postgres:
+        # 16 to match the server the project is developed against.
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: postgres
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      PGHOST: localhost
+      PGPORT: '5432'
+      SUPER_USER: postgres
+      SUPER_PASSWORD: postgres
+      OWNER_USER: pepl_owner
+      OWNER_PASSWORD: pepl_owner_ci
+      APP_USER: pepl_app
+      APP_PASSWORD: pepl_app_ci
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          # 24 for --experimental-strip-types: the server has no build step and
+          # therefore no build/runtime skew, which is the same reason the
+          # Dockerfile pins it.
+          node-version: '24'
+          cache: npm
+
+      - name: Install
+        run: npm ci
+
+      - name: Client tools for the restore drill
+        # test/restore-drill.test.ts dumps the database, restores it into a
+        # scratch one and compares every row count. Without these binaries it
+        # fails for a reason that has nothing to do with the code.
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends postgresql-client-16
+
+      - name: Verify
+        run: npm run verify
+
+      - name: The web app still compiles and fits
+        # Not part of `verify`, because both need a browser: typecheck:web is
+        # cheap, and check:responsive drives the BUILT bundle at eight widths.
+        run: |
+          npm run typecheck:web
+          # channel: 'chrome', not bundled chromium — the gates drive the same
+          # browser a developer has, so a pass here means a pass on a laptop.
+          npx playwright install --with-deps chrome
+          npm run build
+
+      - name: Responsive gate
+        run: |
+          node --experimental-strip-types src/http/server.ts &
+          for i in $(seq 1 30); do
+            curl -sf http://127.0.0.1:3100/health && break
+            sleep 2
+          done
+          SHOOT_BASE=http://127.0.0.1:3100 npm run check:responsive

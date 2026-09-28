@@ -68,7 +68,15 @@ export async function restoreDrill(): Promise<{ tables: number; rows: number; du
 
     // 2. restore into a fresh database
     await admin.query(`CREATE DATABASE ${scratch}`)
-    run('pg_restore', ['--no-owner', '--no-privileges', '-h', config.host, '-p', String(config.port), '-U', config.superUser, '-d', scratch, dump])
+    // --jobs parallelises the data load and index builds, and is what an
+    // operator restoring under pressure would actually type. It should help
+    // with the 150+ table schema, though how much has NOT been measured
+    // like-for-like: the timing that prompted it (257s) was taken straight
+    // after a full suite run with the tables populated, and re-running it
+    // against a near-empty database proves nothing. The real safety net is the
+    // test's timeout, not this flag.
+    run('pg_restore', ['--no-owner', '--no-privileges', '--jobs', '4',
+      '-h', config.host, '-p', String(config.port), '-U', config.superUser, '-d', scratch, dump])
 
     // 3. counts
     scratchClient = conn(scratch)

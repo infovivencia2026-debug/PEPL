@@ -9,6 +9,7 @@ import { installProcessGuards } from './process-guards.ts'
 import { handleMetrics } from './metrics-endpoint.ts'
 import { startRelay } from '../realtime/relay.ts'
 import { appPool } from '../db/pool.ts'
+import { preflight } from './preflight.ts'
 
 installProcessGuards()
 // Live events reach browsers on every instance, not just the one that handled the request.
@@ -103,6 +104,17 @@ const server = createServer(async (req, res) => {
     res.end('Page not found. Run npm run build to build the frontend.')
   }
 })
-server.listen(Number(process.env.PORT ?? 3100), '127.0.0.1', () =>
-  console.log('PEPL API + app: http://127.0.0.1:3100'),
+// Before the socket opens, not after: a server that has already accepted a
+// request has already acted on whatever is misconfigured. In production this
+// refuses to continue on a development password or a test database; elsewhere
+// it says nothing at all.
+preflight()
+
+// 127.0.0.1 on purpose. In production a reverse proxy terminates TLS and
+// forwards here, so binding the interface would publish an unencrypted API.
+const port = Number(process.env.PORT ?? 3100)
+server.listen(port, '127.0.0.1', () =>
+  // The port, not a hardcoded one: deploy output that says 3100 while the
+  // process listens on 4010 sends whoever reads it to the wrong place.
+  console.log(`PEPL API + app: http://127.0.0.1:${port}`),
 )
