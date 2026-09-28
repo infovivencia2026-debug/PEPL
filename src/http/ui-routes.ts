@@ -9,7 +9,8 @@ import {
   requireModule,
   type Ctx,
 } from './context.ts'
-import { login, completeCompanyChoice, revokeSession } from '../auth/index.ts'
+import { completeCompanyChoice, revokeSession } from '../auth/index.ts'
+import { unifiedLogin } from '../auth/unified-login.ts'
 import { assertPermission, assertScope, can } from '../authz/permissions.ts'
 import { changeAssignment } from '../people/history.ts'
 import { applyCorrection, type CorrectionAction } from '../attendance/index.ts'
@@ -90,20 +91,35 @@ export function buildUiRouter() {
     { summary: 'Browser sign in', tag: 'auth', public: true },
     async (req) => {
       const b = requireBody(req, ['email', 'password'])
-      const s = await login({
+      // THE one front door: this is the route the browser actually posts to.
+      // An employee, their HR admin and a PEPL operator all arrive here, and
+      // `kind` says which -- derived from WHICH IDENTITY STORE held the
+      // address, never from anything the caller sent.
+      const s = await unifiedLogin({
         email: textField(b.email, 'Email').toLowerCase(),
         password: textField(b.password, 'Password', 1024),
         ip: req.ip,
       })
+      // An operator. Deliberately NOT a cookie: the console is a separate
+      // bundle that sends the token as a bearer header out of sessionStorage,
+      // and putting an operator credential in the cookie the product sends on
+      // every request is exactly the confusion the separate stores exist to
+      // prevent.
+      if (s.kind === 'platform') {
+        return {
+          status: 200,
+          body: { kind: 'platform', token: s.token, expiresAt: s.expiresAt, mfaPending: s.mfaPending },
+        }
+      }
       // The password opened more than one company: no cookie yet, because a
       // session belongs to exactly one of them. The browser asks, then posts
       // the answer to /auth/login/company.
-      if ('choose' in s) {
-        return { status: 200, body: { chooseCompany: true, choiceToken: s.choiceToken, companies: s.companies } }
+      if (s.kind === 'choose') {
+        return { status: 200, body: { kind: 'tenant', chooseCompany: true, choiceToken: s.choiceToken, companies: s.companies } }
       }
       return {
         status: 200,
-        body: { expiresAt: s.expiresAt },
+        body: { kind: 'tenant', expiresAt: s.expiresAt },
         headers: { 'set-cookie': cookie(s.token) },
       }
     },
