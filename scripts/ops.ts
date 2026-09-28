@@ -25,6 +25,8 @@ import {
 } from '../src/control-plane/billing.ts'
 import { invoicePdf, supplierFromEnv } from '../src/control-plane/invoice-pdf.ts'
 import { issueCreditNote, listCreditNotes } from '../src/control-plane/credit-notes.ts'
+import { upsertPlatformUser, listPlatformUsers, setPlatformUserStatus } from '../src/control-plane/platform-auth.ts'
+import { randomBytes } from 'node:crypto'
 import { writeFileSync } from 'node:fs'
 import { closePools } from '../src/db/pool.ts'
 
@@ -244,6 +246,42 @@ Quote the reason.`)
       rows.map((n) => [n.number, n.issued_on, rupees(n.total_paise), n.reason.slice(0, 44)])))
   },
 
+  async 'staff-add'(_p, f) {
+    for (const required of ['email', 'name']) {
+      if (!f[required]) throw new Error(`--${required} is required`)
+    }
+    // Generated here and printed once. Longer than a customer password because
+    // this account reaches every company's billing -- and from the CSPRNG, not
+    // Math.random(), which is seeded predictably and is not a place to get
+    // clever about convenience.
+    const password = f.password ?? `${randomBytes(9).toString('base64url')}-${randomBytes(9).toString('base64url')}`
+    const r = await upsertPlatformUser({ email: f.email!, fullName: f.name!, password })
+    console.log(`${r.created ? 'Created' : 'Updated'} platform operator
+
+  Sign in at   https://<your-host>/   (the ordinary sign-in page: PEPL has one
+               login form, and an operator address is recognised there and sent
+               to the console)
+  Email        ${f.email}
+  Password     ${password}
+
+They must enrol a second factor on first sign-in; the console opens nothing
+until they do.`)
+  },
+
+  async staff() {
+    const rows = await listPlatformUsers()
+    if (!rows.length) return console.log('No platform operators yet. `npm run ops staff-add --email ... --name "..."`')
+    console.log(table(['EMAIL', 'NAME', 'STATUS', '2FA', 'LAST SIGN-IN'],
+      rows.map((u) => [u.email, u.full_name, u.status, u.mfa_enabled ? 'yes' : 'NOT SET', u.last_login_at ?? 'never'])))
+  },
+
+  async 'staff-suspend'(p) {
+    const email = p[0]
+    if (!email) throw new Error('usage: ops staff-suspend <email>')
+    await setPlatformUserStatus(email, 'suspended')
+    console.log(`${email} suspended; their sessions are revoked immediately.`)
+  },
+
   async revenue() {
     const { rows } = await controlDb.query<{ plan_code: string; status: string; tenants: number; employees: number }>(
       `SELECT s.plan_code, s.status, count(*)::int AS tenants,
@@ -319,6 +357,10 @@ const USAGE = `PEPL back office
   npm run ops close-periods [--as-of 2026-11-01] raise invoices for periods that have ended
   npm run ops dunning                           apply the overdue/suspend/reactivate rules
   npm run ops revenue                           MRR by plan
+
+  npm run ops staff                             who can sign in to the operator console
+  npm run ops staff-add --email a@b.c --name "..."   create an operator
+  npm run ops staff-suspend <email>             revoke access and every session
 
   PEPL_DEMO_SUFFIX=ravi npm run seed:demo       a demo company of this rep's own,
                                                 so two people can demo at once

@@ -10,6 +10,7 @@ import { handleMetrics } from './metrics-endpoint.ts'
 import { startRelay } from '../realtime/relay.ts'
 import { appPool } from '../db/pool.ts'
 import { preflight } from './preflight.ts'
+import { originAllowed } from './origin.ts'
 
 installProcessGuards()
 // Live events reach browsers on every instance, not just the one that handled the request.
@@ -28,6 +29,20 @@ const server = createServer(async (req, res) => {
   res.setHeader('X-Content-Type-Options', 'nosniff')
   res.setHeader('Referrer-Policy', 'same-origin')
   res.setHeader('X-Frame-Options', 'DENY')
+  // Only behind a proxy that terminated TLS, and only in production. Sent from
+  // a plain-HTTP dev box it would pin localhost to https in the developer's
+  // browser for a year, which is a genuinely annoying thing to undo.
+  //
+  // The proxy already answers 308 to plain HTTP; this closes the gap that a
+  // redirect cannot -- the FIRST request of a session, which is still sent in
+  // clear text and is therefore still interceptable. No `preload`: that is a
+  // one-way door for the whole domain and onrol.in has thirteen other
+  // applications on it.
+  if (process.env.NODE_ENV === 'production' &&
+      (req.headers['x-forwarded-proto'] === 'https' ||
+       process.env.PEPL_PUBLIC_URL?.startsWith('https://'))) {
+    res.setHeader('Strict-Transport-Security', 'max-age=31536000; includeSubDomains')
+  }
   if (req.url === '/metrics') {
     handleMetrics(req, res)
     return
@@ -47,14 +62,7 @@ const server = createServer(async (req, res) => {
   }
   if (req.url?.startsWith('/api/')) {
     if (!['GET', 'HEAD'].includes(req.method ?? 'GET')) {
-      const origin = req.headers.origin
-      let originAllowed = true
-      try {
-        originAllowed = !origin || new URL(origin).host === req.headers.host
-      } catch {
-        originAllowed = false
-      }
-      if (!originAllowed) {
+      if (!originAllowed(req.headers.origin, req.headers)) {
         res.writeHead(403, { 'Content-Type': 'application/json' })
         res.end(
           JSON.stringify({
@@ -91,7 +99,7 @@ const server = createServer(async (req, res) => {
       res.end()
       return
     }
-    if (!extname(path)) path = resolve(root, 'index.html')
+    if (!extname(path)) path = resolve(root, pathname === '/admin' || pathname.startsWith('/admin/') ? 'admin.html' : 'index.html')
     const body = await readFile(path)
     res.writeHead(200, {
       'Content-Type': mime[extname(path)] ?? 'application/octet-stream',

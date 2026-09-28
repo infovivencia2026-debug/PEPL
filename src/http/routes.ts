@@ -72,12 +72,15 @@ import { register as sandbox } from './routes/sandbox.ts'
 import { register as trust } from './routes/trust.ts'
 import { register as benchmarks } from './routes/benchmarks.ts'
 import { register as assistant } from './routes/assistant.ts'
+// The operator console. Its routes authenticate against a separate identity
+// store and never go through authed(), which resolves a TENANT session.
+import { register as platform } from './routes/platform.ts'
 
 export const router = new Router()
 
 for (const register of [
   system, config, people, attendance, leave, inbox,
-  payroll, helpdesk, incentives, comms, activity, roles, documents, chat, mail, imports, payments, holidays, leavePolicy, taxDeclarations, push, filings, exits, account, privacy, org, geofences, shifts, structures, incentiveAdmin, approvalPolicy, loans, reports, datasetImports, billing, expenses, timesheets, exitWorkflow, recruitment, performance, letters, roster, assets, engage, structure, engageOps, integrations, compliance, learning, feedback, contractors, groups, reportBuilder, anomalies, sandbox, trust, benchmarks, assistant,
+  payroll, helpdesk, incentives, comms, activity, roles, documents, chat, mail, imports, payments, holidays, leavePolicy, taxDeclarations, push, filings, exits, account, privacy, org, geofences, shifts, structures, incentiveAdmin, approvalPolicy, loans, reports, datasetImports, billing, expenses, timesheets, exitWorkflow, recruitment, performance, letters, roster, assets, engage, structure, engageOps, integrations, compliance, learning, feedback, contractors, groups, reportBuilder, anomalies, sandbox, trust, benchmarks, assistant, platform,
 ]) {
   register(router)
 }

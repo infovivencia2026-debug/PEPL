@@ -20,11 +20,20 @@ STAMP="$(date -u +%Y%m%dT%H%M%SZ)"
 FILE="$OUT/${DB}-${STAMP}.dump"
 
 mkdir -p "$OUT"
+# Payroll dumps: salaries, bank accounts, PF and ESI numbers. On a box shared
+# with thirteen other applications they are not world-readable.
+chmod 700 "$OUT"
+umask 077
 
 echo "==> dumping $DB with $($PGBIN/pg_dump --version)"
 # Custom format: compressed, and restorable table-by-table with pg_restore,
 # which is what you want at 3am when one table was truncated by mistake.
-sudo -u postgres "$PGBIN/pg_dump" --format=custom --file="$FILE" "$DB"
+# Streamed to stdout and written by US, not by postgres. --file= would have
+# postgres open the path itself, and it cannot write into a root-owned backup
+# directory: "could not open output file ... Permission denied". Granting
+# postgres write access to the backup directory would fix it the wrong way --
+# the dumps are better off owned by root and readable by nobody else.
+sudo -u postgres "$PGBIN/pg_dump" --format=custom "$DB" > "$FILE"
 
 echo "==> verifying the dump is readable"
 # A backup nobody has restored is a hope, not a backup. Listing the table of

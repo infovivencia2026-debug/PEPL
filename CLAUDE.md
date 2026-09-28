@@ -521,3 +521,39 @@ no role (the signup flow finishes it). Anything that seeds a working tenant
 afterwards (`seed-demo`, the sandbox) must replace that row via `createUser`,
 or the "admin" cannot log in and has no `org_admin` role — which surfaced as
 `admin_email: null` in the sandbox listing, not as a login error.
+
+## A lock inside a BEFORE trigger does not serialise an append
+
+The audit hash chain forked under concurrent writers. 093 added
+`pg_advisory_xact_lock` inside `audit_events`' BEFORE INSERT trigger, the suite
+was not re-run cleanly afterwards, and the fix did not work. Two reasons, and
+both are general:
+
+- **The snapshot is already fixed.** In READ COMMITTED the statement's snapshot
+  is taken when the statement begins. A lock acquired inside a trigger is
+  acquired after that, so the waiter resumes and still cannot see the row it
+  waited for. It blocks correctly and reads stale — the worst combination,
+  because the lock looks right.
+- **An identity column is allocated before the BEFORE trigger fires.** So the
+  loser of the race can hold the LOWER id and still chain second, which is the
+  "predecessor written after it" symptom.
+
+The lock therefore belongs in `emit()`, as its own statement before the INSERT:
+the next statement gets a fresh snapshot, and its id is allocated after the
+wait. Keyed by tenant, so one company never queues behind another.
+
+The general rule: **serialising an append means locking before the statement
+that appends, not inside it.**
+
+## One address, one identity store
+
+095 enforces by trigger that an address exists in `app_users` OR in
+`control_plane.platform_users`, never both — in both directions. The single
+login form looks an address up in both stores and derives `kind` from which one
+matched, so an address in both would make "which password was that?" a real
+question.
+
+`platform_email_exists()` is SECURITY DEFINER and works, unlike a definer over
+a tenant table: `control_plane` has no RLS, so FORCE ROW LEVEL SECURITY does not
+apply. It returns a boolean and nothing else — the application role learns that
+an address is taken, never who the operator is.

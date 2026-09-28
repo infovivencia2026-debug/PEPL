@@ -21,10 +21,10 @@ PORT="${PORT:-4010}"
 
 cd "$APP_DIR"
 
-echo "==> [1/6] npm ci (lockfile-strict, reproducible)"
+echo "==> [1/7] npm ci (lockfile-strict, reproducible)"
 npm ci --no-audit --no-fund
 
-echo "==> [2/6] typecheck and build the web app"
+echo "==> [2/7] typecheck and build the web app"
 # The server needs no build — Node runs the .ts entrypoints directly via
 # strip-types — but the React app does, and its output is what server.ts
 # serves. Without dist/, the API answers fine and every human sees a blank page.
@@ -33,7 +33,15 @@ npm run typecheck:web
 npm run build
 test -f dist/index.html || { echo "BUILD FAILED — no dist/index.html, aborting before any restart"; exit 1; }
 
-echo "==> [3/6] database roles, extensions and migrations"
+echo "==> [3/7] snapshot before touching the schema"
+# Migrations are forward-only: there is no down script, so the way back from a
+# bad one is this file. Taken AFTER the build succeeds (no point dumping for a
+# deploy that was never going to land) and BEFORE migrate touches anything.
+# A failed dump stops the deploy -- migrating with no way back is the thing
+# this is here to prevent.
+bash "${APP_DIR}/deploy/pepl-backup.sh"
+
+echo "==> [4/7] database roles, extensions and migrations"
 # bootstrap is idempotent and creates the two non-superuser roles. migrate is
 # forward-only: a schema change is a NEW numbered file, never an edit to an
 # applied one. This is the guardrail — the deploy fails here rather than
@@ -41,18 +49,18 @@ echo "==> [3/6] database roles, extensions and migrations"
 node --env-file=.env --experimental-strip-types scripts/bootstrap.ts
 node --env-file=.env --experimental-strip-types src/db/migrate.ts
 
-echo "==> [4/6] restart the API"
+echo "==> [5/7] restart the API"
 # --update-env so a changed .env is actually picked up; pm2 caches the
 # environment from when the process was first started otherwise.
 pm2 restart "$API_APP" --update-env
 
-echo "==> [5/6] restart the scheduler"
+echo "==> [6/7] restart the scheduler"
 # Exactly one instance, always. The jobs are idempotent, but a second copy
 # doubles every tenant's outbound mail and hammers their IMAP servers for no
 # benefit.
 pm2 restart "$SCHEDULER_APP" --update-env
 
-echo "==> [6/6] readiness check"
+echo "==> [7/7] readiness check"
 # /health/ready, not /health: an instance whose database is unreachable is
 # running but cannot serve, and a check that cannot tell the difference
 # reports success into a hole.

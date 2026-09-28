@@ -186,7 +186,19 @@ export function Login({ onSuccess }: { onSuccess: () => Promise<void> }) {
     setBusy(true)
     setError(null)
     try {
-      const r = await api<{ chooseCompany?: boolean } & CompanyChoice>('/auth/login', b)
+      const r = await api<{ kind?: string; token?: string; chooseCompany?: boolean } & CompanyChoice>('/auth/login', b)
+      // Everyone signs in here. Where they land is the server's answer, not a
+      // guess made in the browser: `kind` reflects which identity store held
+      // the address, and this code never sends one.
+      if (r?.kind === 'platform') {
+        // The console is a separate bundle, so operator code is never shipped
+        // to a customer's browser. sessionStorage, not localStorage: this
+        // credential opens every company's billing and should not outlive the
+        // tab. The key is the one web/src/admin/api.ts reads.
+        sessionStorage.setItem('pepl.platform.token', r.token!)
+        window.location.assign('/admin.html')
+        return
+      }
       if (r?.chooseCompany) { setChoice({ choiceToken: r.choiceToken, companies: r.companies }); return }
       await onSuccess()
     } catch (e) {

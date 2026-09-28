@@ -2569,3 +2569,195 @@ npm run smoke              # 59 checks against the RUNNING server (SMOKE_BASE to
 
 If `verify` is green the backend is behaving. If a UI call fails, the error `code`
 says why, and it is usually a permission or a module toggle rather than a bug.
+
+---
+
+# Part 4 — The operator console (super admin). API done, UI yours
+
+The backend is built, migrated and tested. What is missing is the screen.
+
+## What this is, and the one rule that shapes it
+
+PEPL is sold by salespeople to organisations. Company creation used to be a
+PUBLIC route — it was live on a production host and would have let anyone
+provision a tenant — and it has been deleted. Creating a company, changing a
+plan, taking payment: all of that is now an OPERATOR action.
+
+An operator is PEPL staff, not a customer. **This identity stands outside tenant
+isolation**: one account that reaches every customer's billing. Everything below
+follows from that, so do not soften any of it for convenience.
+
+- Operators live in `control_plane.platform_users`, a **different table** from
+  `app_users`, with **different sessions**. The two never meet: a customer token
+  gets 401 on `/api/platform/*`, an operator token gets 401 on `/api/v1/*`. There
+  are tests asserting exactly that (`test/platform-console.test.ts`).
+- **A second factor is required, not offered.** Once enrolled, a new session
+  opens nothing until a TOTP code clears it.
+- Sessions last **8 hours** (customers get 30 days).
+- **There is deliberately no route into a customer's own data.** An operator sees
+  that a company has 47 employees and owes one invoice; they cannot see who those
+  people are or what they are paid. Do not add such a route. Reaching inside a
+  tenant needs that tenant's consent — `support_access` in the control plane
+  already does that, and the tenant grants it.
+
+## Build it as a SEPARATE bundle, not a route in the app
+
+Put it at `/admin`, its own HTML entry and its own bundle.
+
+```ts
+// vite.config.ts
+build: {
+  outDir: '../dist',
+  emptyOutDir: true,
+  rollupOptions: {
+    input: {
+      main:  resolve(__dirname, 'web/index.html'),
+      admin: resolve(__dirname, 'web/admin.html'),
+    },
+  },
+}
+```
+
+Reasons, in order of weight:
+
+1. A customer's browser never downloads operator code at all.
+2. The two sessions cannot be confused by accident — different bundle, different
+   storage key, no shared React state.
+3. `server.ts` already serves `dist/`, so `/admin` works with no server change
+   beyond the SPA fallback finding `admin.html`.
+
+Store the operator token under its own key (`pepl.platform.token`), and prefer
+`sessionStorage`: an 8-hour session on someone's laptop should not outlive the
+tab. Never reuse the customer app's storage key.
+
+## CHANGED: sign-in moved to the shared login page
+
+The console no longer has a password form of its own. There is **one login
+window for the whole product** — employees, tenant admins and operators all type
+into the form at `/`.
+
+`POST /api/v1/auth/login` now looks the address up in BOTH identity stores and
+answers with a `kind`:
+
+| `kind` | means | the browser then |
+|---|---|---|
+| `platform` | the address is in `control_plane.platform_users` | writes `token` to `sessionStorage['pepl.platform.token']` and navigates to `/admin.html` |
+| `tenant` | the address is in `app_users` | carries on into the workspace (or asks which company, as before) |
+
+**`kind` is derived from which store matched, never from the request.** There is
+no `kind` field to send; adding one would turn a display hint into a privilege
+claim.
+
+What has NOT changed, and must not: the stores are still separate tables with
+separate session tables, a platform password still mints only a
+`platform_sessions` row, and a token from one store is still 401 against the
+other. Routing is not merging.
+
+Migration 095 makes the routing unambiguous with triggers in both directions: an
+address exists in one store or the other, never both.
+
+`AdminApp` therefore starts at `phase: 'loading'`, reads the token that the
+shared form left in `sessionStorage`, and lands on `verify` or `ready`. If there
+is no token it sends the browser back to `/` rather than showing a form. MFA
+enrolment and verification stay in the console — they are not credential entry,
+and they belong next to the thing being protected.
+
+`POST /api/platform/login` still exists and still works. It is what the tests
+drive and it is the way in if the main app is ever broken; it is simply not what
+the UI uses.
+
+## The API, as it is
+
+Base `/api/platform`. Bearer token in `Authorization`. All JSON.
+
+**Signing in** (no token needed)
+
+| | |
+|---|---|
+| `POST /login` | `{email, password}` → `{token, expiresAt, user, mfaPending}` |
+| `POST /mfa/enrol` | bearer → `{secret, otpauth}` — render `otpauth` as a QR |
+| `POST /mfa/verify` | bearer + `{code}` → `{verified:true}` |
+| `GET /me` | bearer → `{user, mfaPending}` |
+| `POST /logout` | bearer → `{signedOut:true}` |
+
+The flow: `login` → if `mfaPending` show the code field → `mfa/verify` → the rest
+opens. A **brand new** operator returns `mfaPending:false` so they can reach
+`mfa/enrol`; after enrolling, every later login is `mfaPending:true`. Handle both.
+
+**Everything else needs a verified session.** A pending one returns
+`403 MFA_REQUIRED` — treat that as "show the code field", not as an error.
+
+| | |
+|---|---|
+| `GET /tenants` | every company: plan, subscription status, headcount, trial end, `is_sandbox` |
+| `GET /tenants/:id` | `{tenant, billing, invoices, creditNotes}` |
+| `POST /tenants` | `{legalName, adminEmail, adminName, planCode?, stateCode?, activate?}` → **`{tenantId, adminEmail, password, planCode}`** |
+| `POST /tenants/:id/plan` | `{planCode}` |
+| `POST /tenants/:id/status` | `{status:'suspended'\|'active', reason?}` |
+| `PATCH /tenants/:id/billing-details` | `{gstin?, address?, email?, stateCode?}` |
+| `POST /invoices/:id/pay` | `{reference}` |
+| `POST /invoices/:id/void` | `{reason}` — UNPAID only |
+| `POST /invoices/:id/credit` | `{reason, amountRupees?}` — PAID only |
+| `GET /invoices/:id/pdf` | `{fileName, contentBase64}` |
+| `POST /billing/close-periods`, `POST /billing/dunning` | |
+| `GET /revenue` | `{lines[], mrrPaise}` |
+| `GET /plans`, `GET /staff` | |
+
+## Screens
+
+1. **Sign in** — email, password, then the code field when `mfaPending`. On first
+   sign-in show the QR from `mfa/enrol` and make it clear the console opens nothing
+   until they scan it.
+2. **Companies** — the landing screen. Table: name, plan, subscription status,
+   headcount, trial end. Sandboxes visually separated (`is_sandbox`); they are not
+   revenue. Search by name.
+3. **Company detail** — plan and period, headcount against limit, next invoice,
+   what is outstanding. Actions: change plan, suspend/activate (needs a reason),
+   edit billing details. Invoices with pay / void / credit / download PDF.
+4. **New company** — the form behind `POST /tenants`. **The response contains a
+   one-time `password` that is shown once and stored nowhere else.** Make that
+   obvious and copyable; if the operator loses it the customer cannot sign in and
+   the only fix is a password reset.
+5. **Revenue** — MRR by plan from `GET /revenue`. `mrrPaise` is a STRING (paise as
+   bigint); divide by 100 for rupees and never parse it as a float first.
+6. **Staff** — from `GET /staff`. Show who has NOT enrolled a second factor; that
+   is the thing worth seeing. Creating operators stays in the CLI on purpose.
+
+## Things that will bite
+
+- **Money is paise, as strings.** `total_paise: "816560"` is ₹8,165.60. The
+  existing `money()` helper in `web/src/api.ts` handles this; reuse it.
+- **`GET /tenants` returns `employees` as a count, not people.** There is no
+  endpoint that lists a customer's employees, and there must not be.
+- **Void vs credit is not a UI preference.** An UNPAID invoice is voided and keeps
+  its number; a PAID one is reduced by a credit note. The API enforces it —
+  `INVOICE_NOT_PAID` and `CREDIT_EXCEEDS_INVOICE` — so surface those messages
+  rather than pre-guessing which button to show.
+- **`suspend` turns every module off for that company** and deletes nothing.
+  Say so in the confirm dialog; it is not a soft action.
+
+## Gates
+
+```bash
+npm run typecheck:web
+npm run build
+npx vitest run test/platform-console.test.ts   # 9 security tests, keep them green
+npm run check:responsive                        # drives the BUILT bundle on :3100, not Vite
+```
+
+`check:responsive` reads port 3100, which serves `dist/`. **A source edit that is
+not rebuilt is invisible to it** — that cost me an hour; run `npm run build`
+first or the gate reports on a stale bundle.
+
+**Never run a vitest while `npm run verify` is in flight.** The suites share one
+database and TRUNCATE in setup; the second run deletes the first's fixtures and
+the failures look exactly like real regressions. I did this to myself in this
+session and spent time debugging a test that was never broken.
+
+## Getting an operator to sign in as
+
+```bash
+npm run ops staff-add --email you@pepl.in --name "Your Name"
+npm run ops staff            # who exists, and who has not enrolled 2FA
+npm run ops staff-suspend <email>   # revokes their live sessions immediately
+```

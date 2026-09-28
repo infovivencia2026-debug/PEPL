@@ -267,6 +267,20 @@ export async function emit(tx: PoolClient, input: EmitInput): Promise<void> {
   const tid = rows[0]?.t
   if (!tid) throw new AuditError('NO_TENANT_CONTEXT', 'audit emitted without a tenant context')
 
+  // Serialise the append for THIS company before the insert statement begins.
+  //
+  // It has to be its own statement, and this is the whole subtlety. A lock
+  // taken inside the BEFORE trigger is acquired after the insert's READ
+  // COMMITTED snapshot is fixed, so the waiter resumes still unable to see the
+  // row it waited for -- and `id` (an identity column) is allocated before the
+  // trigger fires too, so the loser of the race could hold the lower id and
+  // still chain second. Taking it here fixes both: the next statement gets a
+  // fresh snapshot, and its id is allocated after the wait.
+  //
+  // Keyed per tenant, so one company's audit traffic never queues behind
+  // another's.
+  await tx.query(`SELECT pg_advisory_xact_lock(hashtext('audit_events'), hashtext($1))`, [tid])
+
   await tx.query(
     `INSERT INTO audit_events
        (tenant_id, actor_user_id, actor_type, actor_label, action, category, severity,

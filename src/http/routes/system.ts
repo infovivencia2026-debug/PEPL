@@ -9,12 +9,12 @@ import {
   noContent,
   HttpError,
   requireBody,
-  login,
   completeCompanyChoice,
   revokeAllSessions,
   revokeSession,
   REGISTRY,
 } from './deps.ts'
+import { unifiedLogin } from '../../auth/unified-login.ts'
 import { appPool } from '../../db/pool.ts'
 import { mfaStatus, beginSetup, enable as enableMfa, verify as verifyMfa, disable as disableMfa, adminReset } from '../../auth/mfa.ts'
 import { emit, asUuid, can } from './deps.ts'
@@ -79,17 +79,34 @@ export function register(router: Router): void {
       requestExample: { email: 'admin@acme.com', password: 'correct-horse-battery' } },
     open(async (req: Req) => {
       const body = requireBody<{ email: string; password: string }>(req, ['email', 'password'])
-      const result = await login({
+      // The one front door. An employee, their HR admin and a PEPL operator all
+      // arrive here; `kind` says which, and it is decided by WHICH STORE the
+      // address was found in, never by anything the caller sent. There is
+      // deliberately no `kind` in the request body -- accepting one would turn
+      // a display hint into a privilege claim.
+      const result = await unifiedLogin({
         email: body.email, password: body.password,
         ip: req.ip, userAgent: String(req.headers['user-agent'] ?? ''),
       })
+      // An operator. The token is a control-plane session and opens nothing
+      // under /api/v1; the browser takes it to the separate console bundle.
+      if (result.kind === 'platform') {
+        return ok({
+          kind: 'platform',
+          token: result.token,
+          expiresAt: result.expiresAt.toISOString(),
+          user: { id: result.user.id, name: result.user.full_name },
+          mfaPending: result.mfaPending,
+        })
+      }
       // One address can belong to several companies. The password has been
       // proven at this point; the browser now asks which one, and no session
       // exists until it answers.
-      if ('choose' in result) {
-        return ok({ chooseCompany: true, choiceToken: result.choiceToken, companies: result.companies })
+      if (result.kind === 'choose') {
+        return ok({ kind: 'tenant', chooseCompany: true, choiceToken: result.choiceToken, companies: result.companies })
       }
       return ok({
+        kind: 'tenant',
         token: result.token,
         expiresAt: result.expiresAt.toISOString(),
         user: { id: result.userId, roles: result.roles },
