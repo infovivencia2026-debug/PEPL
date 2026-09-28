@@ -23,6 +23,12 @@ beforeAll(async () => {
 })
 
 afterAll(async () => {
+  // The tamper tests deliberately edit and delete rows behind the app role to
+  // prove the chain notices. That leaves a genuinely broken chain behind, and
+  // `gate:launch` checks chain integrity across every tenant AFTER the suites
+  // run — so whether verify passes came down to which file happened to reset
+  // the fixtures last. A suite repairs what it breaks.
+  await controlPool.query('TRUNCATE audit_events')
   await closePools()
   await controlPool.end()
 })
