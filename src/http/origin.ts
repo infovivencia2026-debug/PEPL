@@ -35,17 +35,33 @@ export const allowedHosts = (
   return hosts
 }
 
-/** True when a write may proceed. A request with no Origin at all is not a browser form post. */
+/**
+ * True when a write may proceed. A request with no Origin at all is not a
+ * browser form post.
+ *
+ * Origin can arrive REPEATED: OpenLiteSpeed forwards it twice, and Node joins
+ * duplicate headers with ", ", so the value is
+ * "https://pepl.onrol.in, https://pepl.onrol.in". Passing that to `new URL()`
+ * throws, which refused every write in production -- the login included.
+ *
+ * Every value must be allowed, not merely the first. Accepting the first would
+ * let a caller prepend a permitted origin to their own and walk through.
+ */
 export const originAllowed = (
   origin: string | undefined,
   headers: { host?: string | undefined; 'x-forwarded-host'?: string | string[] | undefined },
   publicUrl?: string,
 ): boolean => {
   if (!origin) return true
-  try {
-    return allowedHosts(headers, publicUrl).has(new URL(origin).host)
-  } catch {
-    // An unparseable Origin is not something a browser sends.
-    return false
-  }
+  const values = origin.split(',').map((v) => v.trim()).filter(Boolean)
+  if (!values.length) return false
+  const allowed = allowedHosts(headers, publicUrl)
+  return values.every((value) => {
+    try {
+      return allowed.has(new URL(value).host)
+    } catch {
+      // An unparseable Origin is not something a browser sends.
+      return false
+    }
+  })
 }

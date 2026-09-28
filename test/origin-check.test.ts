@@ -29,6 +29,25 @@ describe('behind a reverse proxy', () => {
   })
 })
 
+describe('a repeated Origin header', () => {
+  // OpenLiteSpeed forwards Origin TWICE and Node joins duplicates with ", ".
+  // `new URL()` threw on that, so production refused every write including the
+  // login. This is the exact value captured off the wire.
+  it('accepts the duplicate the proxy produces', () => {
+    expect(originAllowed('https://pepl.onrol.in, https://pepl.onrol.in', { host: 'pepl.onrol.in' }, PUBLIC)).toBe(true)
+  })
+
+  it('refuses a good origin with a bad one appended', () => {
+    // Every value must pass. Taking only the first would let a caller prepend
+    // a permitted origin to their own.
+    expect(originAllowed('https://pepl.onrol.in, https://evil.test', { host: 'pepl.onrol.in' }, PUBLIC)).toBe(false)
+  })
+
+  it('refuses a bad origin with a good one appended', () => {
+    expect(originAllowed('https://evil.test, https://pepl.onrol.in', { host: 'pepl.onrol.in' }, PUBLIC)).toBe(false)
+  })
+})
+
 describe('what it still refuses', () => {
   it('a different site', () => {
     expect(originAllowed('https://evil.test', { host: '127.0.0.1:4010' }, PUBLIC)).toBe(false)
