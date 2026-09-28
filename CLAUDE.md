@@ -557,3 +557,84 @@ question.
 a tenant table: `control_plane` has no RLS, so FORCE ROW LEVEL SECURITY does not
 apply. It returns a boolean and nothing else — the application role learns that
 an address is taken, never who the operator is.
+
+## The browser posts to /api/ui, not /api/v1
+
+The web app calls the UI router (`src/http/ui-routes.ts`, prefix `/api/ui`).
+`/api/v1/*` is the documented API that scripts, the smoke rig and integrations
+use. They are DIFFERENT ROUTERS with different response shapes — `/api/ui`
+sets an HttpOnly cookie, `/api/v1` returns a bearer token.
+
+Unified login was added to `/api/v1/auth/login` and the browser never went near
+it: the real form answered "email or password is incorrect" while curl against
+v1 returned the right answer and every unit test passed. Changing sign-in,
+sessions or permissions means changing BOTH, and proving it in a browser.
+
+## Nothing is verified until a browser has done it
+
+Four production-breaking defects in one day passed the entire unit suite:
+
+- the same-origin check refused every write behind the proxy,
+- OpenLiteSpeed sends `Origin` TWICE and Node joins duplicates with ", ", so
+  `new URL(origin)` threw,
+- the browser posted to a route that had never been unified,
+- `Math.random()` minted the first password for every new customer's admin.
+
+`scripts/e2e-login.ts`, `e2e-walkthrough.ts`, `e2e-deep.ts`, `e2e-workflow.ts`
+and `e2e-console.ts` exist for this. Point them at a running host.
+
+**A walkthrough that only clicks visible links proves almost nothing.** The
+first sweep reported "no findings" because it clicked the top six nav items;
+everything else lives behind the overflow menu. `e2e-deep.ts` asks the server
+which screens the role is entitled to (the same `/api/ui/workspace` payload the
+app filters on) and opens all of them — 110 across seven roles, which is where
+the real findings were.
+
+## A nav entry must name its permission AND its module
+
+`web/src/app/nav.ts` is filtered by `allowed()` in `App.tsx`, which hides an
+item only when it NAMES a permission the user lacks or a module the tenant
+does not have. An entry that declares neither is shown to everybody.
+
+`Growth`, `Team chat` and `Mailbox` all declared neither, and all three are
+SOLD ENTITLEMENTS — so a customer on a plan without them was shown the door
+anyway, and clicking it answered 403. The demo tenant has all three switched
+on, which is exactly why nobody noticed. `test/nav-gating.test.ts` pins it.
+
+Two screens had the matching bug inside them: Engage defaulted its BODY to
+`<Policies>` for any unrecognised view even when the role held no
+`policy.read`, and the tax screen rendered the documents panel for anyone with
+an employee record, ignoring `document.read`. Gate the fetch, not just the tab.
+
+## Credentials come from randomBytes, never Math.random
+
+Three places minted passwords with `Math.random()`: `ops staff-add` (an
+operator, who reaches every customer's payroll) and BOTH ways of creating a
+company — the console route and the CLI — each handing a new customer's
+administrator their first password. Its state is recoverable from a few
+outputs, so one leaked password predicts the next customer's.
+`test/credential-randomness.test.ts` reads the sources and fails on
+`Math.random` near a password, token, secret or key.
+
+## Backups are root-only, so a restore has to be streamed
+
+The dumps are `0600` in a `0700` directory — they hold salaries, bank accounts
+and PF/ESI numbers on a box shared with thirteen other applications. So
+`postgres` CANNOT read them, and `sudo -u postgres pg_restore /var/backups/...`
+fails with "Permission denied" in a way that reads like a corrupt backup:
+
+```bash
+cat /var/backups/pepl/pepl-<stamp>.dump |
+  sudo -u postgres /usr/pgsql-18/bin/pg_restore --dbname=<target> --no-owner
+```
+
+`--jobs` does not work on a stream. Drilled against a real production dump:
+every table restored, audit chain zero broken links, 157 tables still FORCE RLS.
+
+## There is no tenant-deletion path
+
+`tenants` is referenced by every tenant-scoped table with no cascade, so
+removing a company means deleting from each referencing table first. That is
+right for production — a customer who leaves is SUSPENDED, because payroll is
+a statutory record — but it means test companies cannot be tidied with a single
+DELETE. Loop over every table with a `tenant_id` if you truly need one gone.
