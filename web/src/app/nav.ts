@@ -73,7 +73,7 @@ export const NAV: NavItem[] = [
 ]
 export const MORE: NavItem[] = [
   { id: 'engage', label: 'Engage', icon: PartyPopper, group: 'Culture' },
-  { id: 'growth', label: 'Growth', icon: GraduationCap, group: 'Culture' },
+  { id: 'growth', label: 'Growth', icon: GraduationCap, permission: 'learning.read', module: 'learning', group: 'Culture' },
   { id: 'performance', label: 'Performance', icon: Target, permission: 'performance.read', module: 'performance', group: 'Culture' },
   { id: 'hiring', label: 'Hiring', icon: BriefcaseBusiness, permission: 'recruit.read', module: 'recruitment', group: 'People operations' },
   { id: 'organisation', label: 'Organisation', icon: Users, permission: 'settings.write', group: 'People operations' },
@@ -83,8 +83,8 @@ export const MORE: NavItem[] = [
   { id: 'my-tax', label: 'My tax declaration', icon: ReceiptIndianRupee, permission: 'payroll.read', module: 'payroll', employeeRequired: true, group: 'Pay & records' },
   { id: 'tax-declarations', label: 'Declarations queue', icon: ReceiptIndianRupee, permission: 'payroll.process', module: 'payroll', group: 'Pay & records' },
   { id: 'documents', label: 'Documents', icon: FileText, permission: 'document.read', module: 'documents', group: 'Pay & records' },
-  { id: 'chat', label: 'Team chat', icon: MessageCircle, group: 'Workspace' },
-  { id: 'mail', label: 'Mailbox', icon: Mail, group: 'Workspace' },
+  { id: 'chat', label: 'Team chat', icon: MessageCircle, module: 'chat', group: 'Workspace' },
+  { id: 'mail', label: 'Mailbox', icon: Mail, module: 'mail', group: 'Workspace' },
   { id: 'notification-settings', label: 'Notification settings', icon: BellRing, group: 'Workspace' },
   { id: 'account', label: 'Account settings', icon: Settings2, group: 'Workspace' },
   {
