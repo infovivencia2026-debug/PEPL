@@ -68,7 +68,10 @@ export function statTiles({
     )
   }
 
-  if (data.modules.payroll && can('payroll.read')) {
+  // Employee-linked accounts already use this slot for the punch control and
+  // have the richer Payroll Summary below. Keeping both payroll tiles forces
+  // Announcements onto a mostly empty second dashboard page.
+  if (!data.user.employeeId && data.modules.payroll && can('payroll.read')) {
     tiles.push(
       <Widget key="payroll" id="payroll" title="Payroll this month" width={2}>
         <Stat

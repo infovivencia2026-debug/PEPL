@@ -1,0 +1,215 @@
+/* UX review pass: clearer hierarchy, discoverable navigation and usable mobile flows. */
+:root {
+  --shadow-raised: 0 1px 2px rgba(17, 57, 49, .05), 0 12px 28px rgba(17, 57, 49, .09);
+  --shadow-floating: 0 3px 8px rgba(17, 57, 49, .08), 0 22px 48px rgba(17, 57, 49, .14);
+}
+
+.route-content > .card,
+.route-content > .data-card,
+.performance-stack > .card,
+.remote-columns > .card,
+.requisition-card,
+.goal-card {
+  border-color: rgba(25, 76, 68, .10);
+  box-shadow: var(--shadow-raised);
+}
+.route-content > .card:hover,
+.requisition-card:hover,
+.goal-card:hover {
+  box-shadow: var(--shadow-floating);
+}
+.page-header {
+  background: linear-gradient(120deg, rgba(238, 246, 244, .97), rgba(247, 250, 249, .94));
+}
+
+/* The current destination remains named while it lives in the overflow menu. */
+.more-wrap > button > span { max-width: 92px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.more-dropdown { width: min(560px, calc(100vw - 32px)); max-height: min(700px, calc(100dvh - 115px)); display: grid; overflow: auto; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 5px 14px; padding: 12px; }
+.dropdown.more-dropdown > .nav-group { margin: 0; padding: 4px; border: 0; }
+.nav-group > strong { display: block; margin: 2px 8px 6px; color: #71857f; font-size: 11px; letter-spacing: .12em; text-transform: uppercase; }
+.nav-group > a { min-height: 40px; display: flex; align-items: center; gap: 9px; padding: 9px; border-radius: 9px; }
+.nav-group > a:hover,.nav-group > a.active { background: #edf6f2; color: #155f50; }
+.nav-group > a > span:not(.count) { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.comms-shortcuts { display: flex; gap: 5px; }
+.comms-shortcuts > a { width: 40px; height: 40px; display: grid; place-items: center; border: 1px solid rgba(24, 70, 62, .09); border-radius: 12px; background: rgba(255,255,255,.72); color: #315d54; }
+.comms-shortcuts > a:hover,.comms-shortcuts > a.active { background: #e3f2ec; color: #155f50; box-shadow: 0 8px 18px rgba(25, 73, 65, .10); }
+
+/* Empty states explain the next step without monopolising the screen. */
+.route-content .empty { min-height: 132px; padding-block: 20px; }
+.remote-columns .card { min-height: 210px; }
+.remote-work { margin-top: 18px; }
+
+@media (min-width: 1051px) {
+  .widget-workspace:not(.is-customizing) .widget-grid { grid-auto-rows: minmax(145px, 1fr); }
+  .widget-workspace:not(.is-customizing) .dashboard-widget { box-shadow: var(--shadow-raised); }
+  .widget-workspace:not(.is-customizing) .dashboard-widget:hover { transform: translateY(-1px); box-shadow: var(--shadow-floating); }
+}
+
+/* Four complete dashboard rows still fit on common 768–900px laptop screens. */
+@media (min-width: 1051px) and (max-height: 950px) {
+  .widget-workspace:not(.is-customizing) .widget-content { overflow: hidden; }
+  .widget-workspace:not(.is-customizing) .widget-content > .card { padding: 10px 16px; }
+  .widget-workspace:not(.is-customizing) .widget-content > .welcome-card { padding: 12px 22px; }
+  .widget-workspace:not(.is-customizing) .widget-content > .welcome-card h2 { font-size: 29px; margin: 0 0 7px; }
+  .widget-workspace:not(.is-customizing) .welcome-card p { font-size: 12px; line-height: 1.3; }
+  .widget-workspace:not(.is-customizing) .welcome-card a { margin-top: 5px; padding-top: 3px; }
+  .widget-workspace:not(.is-customizing) .welcome-botanical { width: 150px; height: 158px; }
+
+  .widget-workspace:not(.is-customizing) .punch-control.compact { padding: 10px 12px; gap: 8px; overflow: hidden; }
+  .widget-workspace:not(.is-customizing) .punch-control.compact .punch-state > span { width: 34px; height: 34px; border-radius: 11px; }
+  .widget-workspace:not(.is-customizing) .punch-control.compact .punch-state strong { font-size: 14px; }
+  .widget-workspace:not(.is-customizing) .punch-control.compact .punch-button { height: 46px; }
+  .widget-workspace:not(.is-customizing) .punch-control.compact .punch-extras { display: none; }
+
+  .widget-workspace:not(.is-customizing) .widget-content > .stat { padding: 10px 16px; }
+  .widget-workspace:not(.is-customizing) .stat .stat-top { margin-bottom: 4px; }
+  .widget-workspace:not(.is-customizing) .stat .icon-box { width: 34px; height: 34px; }
+  .widget-workspace:not(.is-customizing) .stat > strong { font-size: 34px; }
+  .widget-workspace:not(.is-customizing) .donut { width: 112px; }
+  .widget-workspace:not(.is-customizing) .donut-layout { gap: 15px; }
+  .widget-workspace:not(.is-customizing) .legend { gap: 5px; }
+  .widget-workspace:not(.is-customizing) .empty { min-height: 0; padding: 2px 0; }
+  .widget-workspace:not(.is-customizing) .culture-card { min-height: 0; padding: 10px 16px; }
+  .widget-workspace:not(.is-customizing) .culture-card > svg:first-child { width: 24px; height: 24px; }
+  .widget-workspace:not(.is-customizing) .culture-card p { margin-top: 6px; font-size: 15px; }
+  .widget-workspace:not(.is-customizing) .culture-dash { margin-top: 5px; }
+  .widget-workspace:not(.is-customizing) .activity-list > div { padding: 2px 0; gap: 9px; }
+  .widget-workspace:not(.is-customizing) .activity-list .icon-box { width: 30px; height: 30px; }
+  .widget-workspace:not(.is-customizing) .activity-list small { margin-top: 2px; }
+  .widget-workspace:not(.is-customizing) .activity-list > div:nth-child(n + 4) { display: none; }
+  .widget-workspace:not(.is-customizing) .announcement-photo { top: 38px; height: calc(100% - 48px); }
+}
+
+@media (min-width: 1051px) and (max-height: 800px) {
+  .widget-workspace:not(.is-customizing) .widget-grid { grid-auto-rows: minmax(0, 1fr); }
+  .widget-workspace:not(.is-customizing) .widget-content > .card { padding: 7px 14px; }
+  .widget-workspace:not(.is-customizing) .card-head { margin-bottom: 5px; }
+  .widget-workspace:not(.is-customizing) .card-head h2 { font-size: 13px; }
+  .widget-workspace:not(.is-customizing) .widget-content > .welcome-card { padding: 9px 18px; }
+  .widget-workspace:not(.is-customizing) .widget-content > .welcome-card h2 { font-size: 25px; margin-bottom: 4px; }
+  .widget-workspace:not(.is-customizing) .welcome-card p { font-size: 11px; }
+  .widget-workspace:not(.is-customizing) .welcome-botanical { width: 125px; height: 125px; }
+  .widget-workspace:not(.is-customizing) .punch-control.compact { padding: 7px 10px; gap: 6px; }
+  .widget-workspace:not(.is-customizing) .punch-control.compact .punch-state > span { width: 30px; height: 30px; }
+  .widget-workspace:not(.is-customizing) .punch-control.compact .punch-state p { display: none; }
+  .widget-workspace:not(.is-customizing) .punch-control.compact .punch-button { height: 39px; }
+  .widget-workspace:not(.is-customizing) .widget-content > .stat { padding: 7px 13px; }
+  .widget-workspace:not(.is-customizing) .stat .icon-box { width: 29px; height: 29px; }
+  .widget-workspace:not(.is-customizing) .stat > p { margin-bottom: 2px; font-size: 12px; line-height: 1.25; }
+  .widget-workspace:not(.is-customizing) .stat > strong { font-size: 29px; }
+  /* 11px is the desktop readability floor this project holds itself to
+     (check:responsive fails below it); 9px was shrinking captions to fit
+     tiles that were too short in the first place. */
+  .widget-workspace:not(.is-customizing) .stat > small { margin-top: 2px; font-size: 11px; }
+  .widget-workspace:not(.is-customizing) .donut { width: 82px; }
+  .widget-workspace:not(.is-customizing) .donut strong { font-size: 20px; }
+  .widget-workspace:not(.is-customizing) .legend { gap: 2px; }
+  .widget-workspace:not(.is-customizing) .legend > div,
+  .widget-workspace:not(.is-customizing) .legend b { font-size: 11px; }
+  .widget-workspace:not(.is-customizing) .payroll-history { height: 34px; }
+  .widget-workspace:not(.is-customizing) .culture-card { padding: 7px 14px; }
+  .widget-workspace:not(.is-customizing) .culture-card p { margin-top: 3px; font-size: 14px; line-height: 1.2; }
+  .widget-workspace:not(.is-customizing) .activity-list > div:nth-child(n + 3) { display: none; }
+}
+
+@media (max-width: 1100px) {
+  .comms-shortcuts { display: none; }
+}
+
+@media (max-width: 820px) {
+  .tabs { overflow-x: auto; overscroll-behavior-inline: contain; scrollbar-width: none; scroll-snap-type: x proximity; }
+  .tabs::-webkit-scrollbar { display: none; }
+  .tabs button { flex: 0 0 auto; scroll-snap-align: start; }
+
+  .cycle-toolbar { align-items: stretch; flex-direction: column; }
+  .cycle-toolbar label,.cycle-toolbar select,.cycle-toolbar .btn { width: 100%; min-width: 0; }
+  .feature-stepper { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px 8px; overflow: visible; }
+  .feature-stepper span { min-width: 0; }
+  .cycle-stepper { padding: 14px; }
+
+  .calibration-table { max-height: none; overflow: visible; }
+  .calibration-table table,.calibration-table tbody { display: block; white-space: normal; }
+  .calibration-table thead { display: none; }
+  .calibration-table tr { display: grid; grid-template-columns: 1fr 1fr; gap: 0 14px; padding: 12px; border: 1px solid rgba(24, 75, 66, .10); border-radius: 13px; background: #fbfdfc; box-shadow: 0 7px 18px rgba(23, 69, 60, .06); }
+  .calibration-table tr + tr { margin-top: 10px; }
+  .calibration-table td { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; padding: 7px 0; border: 0; }
+  .calibration-table td::before { content: attr(data-label); color: #71857f; font-size: 10px; font-weight: 650; }
+  .calibration-table td:first-child { grid-column: 1/-1; color: #183f38; font-size: 14px; font-weight: 750; }
+  .calibration-table td:nth-child(2) { grid-column: 1/-1; }
+  .calibration-table .calibration-action { grid-column: 1/-1; }
+  .calibration-table .calibration-action::before { content: none; }
+  .calibration-table .calibration-action .btn { width: 100%; }
+}
+
+@media (max-width: 540px) {
+  /* Mobile dashboards read as a natural feed; primary information is never hidden behind pages. */
+  .route-content:has(> .widget-workspace) { display: block; overflow-y: auto; padding-bottom: 76px; }
+  .widget-workspace { display: block; }
+  .widget-frame { overflow: visible; }
+  .widget-workspace:not(.is-customizing) .widget-grid { height: auto; grid-auto-rows: auto; align-items: start; }
+  .widget-workspace:not(.is-customizing) .widget-content { height: auto; }
+  .widget-workspace:not(.is-customizing) .widget-content > .card,
+  .widget-workspace:not(.is-customizing) .widget-content > .welcome-card,
+  .widget-workspace:not(.is-customizing) .widget-content > .culture-card { height: auto; min-height: 154px; }
+  .widget-workspace:not(.is-customizing) .widget-content > .welcome-card { min-height: 205px; }
+  .widget-workspace:not(.is-customizing) .dashboard-widget:has(.stat) .widget-content > .stat { min-height: 145px; }
+  .widget-workspace:not(.is-customizing) .dashboard-widget[data-widget-id=activity] .widget-content > .card,
+  .widget-workspace:not(.is-customizing) .dashboard-widget[data-widget-id=announcements] .widget-content > .card { min-height: 190px; }
+  .widget-pagination { display: none; }
+
+  .more-dropdown { max-height: calc(100dvh - 150px); grid-template-columns: 1fr 1fr; gap: 8px; padding: 8px; }
+  .nav-group > strong { margin-top: 7px; }
+  .nav-group > a { min-height: 44px; padding: 8px 6px; font-size: 12px; }
+
+  /* Mail folders stay named and reachable instead of becoming an unlabeled icon rail. */
+  .mail-icon-button,.mail-list-toolbar button { min-width: 44px; min-height: 44px; }
+  .mail-layout { grid-template-columns: minmax(0,1fr); grid-template-rows: 58px minmax(0,1fr); }
+  .mail-folders { min-width: 0; flex-direction: row; align-items: center; gap: 6px; padding: 7px; overflow-x: auto; border-right: 0; border-bottom: 1px solid var(--mail-line); scrollbar-width: thin; }
+  .mail-account-switcher { flex: 0 0 44px; margin: 0; }
+  .mail-account-switcher > button { width: 44px; height: 44px; padding: 8px; }
+  .mail-account-switcher span { display: none; }
+  .mail-account-menu { position: fixed; top: 130px; left: 12px; width: calc(100vw - 24px); }
+  .mail-compose-button { flex: 0 0 auto; width: auto; min-width: 108px; height: 44px; padding: 0 13px; font-size: 11px; }
+  .mail-compose-button svg { width: 17px; height: 17px; }
+  .mail-folders nav { display: flex; flex: 0 0 auto; gap: 4px; margin: 0; }
+  .mail-folders nav > button { min-width: max-content; height: 44px; grid-template-columns: 18px auto auto; justify-items: start; padding: 0 10px; }
+  .mail-folders nav span { display: inline; }
+  .mail-folders nav b { display: inline-block; }
+  .mail-list-panel { grid-row: 2; }
+  .mail-add-folder,.mail-shortcuts { display: none; }
+
+  .remote-columns .card { min-height: 170px; }
+  .route-content .empty { min-height: 112px; padding-block: 16px; }
+
+  .employee-cards { grid-template-columns: minmax(0, 1fr); padding: 16px; }
+  .employee-card { display: grid !important; grid-template-columns: 64px minmax(0,1fr); gap: 3px 14px; min-width: 0; padding: 16px !important; overflow: hidden; }
+  .employee-card > div { grid-column: 1; grid-row: 1 / 5; align-self: start; width: 64px; margin: 0; }
+  .employee-card > div > svg { display: none; }
+  .employee-card h3,.employee-card p,.employee-card small { grid-column: 2; display: block; max-width: 100%; margin-inline: 0; overflow-wrap: anywhere; }
+  .employee-card h3 { margin-top: 2px; }
+  .employee-card footer { grid-column: 1 / -1; flex-wrap: wrap; margin-top: 9px; padding-top: 10px; }
+}
+
+/* The dashboard now shows every tile on one page on a phone, so the activity
+   list renders there for the first time. Its heading is 11px, which clears the
+   desktop floor and not the 12px fingertip one. `small` and `time` are already
+   lifted by --viewport-text-floor; this is the run that was not. */
+@media (pointer: coarse) {
+  .widget-content .activity-list strong { font-size: 12px; }
+}
+
+/* A feed is the one tile whose content has no natural end: the activity list
+   grows with the company and will always outrun a fixed row. Everything else
+   on the board is sized to fit, so this one scrolls inside its own tile rather
+   than clipping its last row or forcing the whole board taller. */
+.widget-workspace:not(.is-customizing) .widget-content .activity-list {
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+}
+.widget-workspace:not(.is-customizing) [data-widget-id="activity"] .widget-content > .card {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}

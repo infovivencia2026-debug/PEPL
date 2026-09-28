@@ -35,7 +35,7 @@ export function People({
   const [search, setSearch] = useState(''),
     [department, setDepartment] = useState(''),
     [status, setStatus] = useState(''),
-    [view, setView] = useState('table'),
+    [view, setView] = useState(() => window.matchMedia('(max-width: 700px)').matches ? 'cards' : 'table'),
     [page, setPage] = useState(1)
   // Sub-views on the route (#/people/letters …); the directory is the default.
   const VIEWS: Array<[string, string, boolean]> = [

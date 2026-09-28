@@ -37,6 +37,7 @@ export interface NavItem {
   permission?: string
   module?: string
   employeeRequired?: boolean
+  group?: 'Culture' | 'People operations' | 'Pay & records' | 'Workspace'
 }
 
 export const NAV: NavItem[] = [
@@ -71,39 +72,39 @@ export const NAV: NavItem[] = [
   },
 ]
 export const MORE: NavItem[] = [
-  { id: 'engage', label: 'Engage', icon: PartyPopper },
-  { id: 'growth', label: 'Growth', icon: GraduationCap },
-  { id: 'company', label: 'Company', icon: Building2, permission: 'settings.write' },
-  { id: 'performance', label: 'Performance', icon: Target, permission: 'performance.read', module: 'performance' },
-  { id: 'hiring', label: 'Hiring', icon: BriefcaseBusiness, permission: 'recruit.read', module: 'recruitment' },
-  { id: 'organisation', label: 'Organisation', icon: Users, permission: 'settings.write' },
-  { id: 'chat', label: 'Team chat', icon: MessageCircle },
-  { id: 'mail', label: 'Mailbox', icon: Mail },
-  { id: 'documents', label: 'Documents', icon: FileText, permission: 'document.read', module: 'documents' },
-  { id: 'import', label: 'Import employees', icon: FileSpreadsheet, permission: 'import.run' },
-  { id: 'bank-files', label: 'Bank files', icon: Landmark, permission: 'bank.read', module: 'payroll' },
-  { id: 'my-tax', label: 'My tax declaration', icon: ReceiptIndianRupee, permission: 'payroll.read', module: 'payroll', employeeRequired: true },
-  { id: 'tax-declarations', label: 'Declarations queue', icon: ReceiptIndianRupee, permission: 'payroll.process', module: 'payroll' },
-  { id: 'notification-settings', label: 'Notification settings', icon: BellRing },
-  { id: 'account', label: 'Account settings', icon: Settings2 },
+  { id: 'engage', label: 'Engage', icon: PartyPopper, group: 'Culture' },
+  { id: 'growth', label: 'Growth', icon: GraduationCap, group: 'Culture' },
+  { id: 'performance', label: 'Performance', icon: Target, permission: 'performance.read', module: 'performance', group: 'Culture' },
+  { id: 'hiring', label: 'Hiring', icon: BriefcaseBusiness, permission: 'recruit.read', module: 'recruitment', group: 'People operations' },
+  { id: 'organisation', label: 'Organisation', icon: Users, permission: 'settings.write', group: 'People operations' },
+  { id: 'company', label: 'Company', icon: Building2, permission: 'settings.write', group: 'People operations' },
+  { id: 'import', label: 'Import employees', icon: FileSpreadsheet, permission: 'import.run', group: 'People operations' },
+  { id: 'bank-files', label: 'Bank files', icon: Landmark, permission: 'bank.read', module: 'payroll', group: 'Pay & records' },
+  { id: 'my-tax', label: 'My tax declaration', icon: ReceiptIndianRupee, permission: 'payroll.read', module: 'payroll', employeeRequired: true, group: 'Pay & records' },
+  { id: 'tax-declarations', label: 'Declarations queue', icon: ReceiptIndianRupee, permission: 'payroll.process', module: 'payroll', group: 'Pay & records' },
+  { id: 'documents', label: 'Documents', icon: FileText, permission: 'document.read', module: 'documents', group: 'Pay & records' },
+  { id: 'chat', label: 'Team chat', icon: MessageCircle, group: 'Workspace' },
+  { id: 'mail', label: 'Mailbox', icon: Mail, group: 'Workspace' },
+  { id: 'notification-settings', label: 'Notification settings', icon: BellRing, group: 'Workspace' },
+  { id: 'account', label: 'Account settings', icon: Settings2, group: 'Workspace' },
   {
     id: 'approvals',
     label: 'Approvals',
     icon: CheckCheck,
-    permission: 'approval.act',
+    permission: 'approval.act', group: 'Workspace',
   },
-  { id: 'tasks', label: 'My tasks', icon: ListTodo, permission: 'task.read' },
+  { id: 'tasks', label: 'My tasks', icon: ListTodo, permission: 'task.read', group: 'Workspace' },
   {
     id: 'activity',
     label: 'Activity log',
     icon: Activity,
-    permission: 'audit.read',
+    permission: 'audit.read', group: 'Workspace',
   },
   {
     id: 'settings',
     label: 'Settings',
     icon: Settings2,
-    permission: 'settings.write',
+    permission: 'settings.write', group: 'Workspace',
   },
 ]
 export function getRoute() {

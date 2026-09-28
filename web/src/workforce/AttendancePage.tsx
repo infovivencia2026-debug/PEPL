@@ -157,7 +157,6 @@ export function AttendancePage({
       </PageHeader>
       {tabs}
       {data.user.employeeId && <PunchControl data={data} />}
-      <RemoteWorkPanel data={data} />
       <div className="stats-row">
         <Stat
           label="Present"
@@ -309,6 +308,7 @@ export function AttendancePage({
           {rows.length} recorded employee days · {dateLabel(data.date)}
         </footer>
       </Card>
+      <RemoteWorkPanel data={data} />
     </>
   )
 }

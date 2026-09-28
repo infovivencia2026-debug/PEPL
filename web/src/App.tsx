@@ -19,6 +19,8 @@ import {
   Activity,
   ArrowUpRight,
   RefreshCw,
+  MessageCircle,
+  Mail,
 } from 'lucide-react'
 import {
   api,
@@ -125,6 +127,7 @@ export function App() {
   }, [load])
   useEffect(() => {
     if (!data) return
+    if (!data.permissions.includes('settings.write')) { setSandbox(false); return }
     void domainApi<{ isSandbox: boolean }>('/sandbox').then((r) => setSandbox(r.isSandbox)).catch(() => undefined)
   }, [data])
   useEffect(() => {
@@ -226,6 +229,8 @@ export function App() {
     ),
     all = [...nav, ...extras],
     section = route.split('/')[0]
+  const activeExtra = extras.find((item) => item.id === section)
+  const extraGroups = [...new Set(extras.map((item) => item.group ?? 'Workspace'))]
   const permitted = all.some((n) => n.id === section)
   const props = data ? { data, open: setForm, act } : null
   const page = data && props
@@ -282,29 +287,31 @@ export function App() {
                         setProfileMenu(false)
                       }}
                     >
-                      More
+                      <span>{activeExtra?.label ?? 'More'}</span>
                       <ChevronDown size={14} />
                     </button>
                     {more && (
                       <div className="dropdown more-dropdown">
-                        {extras.map((n) => (
-                          <a key={n.id} href={selfScope && n.id === 'people' && data?.user.employeeId ? `#/people/${data.user.employeeId}` : `#/${n.id}`}>
-                            <n.icon size={17} />
-                            {n.label}
-                            {n.id === 'approvals' &&
-                              data.approvals.length > 0 && (
-                                <span className="count">
-                                  {data.approvals.length}
-                                </span>
-                              )}
-                          </a>
-                        ))}
+                        {extraGroups.map((group) => <section className="nav-group" key={group}>
+                          <strong>{group}</strong>
+                          {extras.filter((item) => (item.group ?? 'Workspace') === group).map((n) => (
+                            <a className={n.id === section ? 'active' : ''} aria-current={n.id === section ? 'page' : undefined} key={n.id} href={selfScope && n.id === 'people' && data?.user.employeeId ? `#/people/${data.user.employeeId}` : `#/${n.id}`}>
+                              <n.icon size={17} />
+                              <span>{n.label}</span>
+                              {n.id === 'approvals' && data.approvals.length > 0 && <span className="count">{data.approvals.length}</span>}
+                            </a>
+                          ))}
+                        </section>)}
                       </div>
                     )}
                   </div>
                 )}
               </nav>
               <div className="topbar-actions">
+                <div className="comms-shortcuts" aria-label="Communication shortcuts">
+                  {extras.some((item) => item.id === 'chat') && <a href="#/chat" className={section === 'chat' ? 'active' : ''} aria-label="Team chat" title="Team chat"><MessageCircle size={18} /></a>}
+                  {extras.some((item) => item.id === 'mail') && <a href="#/mail" className={section === 'mail' ? 'active' : ''} aria-label="Mailbox" title="Mailbox"><Mail size={18} /></a>}
+                </div>
                 <button
                   className="global-search"
                   aria-label="Search workspace"

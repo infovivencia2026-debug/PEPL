@@ -20,7 +20,9 @@ export function welcomeTile({
   data: Workspace
   can: (permission: string) => boolean
 }): ReactElement {
-  const firstName = data.user.full_name.split(' ')[0]
+  const firstName = /administrator/i.test(data.user.full_name)
+    ? 'Admin'
+    : data.user.full_name.split(' ')[0]
   const pending = data.approvals.length
   const target = can('approval.act') ? '#/approvals' : '#/people'
 
