@@ -6,12 +6,11 @@
  */
 import type { Router } from '../router.ts'
 
-import { HttpError, authed, open, ok, created, noContent, requireBody, asUuid, emit, type Req } from './deps.ts'
+import { HttpError, authed, open, ok, created, noContent, requireBody, asUuid, emit } from './deps.ts'
 import {
   listPlans, signup, billingSummary, updateBillingDetails, switchPlan, listInvoices,
 } from '../../control-plane/billing.ts'
 import { controlDb, grantSupportAccess, revokeSupportAccess } from '../../control-plane/index.ts'
-import { login } from '../../auth/index.ts'
 import { listPresets, applyPreset } from '../../control-plane/presets.ts'
 import { invoicePdf } from '../../control-plane/invoice-pdf.ts'
 import { listCreditNotes } from '../../control-plane/credit-notes.ts'
@@ -22,9 +21,10 @@ export function register(router: Router): void {
     { summary: 'The plans on sale: prices (paise), modules and limits', tag: 'billing', public: true },
     open(async () => ok({ plans: await listPlans() })))
 
-  router.get('/api/v1/signup/presets',
-    { summary: 'Organisation types a new company can start from (what each switches on and seeds)', tag: 'billing', public: true },
-    open(async () => ok({ presets: listPresets() })))
+  router.get('/api/v1/presets',
+    { summary: 'Organisation types a company can start from (what each switches on and seeds)', tag: 'config',
+      permission: 'settings.write' },
+    authed('settings.write', async () => ok({ presets: listPresets() })))
 
   router.post('/api/v1/settings/presets/:code/apply',
     { summary: 'Admin: apply an organisation-type preset to this company (settings, shifts, leave types); payroll-affecting keys take effect from the first of next month', tag: 'config', permission: 'settings.write' },
@@ -36,23 +36,17 @@ export function register(router: Router): void {
       return ok(r)
     }))
 
-  router.post('/api/v1/signup',
-    { summary: 'Create a company on the trial and sign its first admin in', tag: 'billing', public: true,
-      requestExample: { legalName: 'Acme Technologies Pvt Ltd', adminEmail: 'hr@acme.com', adminName: 'Priya Sharma', password: 'a-long-passphrase', stateCode: 'TS' } },
-    open(async (req: Req) => {
-      const b = requireBody<{ legalName: string; displayName?: string; adminEmail: string; adminName: string; password: string; stateCode?: string; organisationType?: string }>(
-        req, ['legalName', 'adminEmail', 'adminName', 'password'])
-      const { tenantId } = await signup({ ...b })
-      // Straight into the product: the session comes from the same login path everyone uses.
-      const session = await login({ email: b.adminEmail, password: b.password, ip: req.ip, userAgent: String(req.headers['user-agent'] ?? '') })
-      // signup() refuses an address already in use, so the company this just
-      // created is the only one this password opens. If that ever stops being
-      // true, fail loudly here rather than hand back half a session.
-      if ('choose' in session) {
-        throw new HttpError(500, 'AMBIGUOUS_SIGNUP', 'this address already belongs to another company')
-      }
-      return created({ tenantId, token: session.token, expiresAt: session.expiresAt.toISOString(), user: { id: session.userId, roles: session.roles } })
-    }))
+  // There is deliberately NO public route that creates a company.
+  //
+  // PEPL is sold by salespeople to organisations; a stranger on the internet
+  // provisioning a tenant on a production instance is not a signup funnel, it
+  // is an open door onto the control plane. Creating a company is a back-office
+  // operation — `npm run ops create` — which runs on the control connection,
+  // records itself in control_plane.platform_audit, and requires shell access
+  // to the server rather than a form.
+  //
+  // `signup()` in src/control-plane/billing.ts is still the single code path
+  // that provisions one; only the way you reach it has changed.
 
   router.get('/api/v1/billing',
     { summary: 'Your plan, subscription status, headcount vs limit, next-invoice estimate and anything outstanding', tag: 'billing',

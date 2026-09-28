@@ -9,7 +9,8 @@ import { createHandler } from '../src/http/router.ts'
 import { buildRouter } from '../src/http/app.ts'
 import { closePools } from '../src/db/pool.ts'
 import { controlDb } from '../src/control-plane/index.ts'
-import { closePeriods, runDunning, markInvoicePaid, voidInvoice, listInvoices, priceFor, GST_RATE } from '../src/control-plane/billing.ts'
+import { signup, closePeriods, runDunning, markInvoicePaid, voidInvoice, listInvoices, priceFor, GST_RATE } from '../src/control-plane/billing.ts'
+import { login } from '../src/auth/index.ts'
 import { withTenant } from '../src/db/tenant-tx.ts'
 import { resolveConfig } from '../src/config/resolver.ts'
 
@@ -46,18 +47,27 @@ describe('signup and billing', () => {
     const prices = (plans.body.plans as { base_price_paise: string }[]).map((p) => Number(p.base_price_paise))
     expect(prices).toEqual([...prices].sort((a, b) => a - b))
 
-    expect((await api('POST', '/signup', { legalName: 'NewCo', adminEmail: 'bad', adminName: 'F', password: 'a-long-passphrase' })).status).toBe(422)
-    expect((await api('POST', '/signup', { legalName: 'NewCo', adminEmail: email, adminName: 'F', password: 'short' })).body.error?.code).toBe('WEAK_PASSWORD')
+    // There is NO public route that creates a company. PEPL is sold by
+    // salespeople; a stranger provisioning a tenant on a production instance
+    // is an open door onto the control plane, not a signup funnel.
+    expect((await api('POST', '/signup', { legalName: 'NewCo', adminEmail: email, adminName: 'F', password: 'a-long-passphrase' })).status).toBe(404)
 
-    const s = await api('POST', '/signup', { legalName: `NewCo ${stamp} Pvt Ltd`, adminEmail: email, adminName: 'Founder', password: 'a-long-passphrase-1', stateCode: 'TS' })
-    if (s.status !== 201) console.log('signup:', JSON.stringify(s.body))
-    expect(s.status).toBe(201)
-    tenantId = s.body.tenantId as string
-    token = s.body.token as string
-    expect((s.body.user as { roles: string[] }).roles).toEqual(['org_admin'])
+    // The back office is the way in, and it validates the same things.
+    await expect(signup({ legalName: 'NewCo', adminEmail: 'bad', adminName: 'F', password: 'a-long-passphrase' }))
+      .rejects.toMatchObject({ code: 'VALIDATION_FAILED' })
+    await expect(signup({ legalName: 'NewCo', adminEmail: email, adminName: 'F', password: 'short' }))
+      .rejects.toMatchObject({ code: 'WEAK_PASSWORD' })
+
+    const made = await signup({ legalName: `NewCo ${stamp} Pvt Ltd`, adminEmail: email, adminName: 'Founder', password: 'a-long-passphrase-1', stateCode: 'TS' })
+    tenantId = made.tenantId
+    const session = await login({ email, password: 'a-long-passphrase-1' })
+    if ('choose' in session) throw new Error('a company just created cannot be ambiguous')
+    token = session.token
+    expect(session.roles).toEqual(['org_admin'])
 
     // the same email cannot start a second company
-    expect((await api('POST', '/signup', { legalName: 'Again', adminEmail: email, adminName: 'F', password: 'a-long-passphrase-1' })).body.error?.code).toBe('EMAIL_TAKEN')
+    await expect(signup({ legalName: 'Again', adminEmail: email, adminName: 'F', password: 'a-long-passphrase-1' }))
+      .rejects.toMatchObject({ code: 'EMAIL_TAKEN' })
 
     const me = await api('GET', '/me', undefined, token)
     expect(me.status).toBe(200)

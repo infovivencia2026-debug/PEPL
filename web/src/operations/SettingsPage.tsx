@@ -3,7 +3,7 @@ import { Check, ChevronRight, MapPin, Settings2, ShieldCheck, SlidersHorizontal,
 import { domainApi } from '../domainApi'
 import { PtStatePicker } from '../PtStatePicker'
 import { GeofenceSites } from '../GeofenceSites'
-import { PresetApply } from '../Signup'
+import { PresetApply } from '../presets'
 import type { Workspace } from '../types'
 import { Button, Card, Empty, PageHeader, SearchBox, Skeleton } from '../ui'
 

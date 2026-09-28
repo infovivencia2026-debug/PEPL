@@ -297,7 +297,6 @@ export function Login({ onSuccess }: { onSuccess: () => Promise<void> }) {
           </Button>
           <p className="login-help">
             <a href="#/forgot-password">Forgot password?</a><br />
-            <a href="#/signup">New here? Create your company</a><br />
             Need access? Your company administrator can set up your account.
           </p>
         </form>

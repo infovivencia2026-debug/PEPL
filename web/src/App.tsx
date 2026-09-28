@@ -64,7 +64,6 @@ import { NAV, MORE, getRoute } from './app/nav'
 import { screenFor } from './app/screen'
 import { removeCurrentPushSubscription } from './push'
 import { PasswordRecovery } from './Account'
-import { Signup } from './Signup'
 /**
  * What the subscription is doing, when it needs somebody to do something.
  *
@@ -456,8 +455,6 @@ export function App() {
             <PasswordRecovery />
           ) : route === 'trust' ? (
             <TrustPage />
-          ) : route === 'signup' && (loggedOut || !data) ? (
-            <Signup onSignedIn={async () => { setLoggedOut(false); await load() }} />
           ) : loading ? (
             <Skeleton />
           ) : mfa ? (
