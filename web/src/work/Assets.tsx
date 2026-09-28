@@ -6,7 +6,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { BadgeCheck, Laptop, Plus, RotateCcw, Wrench } from 'lucide-react'
 import { domainApi } from '../domainApi'
-import { fullName, money, dateLabel } from '../api'
+import { fullName, money, dateLabel, errorCode } from '../api'
 import { Button, Card, Empty, ErrorBox, Modal, SearchBox, Skeleton, Tabs } from '../ui'
 import type { Workspace } from '../types'
 
@@ -25,6 +25,8 @@ export function AssetsPage({ data }: { data: Workspace }) {
   const [mine, setMine] = useState<Assignment[]>([])
   const [search, setSearch] = useState('')
   const [error, setError] = useState('')
+  // The API code behind `error`, so a plan-gated module reads as an offer.
+  const [code, setCode] = useState<string | undefined>()
   const [adding, setAdding] = useState(false)
   const [issuing, setIssuing] = useState<Asset | null>(null)
   const [returning, setReturning] = useState<Asset | null>(null)
@@ -39,19 +41,19 @@ export function AssetsPage({ data }: { data: Workspace }) {
       ])
       setAssets(a.assets); setCategories(c.categories); setSummary(s); setError('')
       if (data.user.employeeId) setMine((await domainApi<{ assignments: Assignment[] }>('/assets/assignments?employeeId=me&open=true')).assignments)
-    } catch (e) { setError((e as Error).message) }
+    } catch (e) { setError((e as Error).message); setCode(errorCode(e)) }
   }, [data.user.employeeId])
   useEffect(() => { void load() }, [load])
   const rows = useMemo(() => (assets ?? []).filter((a) => `${a.tag} ${a.name} ${a.serial_no ?? ''} ${a.holder_name ?? ''}`.toLowerCase().includes(search.toLowerCase())), [assets, search])
   async function act(path: string, body: unknown, id: string) {
     setBusy(id)
-    try { await domainApi(path, body); await load(); setIssuing(null); setReturning(null) } catch (e) { setError((e as Error).message) } finally { setBusy('') }
+    try { await domainApi(path, body); await load(); setIssuing(null); setReturning(null) } catch (e) { setError((e as Error).message); setCode(errorCode(e)) } finally { setBusy('') }
   }
   const tabs = ['Register', ...(data.user.employeeId ? ['My assets'] : [])]
   return (
     <>
       <Tabs value={tab} onChange={setTab} items={tabs} />
-      {error && <ErrorBox message={error} />}
+      {error && <ErrorBox message={error} code={code} />}
       {tab === 'My assets' ? (
         !mine.length ? <Card><Empty title="Nothing issued to you" text="Laptops, phones, SIMs and ID cards you hold appear here — acknowledge them so the register matches reality." /></Card> : (
           <div className="template-grid">

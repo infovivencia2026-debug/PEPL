@@ -6,7 +6,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { BookOpen, CircleCheck, GraduationCap, Plus, Send, TrendingUp, Users } from 'lucide-react'
 import { domainApi } from '../domainApi'
-import { fullName, money, dateLabel } from '../api'
+import { fullName, money, dateLabel, errorCode } from '../api'
 import { Button, Card, Empty, ErrorBox, Modal, PageHeader, Skeleton, Tabs } from '../ui'
 import type { Workspace } from '../types'
 
@@ -47,6 +47,8 @@ function Learning({ data }: { data: Workspace }) {
   const [compliance, setCompliance] = useState<ComplianceRow[] | null>(null)
   const [adding, setAdding] = useState(false)
   const [error, setError] = useState('')
+  // The API code behind `error`, so a plan-gated module reads as an offer.
+  const [code, setCode] = useState<string | undefined>()
   const [busy, setBusy] = useState('')
   const canManage = data.permissions.includes('learning.manage')
   const load = useCallback(async () => {
@@ -55,15 +57,15 @@ function Learning({ data }: { data: Workspace }) {
       if (data.user.employeeId) setMine(await domainApi('/me/learning'))
       if (canManage) setCompliance((await domainApi<{ courses: ComplianceRow[] }>('/learning/compliance')).courses)
       setError('')
-    } catch (e) { setError((e as Error).message) }
+    } catch (e) { setError((e as Error).message); setCode(errorCode(e)) }
   }, [canManage, data.user.employeeId])
   useEffect(() => { void load() }, [load])
-  async function act(path: string, id: string, body: unknown = {}) { setBusy(id); try { await domainApi(path, body); await load() } catch (e) { setError((e as Error).message) } finally { setBusy('') } }
+  async function act(path: string, id: string, body: unknown = {}) { setBusy(id); try { await domainApi(path, body); await load() } catch (e) { setError((e as Error).message); setCode(errorCode(e)) } finally { setBusy('') } }
   const tabs = [...(canManage ? ['Compliance', 'Catalogue'] : ['Catalogue']), ...(data.user.employeeId ? ['My learning'] : [])]
   return (
     <>
       <Tabs value={tabs.includes(tab) ? tab : tabs[0]!} onChange={setTab} items={tabs} />
-      {error && <ErrorBox message={error} />}
+      {error && <ErrorBox message={error} code={code} />}
       {tab === 'Compliance' && (
         !compliance ? <Skeleton /> : !compliance.length ? <Card><Empty title="No mandatory courses" text="Mark a course mandatory and everyone it applies to — including new joiners — is nominated automatically." /></Card> : (
           <div className="template-grid">

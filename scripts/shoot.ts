@@ -20,6 +20,15 @@ const EMAIL = process.env.SHOOT_EMAIL ?? 'admin@acme.test'
 const PASSWORD = process.env.SHOOT_PASSWORD ?? 'demo-password-2026'
 const OUT = 'docs/ui-checks'
 
+/**
+ * Everything is written under OUT, so a caller who helpfully passes the full
+ * path gets docs/ui-checks/docs/ui-checks/x.png. That trap cost 28 stray files
+ * before anyone noticed, so the name is normalised instead of trusted: a
+ * leading output directory and a trailing .png are both stripped.
+ */
+const shotName = (value: string): string =>
+  value.replace(/^\.?\/?docs\/ui-checks\//, '').replace(/\.png$/i, '')
+
 const only = process.argv[2]
 
 async function login(page: Page): Promise<void> {
@@ -29,6 +38,19 @@ async function login(page: Page): Promise<void> {
   await email.fill(EMAIL)
   await page.locator('input[type="password"], input[name="password"]').first().fill(PASSWORD)
   await page.locator('button[type="submit"]').first().click()
+  // An address that opens more than one company is asked which. SHOOT_COMPANY
+  // picks by name; without it the first is taken, which is the stable order the
+  // lookup returns.
+  const picker = page.locator('.company-option')
+  await Promise.race([
+    picker.first().waitFor({ timeout: 4_000 }).catch(() => undefined),
+    page.getByRole('heading', { name: /at a glance/i }).waitFor({ timeout: 4_000 }).catch(() => undefined),
+  ])
+  if (await picker.count()) {
+    const wanted = process.env.SHOOT_COMPANY
+    const option = wanted ? page.locator('.company-option', { hasText: wanted }).first() : picker.first()
+    await option.click()
+  }
   // The dashboard heading is the signal that the workspace actually loaded.
   await page.getByRole('heading', { name: /at a glance/i }).waitFor({ timeout: 20_000 })
   await page.waitForTimeout(700)
@@ -57,14 +79,14 @@ async function main(): Promise<void> {
       if (process.env.SHOOT_CLICK) { await fp.getByRole('button', { name: new RegExp(process.env.SHOOT_CLICK, 'i') }).first().click(); await fp.waitForTimeout(600) }
       for (const pair of (process.env.SHOOT_FILL ?? '').split(';').filter(Boolean)) { const [label, value] = pair.split('=') as [string, string]; await fp.getByLabel(new RegExp(label, 'i')).first().fill(value) }
       if (process.env.SHOOT_CLICK2) { await fp.getByRole('button', { name: new RegExp(process.env.SHOOT_CLICK2, 'i') }).first().click(); await fp.waitForTimeout(1200) }
-      await fp.screenshot({ path: `${OUT}/${process.argv[4] ?? route}.png`, fullPage: true }); console.log(`${OUT}/${process.argv[4] ?? route}.png`)
+      await fp.screenshot({ path: `${OUT}/${shotName(process.argv[4] ?? route)}.png`, fullPage: true }); console.log(`${OUT}/${shotName(process.argv[4] ?? route)}.png`)
       await fresh.close(); return
     }
 
     if (only === 'route') {
       if (process.env.SHOOT_VIEWPORT) { const [w, h] = process.env.SHOOT_VIEWPORT.split('x').map(Number) as [number, number]; await page.setViewportSize({ width: w, height: h }) }
       const route = process.argv[3] ?? 'dashboard'
-      const name = process.argv[4] ?? route.replace(/[^\w-]+/g, '-')
+      const name = shotName(process.argv[4] ?? route.replace(/[^\w-]+/g, '-'))
       await page.goto(`${BASE}/#/${route}`)
       await page.waitForTimeout(1200)
       // SHOOT_SELECT="label=value;label=value" picks options in <select>s (by accessible label) before the shot

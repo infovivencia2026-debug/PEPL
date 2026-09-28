@@ -211,3 +211,10 @@ details summary { cursor: pointer; font-size: 12px; color: var(--primary); min-h
   .plan-summary { grid-template-columns: minmax(0, 1fr); }
   .plan-facts { grid-template-columns: minmax(0, 1fr); }
 }
+
+/* A plan-gated module is an offer, not a failure: never the red alert styling. */
+.upgrade-box { display: flex; align-items: flex-start; gap: 12px; padding: 15px 17px; border: 1px solid #cfe2d8; border-radius: 14px; background: linear-gradient(135deg, #f2f8f5, #eaf4ef); color: #2c5e50; }
+.upgrade-box > svg { flex: 0 0 auto; margin-top: 2px; color: #3f7d6b; }
+.upgrade-box span { display: grid; gap: 4px; font-size: 13px; }
+.upgrade-box strong { font-size: 14px; color: #17453b; }
+.upgrade-box a { justify-self: start; margin-top: 4px; font-weight: 650; color: var(--primary); }

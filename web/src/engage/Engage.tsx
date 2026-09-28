@@ -7,7 +7,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Award, Cake, Check, FileText, Gift, PartyPopper, Plus, Send, ShieldCheck } from 'lucide-react'
 import { domainApi } from '../domainApi'
-import { fullName, dateLabel } from '../api'
+import { fullName, dateLabel, errorCode } from '../api'
 import { Avatar, Button, Card, Empty, ErrorBox, Modal, PageHeader, Skeleton, Tabs } from '../ui'
 import type { Workspace } from '../types'
 
@@ -44,17 +44,19 @@ export function EngagePage({ data, screen = 'policies' }: { data: Workspace; scr
 function Policies({ data }: { data: Workspace }) {
   const [rows, setRows] = useState<Policy[] | null>(null)
   const [error, setError] = useState('')
+  // The API code behind `error`, so a plan-gated module reads as an offer.
+  const [code, setCode] = useState<string | undefined>()
   const [busy, setBusy] = useState('')
   const [drafting, setDrafting] = useState(false)
   const [compliance, setCompliance] = useState<{ id: string; audience: number; acknowledged: number; overdue: number; pending: Array<{ name: string; department: string | null; dueOn: string }> } | null>(null)
   const canManage = data.permissions.includes('policy.manage')
-  const load = useCallback(async () => { try { setRows((await domainApi<{ policies: Policy[] }>('/policies')).policies); setError('') } catch (e) { setError((e as Error).message) } }, [])
+  const load = useCallback(async () => { try { setRows((await domainApi<{ policies: Policy[] }>('/policies')).policies); setError('') } catch (e) { setError((e as Error).message); setCode(errorCode(e)) } }, [])
   useEffect(() => { void load() }, [load])
-  async function act(path: string, id: string) { setBusy(id); try { await domainApi(path, {}); await load() } catch (e) { setError((e as Error).message) } finally { setBusy('') } }
+  async function act(path: string, id: string) { setBusy(id); try { await domainApi(path, {}); await load() } catch (e) { setError((e as Error).message); setCode(errorCode(e)) } finally { setBusy('') } }
   return (
     <>
       {canManage && <div className="row-actions"><Button onClick={() => setDrafting(true)}><Plus size={16} aria-hidden="true" />Draft a policy</Button></div>}
-      {error && <ErrorBox message={error} />}
+      {error && <ErrorBox message={error} code={code} />}
       {!rows ? <Skeleton /> : !rows.length ? <Card><Empty title="No policies yet" text="POSH, leave, travel, code of conduct — publish one and everyone it applies to is asked to acknowledge it." /></Card> : (
         <div className="template-grid">
           {rows.map((p) => (

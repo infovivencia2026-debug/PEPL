@@ -65,9 +65,50 @@ import { screenFor } from './app/screen'
 import { removeCurrentPushSubscription } from './push'
 import { PasswordRecovery } from './Account'
 import { Signup } from './Signup'
+/**
+ * What the subscription is doing, when it needs somebody to do something.
+ *
+ * Says nothing at all while a paid subscription is healthy — a banner that is
+ * always there is furniture, and nobody reads furniture. It appears for the
+ * last week of a trial, for an overdue invoice, and for a suspension, because
+ * those are the three states where silence costs the customer their service.
+ */
+function SubscriptionBanner({ billing }: { billing: { status: string; trial_ends_on: string | null; outstanding: { count: number } } }) {
+  if (billing.status === 'suspended') {
+    return (
+      <div className="subscription-banner is-stopped" role="alert">
+        This company is suspended for non-payment. Nothing has been deleted — it comes back
+        the moment the outstanding invoice is settled. <a href="#/company/plan">See billing</a>
+      </div>
+    )
+  }
+  if (billing.status === 'past_due' || billing.outstanding.count > 0) {
+    return (
+      <div className="subscription-banner is-warning" role="status">
+        {billing.outstanding.count === 1 ? 'An invoice is' : `${billing.outstanding.count} invoices are`} outstanding.
+        Modules switch off if it stays unpaid. <a href="#/company/plan">See billing</a>
+      </div>
+    )
+  }
+  if (billing.status === 'trialing' && billing.trial_ends_on) {
+    // Whole days, floored: "ends in 0 days" on the last day is more honest than
+    // rounding up to 1 and having it stop that evening.
+    const days = Math.floor((Date.parse(billing.trial_ends_on) - Date.now()) / 86_400_000)
+    if (days > 7) return null
+    return (
+      <div className={`subscription-banner ${days <= 2 ? 'is-warning' : ''}`} role="status">
+        {days <= 0 ? 'Your trial ends today.' : `Your trial ends in ${days} day${days === 1 ? '' : 's'}.`}
+        {' '}Talk to your account manager to continue. <a href="#/company/plan">See your plan</a>
+      </div>
+    )
+  }
+  return null
+}
+
 export function App() {
   const [data, setData] = useState<Workspace | null>(null),
     [loggedOut, setLoggedOut] = useState(false),
+    [billing, setBilling] = useState<{ status: string; trial_ends_on: string | null; outstanding: { count: number } } | null>(null),
     [error, setError] = useState<ErrorView | null>(null),
     [route, setRoute] = useState(getRoute),
     [loading, setLoading] = useState(true),
@@ -129,6 +170,15 @@ export function App() {
     if (!data) return
     if (!data.permissions.includes('settings.write')) { setSandbox(false); return }
     void domainApi<{ isSandbox: boolean }>('/sandbox').then((r) => setSandbox(r.isSandbox)).catch(() => undefined)
+  }, [data])
+  // A trial that ends without anyone noticing is a customer lost to silence:
+  // dunning simply suspends the company on the day it lapses. Only an admin can
+  // act on this, and only an admin may read /billing, so the two line up.
+  useEffect(() => {
+    if (!data) return
+    if (!data.permissions.includes('settings.write')) { setBilling(null); return }
+    void domainApi<{ status: string; trial_ends_on: string | null; outstanding: { count: number } }>('/billing')
+      .then(setBilling).catch(() => undefined)
   }, [data])
   useEffect(() => {
     const key = (e: KeyboardEvent) => {
@@ -447,6 +497,7 @@ export function App() {
         )}
       </div>
       {sandbox && <div className="sandbox-banner" role="status">Sandbox — nothing here is real, and nothing it sends leaves the building.</div>}
+      {!sandbox && billing && <SubscriptionBanner billing={billing} />}
       {!loggedOut && data && <button type="button" className="assistant-launcher" onClick={() => setAssistant(true)} aria-label="Ask PEPL (press ?)"><MessageCircleQuestion size={20} aria-hidden="true" /></button>}
       <AssistantDrawer open={assistant} onClose={() => setAssistant(false)} />
       {recheck && <RecheckModal onVerified={() => { const again = recheck; setRecheck(null); void again() }} onClose={() => { setRecheck(null); recheckDismiss.current?.(); recheckDismiss.current = null }} />}

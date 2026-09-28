@@ -8,6 +8,7 @@
  * accumulating copies.
  */
 import { controlDb, provisionTenant } from '../src/control-plane/index.ts'
+import { updateBillingDetails } from '../src/control-plane/billing.ts'
 import { purgeTenant } from '../src/control-plane/sandbox.ts'
 import { setSetting } from '../src/config/write.ts'
 import { withTenant } from '../src/db/tenant-tx.ts'
@@ -22,8 +23,23 @@ import { recordPunch, recomputeDay } from '../src/attendance/index.ts'
 import { PEOPLE } from './demo-roster.ts'
 import { seedDocuments, seedAssets, seedRecruitment, seedPerformance, seedExpenses, runAugustPayroll } from './demo-operations.ts'
 
-const COMPANY = 'Acme Manufacturing Pvt Ltd'
+/**
+ * PEPL_DEMO_SUFFIX gives a salesperson their own copy. Two reps demoing at the
+ * same time share one tenant otherwise, and the first one to approve a leave
+ * request changes what the second one is presenting. The suffix lands in the
+ * company name and in every login as a plus-address, which keeps each account
+ * unique — signup resolves an email across all tenants and refuses a duplicate.
+ *
+ *   PEPL_DEMO_SUFFIX=ravi npm run seed:demo   ->  admin+ravi@acme.test
+ */
+const SUFFIX = (process.env.PEPL_DEMO_SUFFIX ?? '').trim().toLowerCase().replace(/[^a-z0-9]/g, '')
+const COMPANY = SUFFIX
+  ? `Acme Manufacturing Pvt Ltd (${SUFFIX})`
+  : 'Acme Manufacturing Pvt Ltd'
 const PASSWORD = 'demo-password-2026'
+/** priya@acme.test -> priya+ravi@acme.test */
+const mail = (address: string): string =>
+  SUFFIX ? address.replace('@', `+${SUFFIX}@`) : address
 const L = (rupees: number): number => rupees * 100
 
 
@@ -47,12 +63,22 @@ async function main(): Promise<void> {
     legalName: COMPANY,
     displayName: 'Acme',
     planCode: 'enterprise',
-    adminEmail: 'admin@acme.test',
+    adminEmail: mail('admin@acme.test'),
     adminName: 'Acme Administrator',
     // PEPL_DEMO_TYPE=manufacturing (or education, field_sales, retail, agency) seeds that organisation type's preset
     organisationType: process.env.PEPL_DEMO_TYPE ?? 'office',
   })
   console.log(`tenant ${tenantId}`)
+
+  // Billing details, so a demo can show a real GST invoice. The place of supply
+  // is what decides CGST+SGST against IGST; without it the demo's own invoice
+  // would print IGST for a Hyderabad company billed from Hyderabad.
+  await updateBillingDetails(tenantId, {
+    gstin: '36AAACA1111A1Z5',
+    address: 'Plot 21, Jeedimetla Industrial Area, Hyderabad 500055',
+    email: mail('accounts@acme.test'),
+    stateCode: 'TS',
+  })
 
   // Statutory reference data (global) — payroll cannot run without it.
   await controlDb.query(
@@ -113,7 +139,7 @@ async function main(): Promise<void> {
   await withTenant(tenantId, async (tx) => {
     // admin login
     const adminUserId = await createUser(tx, {
-      tenantId, email: 'admin@acme.test', fullName: 'Acme Administrator',
+      tenantId, email: mail('admin@acme.test'), fullName: 'Acme Administrator',
       password: PASSWORD, roles: ['org_admin'],
     })
 
@@ -134,7 +160,7 @@ async function main(): Promise<void> {
       ids[p.number] = rows[0]!.id
 
       userIds[p.number] = await createUser(tx, {
-        tenantId, email: p.email, fullName: `${p.first} ${p.last}`,
+        tenantId, email: mail(p.email), fullName: `${p.first} ${p.last}`,
         password: PASSWORD, roles: [p.role], employeeId: rows[0]!.id,
       })
     }
@@ -281,7 +307,8 @@ async function main(): Promise<void> {
       [tenantId])
   }, { userId: undefined })
 
-  const width = 22
+  // A plus-addressed login is longer than the base one.
+  const width = SUFFIX ? 30 : 22
   const rows: [string, string, string][] = [
     ['admin@acme.test', 'org_admin', 'Everything, including settings and roles'],
     ['priya@acme.test', 'hr_admin', 'People, attendance, leave, tickets — NOT salary'],
@@ -293,7 +320,7 @@ async function main(): Promise<void> {
   ]
 
   const table = rows
-    .map(([e, r, d]) => `  ${e.padEnd(width)}${r.padEnd(16)}${d}`)
+    .map(([e, r, d]) => `  ${mail(e).padEnd(width)}${r.padEnd(16)}${d}`)
     .join('\n')
 
   console.log(`

@@ -149,6 +149,74 @@ tool for source containing regex escapes, or a character class instead of ``.
 Large TypeScript files with nested quotes fail outright — CLAUDE.md already says this;
 it applies to `src/http/routes/*.ts` too.
 
+## Escaped newlines die in a heredoc — use the Edit tool
+
+The backslash-collapse warning above applies to `
+` inside a TypeScript string
+written through a `python - <<'EOF'` heredoc, and it bites twice per session if
+you let it: `'...invoice.
+'` arrives as a REAL line break and the file fails
+with `TS1002: Unterminated string literal`. Anything containing `
+`, `	` or a
+regex escape goes through the Edit/Write tool, never a heredoc.
+
+## Selling PEPL: the back office and the demo company
+
+PEPL is sold by salespeople to organisations and paid by bank transfer, so
+there is no payment gateway and no public signup funnel by design.
+
+- `npm run ops` is the back office: create a customer, set their plan, raise
+  invoices, record a NEFT payment, void a mistake, read MRR. It is a CLI and
+  not a web console **because there is no platform-staff identity** — every
+  user in PEPL belongs to a tenant, and inventing a staff login would create
+  an account that can reach every customer's data. Shell access is the right
+  bar. Everything it does lands in `control_plane.platform_audit`.
+- `npm run seed:demo` builds the sales demo company: 47 people, a locked
+  August payroll, documents, assets, a hiring pipeline. The roster is
+  `scripts/demo-roster.ts` (data) and `scripts/demo-operations.ts`
+  (procedure). Keep them apart.
+- **Telangana is `TS`, not `TG`.** The PT slab tables key on `TS`; a roster
+  written with `TG` seeds employees whose professional tax silently resolves
+  to zero.
+- **`billing_state_code` is the place of supply and an invoice is wrong
+  without it.** GST is CGST+SGST within the supplier's own state and IGST
+  everywhere else. `provisionTenant` accepted a `stateCode` for months and
+  dropped it on the floor, which is why 086 exists.
+- The supplier's own identity (`PEPL_GSTIN`, `PEPL_STATE_CODE`, …) is in the
+  environment. With no GSTIN the invoice renders but says **"Not a tax
+  invoice"**, so a dev box cannot emit something a customer might file.
+
+## One address, several companies (and what it cost to get there)
+
+`auth_user_by_email` used to return rows only when an address was unique across
+the platform — a duplicate failed CLOSED and neither account could sign in.
+That guard was right; 088 replaced it with the same property enforced later:
+the password is verified against EVERY candidate and only the matches are acted
+on, so nothing reaches a caller who cannot already authenticate as that account.
+One match signs in as before; several ask which company, via a single-use
+`login_choices` token that lists only the accounts the password opened.
+
+A session is still scoped to one tenant. Nothing spans two.
+
+Two things cost an hour each:
+
+- **`SECURITY DEFINER` is not a way past `FORCE ROW LEVEL SECURITY`.** The
+  function runs as `pepl_owner`, and FORCE applies to the owner too. The reason
+  `auth_user_by_email` works is a SECOND policy on `app_users` —
+  `identity_lookup_owner`, `USING (… OR CURRENT_USER = 'pepl_owner')`. Without
+  an equivalent, a definer function over a tenant table silently returns zero
+  rows, which looks like a bug in the query.
+- **`gate:rls` refuses any policy on a tenant-scoped table that does not
+  reference `current_tenant()`** — including one you add for a good reason. It
+  caught a policy on `tenants` added to put real names in the company picker
+  (090), and it was right to; 091 reverses it. **A cross-tenant read during
+  login belongs on the CONTROL connection**, which is what provisioning and
+  billing already use, and which the application role can never reach.
+
+The audit suite's tamper tests deliberately break the chain and now truncate
+`audit_events` in their own `afterAll` — `gate:launch` checks chain integrity
+after the suites, so leaving the damage made verify depend on file order.
+
 ## Suites must not touch shared control-plane state (the old "intermittent" failure)
 
 `realtime.test.ts` used to run `DELETE FROM control_plane.subscriptions` in its

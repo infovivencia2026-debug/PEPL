@@ -5,6 +5,15 @@
  * is for the human, `code` is what the UI branches on, and `requestId` is the
  * only thing that correlates a user's complaint with the server log.
  */
+/**
+ * The stable code from a failed call, when there is one. Screens pass it to
+ * ErrorBox so a plan-gated module can be rendered as an offer instead of a red
+ * alert. Branch on this, never on the message.
+ */
+export function errorCode(e: unknown): string | undefined {
+  return e instanceof ApiError ? e.code : undefined
+}
+
 export class ApiError extends Error {
   status: number
   /** Stable machine code, e.g. PERIOD_CLOSED. Branch on this, never the message. */

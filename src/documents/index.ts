@@ -70,6 +70,20 @@ async function tenantId(tx: PoolClient): Promise<string> {
  * can be hidden from its own uploader by a future policy, and `RETURNING` then
  * fails in a way that reads like a WITH CHECK violation and is not.
  */
+const GB = 1024 ** 3
+
+/**
+ * Bytes this company may store, or Infinity when the plan sets no limit.
+ * A plan with no storage_gb sells unlimited storage, which is a pricing
+ * decision; a plan with 0 would sell none, so it is treated as unset.
+ */
+async function storageLimit(tx: PoolClient): Promise<number> {
+  const { rows } = await tx.query<{ gb: string | null }>(
+    `SELECT limits->>'storage_gb' AS gb FROM tenant_entitlements`)
+  const gb = Number(rows[0]?.gb)
+  return Number.isFinite(gb) && gb > 0 ? gb * GB : Number.POSITIVE_INFINITY
+}
+
 export async function putDocument(
   tx: PoolClient,
   args: {
@@ -94,6 +108,25 @@ export async function putDocument(
   const name = args.fileName.trim()
   if (!name || name.length > 255) {
     throw new DocumentError('INVALID_FILE_NAME', 'a file name of 1-255 characters is required')
+  }
+
+  // The plan's storage allowance. Checked HERE rather than in the route so no
+  // caller can upload around it, and read from the same tenant_entitlements row
+  // the config resolver uses, so the quota and the plan can never disagree.
+  // The sum is a scan of one tenant's rows on every upload; at the size a
+  // document library reaches that is cheaper than keeping a counter honest.
+  const limitBytes = await storageLimit(tx)
+  if (Number.isFinite(limitBytes)) {
+    const { rows } = await tx.query<{ used: string }>(
+      `SELECT coalesce(sum(size_bytes), 0)::text AS used FROM documents`)
+    const used = Number(rows[0]!.used)
+    if (used + args.bytes.length > limitBytes) {
+      throw new DocumentError(
+        'STORAGE_LIMIT_REACHED',
+        `this plan includes ${(limitBytes / GB).toFixed(0)} GB of storage and ${(used / GB).toFixed(2)} GB is in use; ` +
+        'delete something or move to a larger plan',
+      )
+    }
   }
 
   const id = randomUUID()

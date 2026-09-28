@@ -11,6 +11,7 @@ import {
   X,
   Search,
   AlertCircle,
+  Lock,
 } from 'lucide-react'
 import { pretty } from './api'
 export function Button({
@@ -228,11 +229,41 @@ export function SearchBox({
 export function ErrorBox({
   message,
   requestId,
+  code,
 }: {
   message: string
   /** Shown so a user can quote it to support; it is the only log correlator. */
   requestId?: string
+  /** The API error code, when the caller has it. Some codes are not failures. */
+  code?: string
 }) {
+  // A module the plan never included is not an error, it is a thing to buy, and
+  // showing it in a red alert box teaches people the product is broken. The
+  // switched-off case is different again: that one the admin can fix themselves.
+  if (code === 'PLAN_UPGRADE_REQUIRED') {
+    return (
+      <div className="upgrade-box" role="status">
+        <Lock size={19} aria-hidden="true" />
+        <span>
+          <strong>Not included in your plan</strong>
+          {message}
+          <a href="#/company/plan">See what each plan includes</a>
+        </span>
+      </div>
+    )
+  }
+  if (code === 'MODULE_NOT_AVAILABLE') {
+    return (
+      <div className="upgrade-box" role="status">
+        <Lock size={19} aria-hidden="true" />
+        <span>
+          <strong>Switched off for this company</strong>
+          {message}
+          <a href="#/settings">Open settings</a>
+        </span>
+      </div>
+    )
+  }
   return (
     <div className="error-box" role="alert">
       <AlertCircle size={19} />

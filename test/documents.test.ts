@@ -126,3 +126,40 @@ describe('documents are tenant-isolated', () => {
     ).rejects.toThrow(/row-level security/i)
   })
 })
+
+describe('the storage allowance a plan sells', () => {
+  /** Sets this tenant's entitlement limits directly, as the control plane would. */
+  const setStorageGb = (tenantId: string, gb: number | null) =>
+    controlPool.query(
+      `UPDATE tenant_entitlements SET limits = jsonb_set(coalesce(limits, '{}'::jsonb), '{storage_gb}', $2::jsonb) WHERE tenant_id = $1`,
+      [tenantId, JSON.stringify(gb)])
+
+  it('refuses an upload that would take the company past its limit', async () => {
+    // A limit small enough to cross with a file the size cap still allows: the
+    // point is the ACCOUNT being full, which is a different answer from the
+    // file being too big, and a client has to be able to tell them apart.
+    const oneMb = 1 / 1024
+    await setStorageGb(A.id, oneMb)
+    await put(A.id, Buffer.alloc(900 * 1024, 7), 'first.pdf')
+
+    await expect(put(A.id, Buffer.alloc(500 * 1024, 9), 'second.pdf'))
+      .rejects.toMatchObject({ code: 'STORAGE_LIMIT_REACHED' })
+  })
+
+  it('does not count documents belonging to another company', async () => {
+    // The sum runs under RLS, so it can only ever see this tenant's rows —
+    // but a quota that leaked across tenants would be a billing bug AND a
+    // disclosure, so it is worth pinning.
+    const oneMb = 1 / 1024
+    await setStorageGb(A.id, oneMb)
+    await setStorageGb(B.id, oneMb)
+    await put(B.id, Buffer.alloc(900 * 1024, 3), 'theirs.pdf')
+
+    await expect(put(A.id, Buffer.alloc(900 * 1024, 4), 'mine.pdf')).resolves.toBeTruthy()
+  })
+
+  it('a plan with no storage_gb sells unlimited storage', async () => {
+    await setStorageGb(A.id, null)
+    await expect(put(A.id, Buffer.alloc(64 * 1024, 1), 'unbounded.pdf')).resolves.toBeTruthy()
+  })
+})

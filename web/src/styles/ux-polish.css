@@ -213,3 +213,21 @@
   flex-direction: column;
   min-height: 0;
 }
+
+/* The subscription banner sits above the sandbox one and uses the same bottom
+   rail, so a sandbox of a suspended company does not stack two bars. Amber
+   asks, red stops — never colour alone, the wording carries it too. */
+.subscription-banner { position: fixed; left: 0; right: 0; bottom: 0; z-index: 44; padding: 9px 16px; text-align: center; font-size: 12.5px; background: #eaf3ee; color: #26564a; box-shadow: 0 -4px 12px #0b2a2614; }
+.subscription-banner a { margin-left: 6px; font-weight: 650; color: inherit; text-decoration: underline; }
+.subscription-banner.is-warning { background: #fcf1d9; color: #6b4f14; }
+.subscription-banner.is-stopped { background: #fbe6df; color: #8f3a22; font-weight: 600; }
+
+/* Choosing a company after the password is proven. Deliberately plain: this is
+   a fork in an authentication flow, not a place to be clever. */
+.company-choice { display: grid; gap: 18px; align-content: start; }
+.company-list { display: grid; gap: 10px; margin: 0; padding: 0; list-style: none; }
+.company-option { width: 100%; display: flex; align-items: center; gap: 12px; padding: 15px 17px; border: 1px solid #d3e3db; border-radius: 14px; background: #fff; color: #18453b; font-size: 14px; font-weight: 600; text-align: left; cursor: pointer; min-height: 56px; }
+.company-option span { flex: 1 1 auto; }
+.company-option:hover:not(:disabled) { border-color: var(--primary); background: #f3f9f6; }
+.company-option:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
+.company-option:disabled { opacity: .6; cursor: default; }

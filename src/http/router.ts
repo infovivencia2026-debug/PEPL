@@ -305,6 +305,9 @@ const STATUS_BY_CODE: Record<string, number> = {
   RATE_LIMITED: 429,
   // documents
   FILE_TOO_LARGE: 413,
+  // Not 413: the file is fine, the account is full. 409 so a client can tell
+  // "try a smaller file" apart from "you are out of space".
+  STORAGE_LIMIT_REACHED: 409,
   EMPTY_FILE: 422,
   PERIOD_LOCKED: 409,
   PLAN_NOT_FOUND: 404,
