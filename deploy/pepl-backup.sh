@@ -51,6 +51,32 @@ echo "==> pruning backups older than ${KEEP_DAYS} days"
 # the good ones and keep nothing.
 find "$OUT" -name "${DB}-*.dump" -mtime "+${KEEP_DAYS}" -print -delete
 
+# ── off the box ──────────────────────────────────────────────────────────────
+# A dump on the same disk as the database survives a bad migration and does not
+# survive the disk. This step is what turns a backup into disaster recovery.
+#
+# Configure ONE of these in .env and it starts working; leave them unset and the
+# script says so rather than pretending. Deliberately AFTER the verification
+# above, so a corrupt dump is never the one that gets copied away.
+if [ -n "${PEPL_BACKUP_S3_BUCKET:-}" ]; then
+  # Any S3-compatible store: AWS, Backblaze B2, Wasabi, DigitalOcean Spaces.
+  # Needs the aws CLI and AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY in .env.
+  echo "==> copying off the box to s3://${PEPL_BACKUP_S3_BUCKET}"
+  aws s3 cp "$FILE" "s3://${PEPL_BACKUP_S3_BUCKET}/$(basename "$FILE")"       ${PEPL_BACKUP_S3_ENDPOINT:+--endpoint-url "$PEPL_BACKUP_S3_ENDPOINT"}       --only-show-errors
+  echo "    copied"
+elif [ -n "${PEPL_BACKUP_RSYNC_TARGET:-}" ]; then
+  # Anything you can ssh to: user@host:/path/to/backups
+  echo "==> copying off the box to ${PEPL_BACKUP_RSYNC_TARGET}"
+  rsync -a --chmod=600 "$FILE" "${PEPL_BACKUP_RSYNC_TARGET}/"
+  echo "    copied"
+else
+  # Loud on purpose. This is the difference between "we have backups" and
+  # "we have backups on the machine we are worried about losing".
+  echo "WARNING: no off-box copy configured. This dump lives on the SAME DISK"
+  echo "         as the database. Set PEPL_BACKUP_S3_BUCKET or"
+  echo "         PEPL_BACKUP_RSYNC_TARGET in .env to fix that."
+fi
+
 echo "OK: $FILE"
 
 # NOTE: this leaves the backup ON THE SAME DISK as the database. That survives
