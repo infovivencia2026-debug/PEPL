@@ -68,6 +68,32 @@ for i in $(seq 1 30); do
   if curl -sf "http://127.0.0.1:${PORT}/health/ready" > /dev/null; then
     echo "READY: $(curl -s http://127.0.0.1:${PORT}/health/ready)"
     pm2 save
+
+    # ── launch readiness ─────────────────────────────────────────────────────
+    # Not the same question as "is it up". This walks the live database and
+    # asks whether it could actually SERVE a customer: statutory tables in
+    # force, every PT state seeded, entitlements sellable, the audit chain
+    # intact, backups leaving the box.
+    #
+    # Production ran for weeks with no professional-tax slabs for twenty-one
+    # states. Nothing was broken, nothing was logged; employees in those states
+    # would simply have had professional tax of zero. Only this gate says so.
+    #
+    # Deliberately NOT fatal. A readiness gate must never stand between a live
+    # incident and the fix for it, and the deploy has already succeeded by the
+    # time it runs. It is loud instead.
+    echo "==> launch readiness (informational)"
+    if node --env-file=.env --experimental-strip-types scripts/gate-launch.ts; then
+      echo "    ready to serve customers"
+    else
+      echo ""
+      echo "  ############################################################"
+      echo "  #  DEPLOYED, BUT NOT READY TO SERVE CUSTOMERS.             #"
+      echo "  #  The failures above are silent in production: they do    #"
+      echo "  #  not throw, they just compute the wrong number.          #"
+      echo "  ############################################################"
+      echo ""
+    fi
     exit 0
   fi
   sleep 2
@@ -75,3 +101,4 @@ done
 
 echo "NOT READY after 60s — check: pm2 logs ${API_APP} --lines 50"
 exit 1
+

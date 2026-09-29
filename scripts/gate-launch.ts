@@ -189,6 +189,38 @@ async function main(): Promise<void> {
     unknownStates.length ? `configured but no slabs: ${unknownStates.join(', ')}` : `${tenantStates.length} tenant state(s)`,
   )
 
+  // ── the backup actually leaves the box ────────────────────────────────────
+  //
+  // Dumps run nightly and are verified, but they land on the SAME DISK as the
+  // database. That survives a bad migration and does not survive the disk, so
+  // it is not disaster recovery however green the backup log looks.
+  //
+  // Deferring it through a test phase is a reasonable decision. Relying on
+  // somebody remembering the deferral is not -- "before commercial launch" is
+  // a date nobody writes down. So the waiver is a DATE, and it expires.
+  //
+  // Only enforced in production: a CI database and a developer's box have
+  // nothing worth shipping anywhere.
+  if (process.env.NODE_ENV === 'production') {
+    const offBox = process.env.PEPL_BACKUP_S3_BUCKET ?? process.env.PEPL_BACKUP_RSYNC_TARGET
+    const waiver = process.env.PEPL_BACKUP_OFFBOX_WAIVED_UNTIL
+    const waivedUntil = waiver ? new Date(waiver + 'T23:59:59') : null
+    const waiverValid = waivedUntil !== null && !Number.isNaN(waivedUntil.getTime()) && waivedUntil > new Date()
+    record(
+      'backups leave the box',
+      Boolean(offBox) || waiverValid,
+      offBox
+        ? `copied to ${offBox}`
+        : waiverValid
+          ? `WAIVED until ${waiver} — dumps are on the database's own disk until then`
+          : waiver
+            ? `the waiver expired on ${waiver}; dumps are still on the database's own disk`
+            : 'not configured — set PEPL_BACKUP_S3_BUCKET or PEPL_BACKUP_RSYNC_TARGET, or PEPL_BACKUP_OFFBOX_WAIVED_UNTIL=YYYY-MM-DD while testing',
+    )
+  } else {
+    record('backups leave the box', true, 'only enforced in production')
+  }
+
   await db.end()
 
   const failed = checks.filter((c) => !c.ok)
