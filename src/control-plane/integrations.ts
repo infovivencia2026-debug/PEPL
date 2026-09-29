@@ -13,6 +13,7 @@
  * Five attempts with backoff; twenty consecutive failures disable the hook.
  */
 import { createHash, createHmac, randomBytes, timingSafeEqual } from 'node:crypto'
+import { parseOutboundUrl, assertResolvesPublic } from '../net/outbound-url.ts'
 import type { PoolClient } from 'pg'
 import { encryptSecret, decryptSecret } from '../comms/index.ts'
 import { ACTIONS } from '../audit/index.ts'
@@ -65,7 +66,15 @@ const matches = (patterns: string[], action: string): boolean => patterns.some((
 export async function createWebhook(tx: PoolClient, args: { name: string; url: string; events: string[]; master: string | undefined; createdByUserId: string }): Promise<{ webhook: Webhook; secret: string }> {
   const tid = await tenantId(tx)
   if (!args.name?.trim()) throw new IntegrationError('VALIDATION_FAILED', 'name is required')
-  if (!/^https:\/\//.test(args.url) && !/^http:\/\/(127\.0\.0\.1|localhost)/.test(args.url)) throw new IntegrationError('VALIDATION_FAILED', 'url must be https')
+  // Not a regex: this URL comes from a CUSTOMER'S ADMIN and the server then
+  // calls it. The old check allowed loopback outright and allowed https:// to
+  // any address at all -- including 10.0.0.0/8 and 169.254.169.254 -- on a box
+  // that hosts thirteen other applications.
+  try {
+    parseOutboundUrl(args.url)
+  } catch (e) {
+    throw new IntegrationError('VALIDATION_FAILED', (e as Error).message)
+  }
   if (!Array.isArray(args.events) || !args.events.length) throw new IntegrationError('VALIDATION_FAILED', 'subscribe to at least one event')
   const known = Object.keys(ACTIONS)
   const bad = args.events.filter((e) => e !== '*' && !known.includes(e) && !(e.endsWith('.*') && known.some((k) => k.startsWith(e.slice(0, -1)))))
@@ -122,6 +131,14 @@ export async function enqueueWebhookEvents(tx: PoolClient): Promise<number> {
 
 export type Poster = (url: string, body: string, headers: Record<string, string>) => Promise<{ ok: boolean; status: number; error?: string }>
 export const httpPoster: Poster = async (url, body, headers) => {
+  // Re-checked HERE as well as on save: what a hostname resolves to is not
+  // fixed, and a customer who owns the name can repoint it after we accepted
+  // it. This is the check that actually protects the network.
+  try {
+    await assertResolvesPublic(parseOutboundUrl(url))
+  } catch (e) {
+    return { ok: false, status: 0, error: (e as Error).message }
+  }
   try {
     const r = await fetch(url, { method: 'POST', headers: { 'content-type': 'application/json', ...headers }, body, signal: AbortSignal.timeout(10_000) })
     return { ok: r.ok, status: r.status, error: r.ok ? undefined : (await r.text()).slice(0, 300) }

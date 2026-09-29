@@ -20,6 +20,13 @@ export function metricsAllowed(req: IncomingMessage, token = process.env.PEPL_ME
     const a = Buffer.from(given), b = Buffer.from(token)
     return a.length === b.length && timingSafeEqual(a, b)
   }
+  // A request that arrived through the reverse proxy is NOT local, however the
+  // socket looks: OpenLiteSpeed connects from 127.0.0.1, so this check passed
+  // for the whole internet and /metrics was public on any deployment that had
+  // not set a token. The forwarding headers are what distinguish a sidecar
+  // scraper (connects directly, adds none) from a proxied request.
+  const proxied = Boolean(req.headers['x-forwarded-for'] ?? req.headers['x-forwarded-host'] ?? req.headers['x-forwarded-proto'])
+  if (proxied) return false
   return LOOPBACK.has(req.socket.remoteAddress ?? '')
 }
 

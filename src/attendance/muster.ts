@@ -1,3 +1,4 @@
+import { AttendanceError } from './index.ts'
 /**
  * The muster roll: employees down the side, days of the month across, one
  * code per cell, totals per person. Shaped like Form 25 (Factories Act) and
@@ -27,7 +28,13 @@ export const LEGEND: Record<MusterCell['code'], string> = {
 }
 
 export function monthBounds(month: string): { from: string; to: string } {
-  if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(month)) throw new Error('month must be YYYY-MM')
+  // A typed error, not a bare one. `month` comes straight off a query string,
+  // and an untyped throw becomes a 500 -- so a user typing a bad month was
+  // told the server had broken. The fix for a client mistake returning 500 is
+  // to give the error a code, never to swallow it.
+  if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(month)) {
+    throw new AttendanceError('VALIDATION_FAILED', 'month must be YYYY-MM')
+  }
   const [y, m] = month.split('-').map(Number) as [number, number]
   const last = new Date(Date.UTC(y, m, 0)).getUTCDate()
   return { from: `${month}-01`, to: `${month}-${String(last).padStart(2, '0')}` }

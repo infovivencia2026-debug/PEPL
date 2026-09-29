@@ -19,7 +19,11 @@ const P = (r: number): bigint => BigInt(L(r))
 const row = (over: Partial<FilingRow> = {}): FilingRow => ({
   employeeId: 'e1', employeeNumber: 'ACM-001', name: 'Priya Sharma',
   uan: '100123456789', esiNumber: '3101234567', pan: 'ABCDE1234F',
-  grossPaise: P(40_000), pfWagePaise: P(20_000), pfEmployeePaise: P(1_800), pfEmployerPaise: P(1_800),
+  // pfEmployerPaise is the employer's TOTAL 12%; pfPensionPaise is the part of
+  // it that went to the pension fund. 1,800 on a 15,000 capped wage, of which
+  // 1,250 is pension.
+  grossPaise: P(40_000), pfWagePaise: P(20_000), pfEmployeePaise: P(1_800),
+  pfEmployerPaise: P(1_800), pfPensionPaise: P(1_250),
   esiEmployeePaise: 0n, esiEmployerPaise: 0n, ptPaise: P(200), tdsPaise: P(2_500), lopDays: 0,
   ...over,
 })
@@ -33,8 +37,12 @@ describe('ECR', () => {
     // UAN, NAME, gross, EPF wages, EPS wages (capped at 15,000), EDLI wages, EE, EPS, EPF-ER, NCP, refund
     expect(fields.slice(0, 6)).toEqual(['100123456789', 'PRIYA SHARMA', '40000', '20000', '15000', '20000'])
     expect(fields[6]).toBe('1800')                       // employee 12% of the 15k-capped base
-    expect(fields[7]).toBe(String(Math.floor(15_000 * 0.0833)))   // 1249
-    expect(fields[8]).toBe(String(1800 - Math.round(15_000 * 0.0833)))   // 551
+    // The BOOKED pension figure, not a recomputation. This function floors and
+    // the engine rounds, so deriving it here reported 1249 against a payslip
+    // that said 1250 -- a return that disagrees by a rupee with the ledger it
+    // came from. It now reports what was actually paid.
+    expect(fields[7]).toBe('1250')
+    expect(fields[8]).toBe('550')   // 1800 total less 1250 pension
     expect(fields[9]).toBe('0')
     expect(fields[10]).toBe('0')
     expect(f.content.endsWith('\n')).toBe(true)

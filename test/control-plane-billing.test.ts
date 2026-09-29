@@ -11,6 +11,13 @@ import { closePools } from '../src/db/pool.ts'
 import { controlDb } from '../src/control-plane/index.ts'
 import { signup, closePeriods, runDunning, markInvoicePaid, voidInvoice, listInvoices, priceFor, GST_RATE } from '../src/control-plane/billing.ts'
 import { login } from '../src/auth/index.ts'
+
+// This suite's subject is an invoice WITH GST, and GST is now charged only by a
+// supplier that has a GSTIN configured -- an unregistered supplier must not
+// collect it. So the registration is STATED here rather than assumed. The
+// unregistered case is test/gst-registration.test.ts.
+const GSTIN_BEFORE = process.env.PEPL_GSTIN
+process.env.PEPL_GSTIN = '36AABCP1234C1ZX'
 import { withTenant } from '../src/db/tenant-tx.ts'
 import { resolveConfig } from '../src/config/resolver.ts'
 
@@ -29,7 +36,12 @@ const api = async (method: string, path: string, body?: unknown, tok?: string) =
   return { status: r.status, body: (r.status === 204 ? {} : (await r.json())) as Record<string, unknown> & { error?: { code: string } } }
 }
 
-afterAll(async () => { server?.close(); await closePools(); await controlDb.end() })
+afterAll(async () => {
+  // Restored so file order cannot leak this setting into another suite.
+  if (GSTIN_BEFORE === undefined) delete process.env.PEPL_GSTIN
+  else process.env.PEPL_GSTIN = GSTIN_BEFORE
+  server?.close(); await closePools(); await controlDb.end()
+})
 
 describe('signup and billing', () => {
   it('plans are public; signup provisions a trial tenant and signs the admin in', async () => {
@@ -119,7 +131,10 @@ describe('signup and billing', () => {
     expect(invoices[0]!.subtotal_paise).toBe(String(p.subtotal))
     expect(invoices[0]!.gst_paise).toBe(String(p.gst))
     expect(Number(invoices[0]!.gst_paise)).toBe(Math.round(Number(invoices[0]!.subtotal_paise) * GST_RATE))
-    expect(invoices[0]!.number).toMatch(/^INV-\d{4}-[0-9A-F]{6}-00001$/)
+    // INV/26-27/00001. CGST Rule 46(b): at most sixteen characters, unique
+    // within the FINANCIAL year. The old `INV-2026-ABCDEF-00001` was twenty-one.
+    expect(invoices[0]!.number).toMatch(/^INV\/\d{2}-\d{2}\/\d{5}$/)
+    expect(invoices[0]!.number.length).toBeLessThanOrEqual(16)
     // running the close again invoices nothing new
     expect((await closePeriods()).invoiced).toBe(0)
 

@@ -125,6 +125,27 @@ export const fullName = (p: { first_name: string; last_name: string | null }) =>
   `${p.first_name} ${p.last_name ?? ''}`.trim()
 export const pretty = (s: string) =>
   s.replace(/[_.]/g, ' ').replace(/^./, (c) => c.toUpperCase())
+/**
+ * Date AND time, in en-IN.
+ *
+ * `dateLabel` already pinned the locale; these two exist because roughly eight
+ * places called `new Date(x).toLocaleString()` directly and got whatever the
+ * BROWSER was set to. An Indian payroll product showing 9/28/2026 to a user
+ * whose laptop is set to US English is a small thing that reads as a bug, and
+ * 03/04 is genuinely ambiguous between two continents.
+ */
+export const dateTimeLabel = (s: string | null | undefined): string =>
+  s
+    ? new Date(s).toLocaleString('en-IN', {
+        day: 'numeric', month: 'short', year: 'numeric',
+        hour: '2-digit', minute: '2-digit',
+      })
+    : '—'
+
+/** Clock time only, en-IN. */
+export const timeLabel = (s: string | null | undefined): string =>
+  s ? new Date(s).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' }) : '—'
+
 export const dateLabel = (
   s: string | null | undefined,
   options: Intl.DateTimeFormatOptions = {

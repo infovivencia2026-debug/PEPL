@@ -73,3 +73,16 @@ describe('no Origin at all', () => {
     expect(originAllowed(undefined, { host: 'pepl.onrol.in' }, PUBLIC)).toBe(true)
   })
 })
+
+describe('configuration beats a header', () => {
+  it('ignores x-forwarded-host once the public url is set', () => {
+    // Otherwise the caller can name the host the check compares against, which
+    // is the same mistake as trusting Host.
+    expect(originAllowed('https://evil.test', { host: '127.0.0.1:4010', 'x-forwarded-host': 'evil.test' }, PUBLIC)).toBe(false)
+  })
+
+  it('still accepts the configured host and the direct host', () => {
+    expect(originAllowed(PUBLIC, { host: '127.0.0.1:4010', 'x-forwarded-host': 'evil.test' }, PUBLIC)).toBe(true)
+    expect(originAllowed('http://127.0.0.1:4010', { host: '127.0.0.1:4010' }, PUBLIC)).toBe(true)
+  })
+})

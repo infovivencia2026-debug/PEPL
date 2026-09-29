@@ -36,9 +36,26 @@ const OLD: SlabRow[] = [
   { from: 0, to: 250_000, rate: 0 }, { from: 250_000, to: 500_000, rate: 0.05 },
   { from: 500_000, to: 1_000_000, rate: 0.20 }, { from: 1_000_000, to: null, rate: 0.30 },
 ]
-const SURCHARGE = [{ above: 5_000_000, rate: 0.10 }, { above: 10_000_000, rate: 0.15 }]
-const NEW_RULES: RegimeRules = { standardDeduction: 75_000, rebateLimit: 1_200_000, rebateMax: 60_000, cessRate: 0.04, surcharge: SURCHARGE }
-const OLD_RULES: RegimeRules = { standardDeduction: 50_000, rebateLimit: 500_000, rebateMax: 12_500, cessRate: 0.04, surcharge: SURCHARGE }
+// Surcharge on income tax. The two regimes DIFFER above two crore and sharing
+// one array here quietly gave the old regime the new regime's cap.
+//
+//   both regimes: 10% above 50L, 15% above 1Cr, 25% above 2Cr
+//   old regime only: 37% above 5Cr  (withdrawn for the new regime)
+//
+// Only the first two bands existed, so anyone above two crore was
+// under-deducted. Surcharge applies to the TAX, not the income, and carries
+// marginal relief -- see marginalRelief in src/payroll/tds.ts.
+const SURCHARGE_NEW = [
+  { above: 5_000_000, rate: 0.10 },
+  { above: 10_000_000, rate: 0.15 },
+  { above: 20_000_000, rate: 0.25 },
+]
+const SURCHARGE_OLD = [
+  ...SURCHARGE_NEW,
+  { above: 50_000_000, rate: 0.37 },
+]
+const NEW_RULES: RegimeRules = { standardDeduction: 75_000, rebateLimit: 1_200_000, rebateMax: 60_000, cessRate: 0.04, surcharge: SURCHARGE_NEW }
+const OLD_RULES: RegimeRules = { standardDeduction: 50_000, rebateLimit: 500_000, rebateMax: 12_500, cessRate: 0.04, surcharge: SURCHARGE_OLD }
 
 export const INCOME_TAX: readonly FiscalYearTables[] = [
   { fiscalYear: '2026-27', slabs: { new: NEW_2026, old: OLD }, rules: { new: NEW_RULES, old: OLD_RULES },

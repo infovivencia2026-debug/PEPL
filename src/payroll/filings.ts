@@ -43,7 +43,10 @@ export interface FilingRow {
   /** The wage PF was computed on, from the PF_EE line's note. */
   pfWagePaise: bigint
   pfEmployeePaise: bigint
+  /** The EPF share of the employer's 12% -- the ECR reports it apart from pension. */
   pfEmployerPaise: bigint
+  /** The pension (EPS) share of the same 12%. */
+  pfPensionPaise: bigint
   esiEmployeePaise: bigint
   esiEmployerPaise: bigint
   ptPaise: bigint
@@ -83,13 +86,18 @@ export async function filingRows(tx: PoolClient, runId: string): Promise<FilingR
     employee_id: string; employee_number: string; first_name: string; last_name: string | null
     uan: string | null; esi_number: string | null; pan: string | null
     gross: string; lop_days: string
-    pf_ee: string; pf_er: string; esi_ee: string; esi_er: string; pt: string; tds: string
+    pf_ee: string; pf_er: string; pf_eps: string; esi_ee: string; esi_er: string; pt: string; tds: string
     pf_wage: string | null
   }>(
     `SELECT e.id AS employee_id, e.employee_number, e.first_name, e.last_name,
             s.uan, s.esi_number, s.pan,
             p.gross_paise::text AS gross, i.lop_days::text AS lop_days,
-            coalesce(l.pf_ee, 0)::text AS pf_ee, coalesce(l.pf_er, 0)::text AS pf_er,
+            coalesce(l.pf_ee, 0)::text AS pf_ee,
+            -- The TOTAL employer contribution: PF_ER now holds only the EPF
+            -- remainder, so the pension line has to be added back. Everything
+            -- downstream has always meant "the employer's 12%" by this.
+            (coalesce(l.pf_er, 0) + coalesce(l.pf_eps, 0))::text AS pf_er,
+            coalesce(l.pf_eps, 0)::text AS pf_eps,
             coalesce(l.esi_ee, 0)::text AS esi_ee, coalesce(l.esi_er, 0)::text AS esi_er,
             coalesce(l.pt, 0)::text AS pt, coalesce(l.tds, 0)::text AS tds,
             l.pf_wage::text AS pf_wage
@@ -100,6 +108,9 @@ export async function filingRows(tx: PoolClient, runId: string): Promise<FilingR
        LEFT JOIN LATERAL (
          SELECT sum(amount_paise) FILTER (WHERE component_code = 'PF_EE')  AS pf_ee,
                 sum(amount_paise) FILTER (WHERE component_code = 'PF_ER')  AS pf_er,
+                -- The ECR has separate EPF and EPS columns. Before the split
+                -- there was one PF_ER line and nothing to put in the second.
+                sum(amount_paise) FILTER (WHERE component_code = 'PF_EPS') AS pf_eps,
                 sum(amount_paise) FILTER (WHERE component_code = 'ESI_EE') AS esi_ee,
                 sum(amount_paise) FILTER (WHERE component_code = 'ESI_ER') AS esi_er,
                 sum(amount_paise) FILTER (WHERE component_code = 'PT')     AS pt,
@@ -124,6 +135,7 @@ export async function filingRows(tx: PoolClient, runId: string): Promise<FilingR
     pfWagePaise: BigInt(Math.round(Number(r.pf_wage ?? '0'))),
     pfEmployeePaise: BigInt(r.pf_ee),
     pfEmployerPaise: BigInt(r.pf_er),
+    pfPensionPaise: BigInt(r.pf_eps),
     esiEmployeePaise: BigInt(r.esi_ee),
     esiEmployerPaise: BigInt(r.esi_er),
     ptPaise: BigInt(r.pt),
@@ -162,7 +174,14 @@ export function ecrFile(rows: readonly FilingRow[], opts: EcrOptions): Filing {
     }
 
     const epsWage = r.pfWagePaise > opts.epsWageCeilingPaise ? opts.epsWageCeilingPaise : r.pfWagePaise
-    const eps = BigInt(Math.round(Number(epsWage) * opts.epsRate))
+    // Prefer what was actually BOOKED. Recomputing here can differ from the
+    // ledger by a rupee -- this function floors while the engine rounds -- and
+    // a return that disagrees with the payslip it came from is the kind of
+    // discrepancy that takes an afternoon to explain. Falls back to deriving
+    // it for a run written before the pension line existed.
+    const eps = r.pfPensionPaise > 0n
+      ? r.pfPensionPaise
+      : BigInt(Math.round(Number(epsWage) * opts.epsRate))
     // The employer's share never goes negative: where EPS would exceed it (a
     // wage below the EPS floor), EPF takes nothing rather than a negative.
     const epfEmployer = r.pfEmployerPaise > eps ? r.pfEmployerPaise - eps : 0n

@@ -82,7 +82,11 @@ describe('switching plan mid-period', () => {
     expect(Number(prorata.total_paise)).toBeGreaterThan(0)
     // It is not a full period: it must cost less than a month of the new plan.
     expect(Number(prorata.subtotal_paise)).toBeLessThan(500000 + 8000 * 100)
-    expect(prorata.number).toMatch(/^INV-/)
+    // INV/26-27/00020 -- its own invoice in the ordinary series, not a
+    // footnote on the last one. CGST Rule 46(b): sixteen characters, unique
+    // within the financial year.
+    expect(prorata.number).toMatch(/^INV\/\d{2}-\d{2}\/\d{5}$/)
+    expect(prorata.number.length).toBeLessThanOrEqual(16)
   })
 
   it('a downgrade raises nothing', async () => {

@@ -157,7 +157,7 @@ export function register(router: Router): void {
       const totals = await calculate(ctx.tx, asUuid(ctx.req.params.id, 'id'), {
         statutory: statutory.config,
         components: (await componentFlags(ctx.tx)) ?? undefined,
-        ptAmountPaise: (state, gross) => ptFor(statutory.ptSlabs, state, gross),
+        ptAmountPaise: (state, gross, gender) => ptFor(statutory.ptSlabs, state, gross, undefined, gender, statutory.ptExemptions),
         lwfRates: statutory.lwfRates,
         pfOnFullWage: ctx.config.get<boolean>('payroll.pf_on_full_wage'),
         lopBasis: ctx.config.get<'calendar_days' | 'fixed_30' | 'working_days'>('payroll.lop_basis'),
@@ -185,7 +185,7 @@ export function register(router: Router): void {
           old: statutory.taxSlabs.old.length > 0 && !!statutory.taxRules.old,
         } },
         components: (await componentFlags(ctx.tx)) ?? undefined,
-        ptAmountPaise: (state, gross) => ptFor(statutory.ptSlabs, state, gross),
+        ptAmountPaise: (state, gross, gender) => ptFor(statutory.ptSlabs, state, gross, undefined, gender, statutory.ptExemptions),
         pfOnFullWage: ctx.config.get<boolean>('payroll.pf_on_full_wage'),
         lopBasis: ctx.config.get<'calendar_days' | 'fixed_30' | 'working_days'>('payroll.lop_basis'),
         computeTds: tdsFor(statutory),

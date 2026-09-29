@@ -16,6 +16,10 @@ export const GLOBAL_TABLES: ReadonlySet<string> = new Set([
   // to the application role; a tenant deviates by acknowledged override.
   'statutory_configs',
   'pt_slabs',
+  // Who a state exempts from professional tax -- Maharashtra exempts women up
+  // to Rs 25,000. The same kind of fact as a slab: the law, not a customer
+  // preference, and read-only to the application role.
+  'pt_exemptions',
   'tax_slabs',
   'tax_rules',
   'lwf_rates',

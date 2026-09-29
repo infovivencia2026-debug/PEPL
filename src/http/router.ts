@@ -420,6 +420,32 @@ export interface HandlerOptions {
 
 interface Limiter { check(key: string, now?: number): Verdict | Promise<Verdict> }
 
+/**
+ * Who this request is really from, for rate limiting.
+ *
+ * `socket.remoteAddress` is the PROXY behind a reverse proxy, so every
+ * unauthenticated request on this deployment shared one bucket: one attacker
+ * could exhaust it and lock every customer out of signing in, and per-attacker
+ * limiting did nothing at all.
+ *
+ * `x-forwarded-for` is only trusted when the connection came from loopback --
+ * i.e. from our own proxy. A direct caller can put anything in that header, so
+ * trusting it unconditionally would let an attacker mint a fresh bucket per
+ * request and remove the limit entirely. The LAST entry is the one our own
+ * proxy appended; earlier ones may have come from the client.
+ */
+const isLoopbackAddr = (ip: string): boolean =>
+  ip === '127.0.0.1' || ip === '::1' || ip === '::ffff:127.0.0.1'
+
+export const clientIp = (req: { socket: { remoteAddress?: string | undefined }; headers: Record<string, unknown> }): string => {
+  const remote = req.socket.remoteAddress ?? 'unknown'
+  if (!isLoopbackAddr(remote)) return remote
+  const raw = req.headers['x-forwarded-for']
+  const chain = String(Array.isArray(raw) ? raw[0] ?? '' : raw ?? '')
+    .split(',').map((p) => p.trim()).filter(Boolean)
+  return chain.length ? chain[chain.length - 1]! : remote
+}
+
 export function createHandler(router: Router, options: HandlerOptions = {}) {
   const store = options.store ?? (process.env.PEPL_RATE_LIMIT_STORE === 'postgres' ? 'postgres' : 'memory')
   const make = (limit: Limit): Limiter => store === 'postgres' ? new PgRateLimiter(limit) : new RateLimiter(limit)
@@ -460,7 +486,7 @@ export function createHandler(router: Router, options: HandlerOptions = {}) {
       const token = auth?.startsWith('Bearer ') ? auth.slice(7).trim() : null
       const verdict = await (token
         ? sessionLimiter.check(sessionKey(token))
-        : publicLimiter.check(`ip:${req.socket.remoteAddress ?? 'unknown'}`))
+        : publicLimiter.check(`ip:${clientIp(req)}`))
       if (!verdict.allowed) {
         rateLimited.inc({ limiter: token ? 'session' : 'public' })
         send(429, {

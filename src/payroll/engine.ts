@@ -28,6 +28,12 @@ export interface StatutoryConfig {
   esi_employee_rate: number
   esi_employer_rate: number
   esi_gross_threshold_paise: bigint
+  /** Pension share of the employer's 12%, capped at its own ceiling. */
+  eps_rate?: number
+  eps_wage_ceiling_paise?: bigint
+  /** Employer-only insurance levy on top of the 12%. */
+  edli_rate?: number
+  edli_wage_ceiling_paise?: bigint
 }
 
 export interface PayrollInput {
@@ -39,6 +45,16 @@ export interface PayrollInput {
   stateCode: string
   pfApplicable: boolean
   esiApplicable: boolean
+  /**
+   * Already covered earlier in this ESI contribution period.
+   *
+   * Cover is settled at the START of a half-year period and holds until it
+   * ends, so someone whose wage rises past the ceiling mid-period stays
+   * covered. Resolved at freeze because the engine reads only payroll_inputs.
+   */
+  esiCoveredPeriod?: boolean
+  /** Resolved at freeze. Used only for statutory exemptions that depend on it. */
+  gender?: string | null
   taxRegime: 'old' | 'new'
   /** Allowed Chapter VI-A + HRA exemption for the year, resolved at freeze. */
   chapterViaPaise?: bigint
@@ -59,7 +75,12 @@ export interface PayrollInput {
 
 export interface EngineOptions {
   statutory: StatutoryConfig
-  ptAmountPaise: (stateCode: string, grossPaise: bigint) => bigint
+  /**
+   * Professional tax. Takes gender because some states exempt on it --
+   * Maharashtra exempts women up to Rs 25,000 a month -- and a wrong PT
+   * deduction is money taken from someone who did not owe it.
+   */
+  ptAmountPaise: (stateCode: string, grossPaise: bigint, gender?: string | null) => bigint
   /**
    * Labour Welfare Fund for the run's month, by state: employee share (a
    * deduction) and employer share. Absent or zero means the state levies none
@@ -114,6 +135,18 @@ export interface Computed {
 export const toRupee = (paise: number | bigint): bigint => {
   const n = typeof paise === 'bigint' ? Number(paise) : paise
   return BigInt(Math.round(n / 100) * 100)
+}
+
+/**
+ * ESI rounds UP to the next rupee, not to the nearest.
+ *
+ * ESI (General) Regulation 40. It is the one component that does not follow
+ * the house rule; using toRupee understated the contribution on roughly half
+ * of all salaries -- by under a rupee each, and wrong on the return either way.
+ */
+export const toRupeeUp = (paise: number | bigint): bigint => {
+  const n = typeof paise === 'bigint' ? Number(paise) : paise
+  return BigInt(Math.ceil(n / 100) * 100)
 }
 
 const PF_WAGE_COMPONENTS = new Set(['basic', 'da'])
@@ -203,23 +236,63 @@ export function computePayroll(input: PayrollInput, opts: EngineOptions): Comput
 
     lines.push({ code: 'PF_EE', type: 'deduction', amountPaise: pfEmployee,
       note: { pfWage: Number(pfWage), pfBase: Number(pfBase), capped: !opts.pfOnFullWage && pfWage > ceiling } })
-    lines.push({ code: 'PF_ER', type: 'employer_contribution', amountPaise: pfEmployer,
-      note: { pfBase: Number(pfBase) } })
+
+    // The employer's 12% is split at source: 8.33% of PF wages to the PENSION
+    // fund, capped at its own ceiling, and the remainder to the provident fund.
+    // Booking it as one line leaves the ECR return -- which has separate EPF
+    // and EPS columns -- with nothing to put in them.
+    //
+    // EPS is derived and EPF is the REMAINDER, so the two always add back to
+    // the 12% actually computed. Deriving both independently would let rounding
+    // drop a rupee into neither.
+    const epsRate = opts.statutory.eps_rate
+    if (epsRate && epsRate > 0) {
+      const epsCeiling = opts.statutory.eps_wage_ceiling_paise ?? ceiling
+      const epsBase = pfBase > epsCeiling ? epsCeiling : pfBase
+      const eps = toRupee(Number(epsBase) * epsRate)
+      lines.push({ code: 'PF_EPS', type: 'employer_contribution', amountPaise: eps,
+        note: { epsBase: Number(epsBase), rate: epsRate } })
+      lines.push({ code: 'PF_ER', type: 'employer_contribution', amountPaise: pfEmployer - eps,
+        note: { pfBase: Number(pfBase), ofWhichPension: Number(eps) } })
+    } else {
+      lines.push({ code: 'PF_ER', type: 'employer_contribution', amountPaise: pfEmployer,
+        note: { pfBase: Number(pfBase) } })
+    }
+
+    // EDLI sits ON TOP of the 12% and is the employer's alone, so it raises
+    // employer cost without touching the payslip's net.
+    const edliRate = opts.statutory.edli_rate
+    if (edliRate && edliRate > 0) {
+      const edliCeiling = opts.statutory.edli_wage_ceiling_paise ?? ceiling
+      const edliBase = pfBase > edliCeiling ? edliCeiling : pfBase
+      const edli = toRupee(Number(edliBase) * edliRate)
+      if (edli > 0n) {
+        lines.push({ code: 'EDLI_ER', type: 'employer_contribution', amountPaise: edli,
+          note: { edliBase: Number(edliBase), rate: edliRate } })
+      }
+    }
   }
 
   // 7. ESI applies only below the gross threshold.
   let esiEmployee = 0n
   const esiGross = grossPaise - nonEsiEarnings
-  const esiEligible = input.esiApplicable && esiGross <= opts.statutory.esi_gross_threshold_paise
+  // The ceiling decides cover at the START of a contribution period. Someone
+  // already covered this period keeps it even after a raise takes them over --
+  // re-testing every month dropped people out of ESI mid-period, which is both
+  // a benefit they were entitled to and a shortfall on the return.
+  const esiEligible = input.esiApplicable &&
+    (input.esiCoveredPeriod === true || esiGross <= opts.statutory.esi_gross_threshold_paise)
   if (esiEligible) {
-    esiEmployee = toRupee(Number(esiGross) * opts.statutory.esi_employee_rate)
-    const esiEmployer = toRupee(Number(esiGross) * opts.statutory.esi_employer_rate)
+    // Rounded UP, per Regulation 40 -- the one component that does not round
+    // to the nearest rupee like everything else.
+    esiEmployee = toRupeeUp(Number(esiGross) * opts.statutory.esi_employee_rate)
+    const esiEmployer = toRupeeUp(Number(esiGross) * opts.statutory.esi_employer_rate)
     lines.push({ code: 'ESI_EE', type: 'deduction', amountPaise: esiEmployee, note: { gross: Number(esiGross) } })
     lines.push({ code: 'ESI_ER', type: 'employer_contribution', amountPaise: esiEmployer })
   }
 
   // 8. Professional tax by state slab.
-  const pt = opts.ptAmountPaise(input.stateCode, grossPaise)
+  const pt = opts.ptAmountPaise(input.stateCode, grossPaise, input.gender)
   if (pt > 0n) {
     lines.push({ code: 'PT', type: 'deduction', amountPaise: pt, note: { state: input.stateCode } })
   }

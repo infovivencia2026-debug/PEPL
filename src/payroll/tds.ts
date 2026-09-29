@@ -116,12 +116,45 @@ export function computeTds(
     tax -= rebate
   }
 
-  // Surcharge applies to the tax, not the income, above each band.
-  let surchargeRate = 0
-  for (const band of rules.surcharge_bands ?? []) {
-    if (taxable > band.above_paise) surchargeRate = band.rate
+  // Marginal relief on the 87A cliff.
+  //
+  // Without it, one rupee over the rebate threshold costs tens of thousands:
+  // at 12,00,000 the rebate wipes the tax out, and at 12,00,001 the whole bill
+  // lands. Relief caps the tax at the amount by which income exceeds the
+  // threshold, so crossing it can never cost more than the crossing.
+  if (rebateLimit > 0 && taxable > rebateLimit) {
+    const excess = taxable - rebateLimit
+    if (tax > excess) tax = excess
   }
-  const surcharge = tax * surchargeRate
+
+  // Surcharge applies to the tax, not the income, above each band.
+  const bands = [...(rules.surcharge_bands ?? [])].sort((a, b) => a.above_paise - b.above_paise)
+  let surchargeRate = 0
+  let bandFloor = 0
+  let rateBelowBand = 0
+  for (const band of bands) {
+    if (taxable > band.above_paise) {
+      rateBelowBand = surchargeRate   // what was payable just below this band
+      surchargeRate = band.rate
+      bandFloor = band.above_paise
+    }
+  }
+  let surcharge = tax * surchargeRate
+
+  // Marginal relief on surcharge: crossing a band must not cost more than the
+  // amount by which it was crossed.
+  //
+  // The ceiling is the liability AT the threshold plus the extra income — and
+  // the liability at the threshold INCLUDES the surcharge already payable
+  // there at the previous band's rate. Leaving that term out made the ceiling
+  // far too low: tax at 2.01Cr came out BELOW tax at 1.99Cr, because the
+  // surcharge collapsed to almost nothing the moment the band was crossed.
+  if (surchargeRate > 0 && bandFloor > 0) {
+    const taxAtFloor = taxOnIncome(bandFloor, slabs)
+    const liabilityAtFloor = taxAtFloor + taxAtFloor * rateBelowBand
+    const ceiling = liabilityAtFloor + (taxable - bandFloor)
+    if (tax + surcharge > ceiling) surcharge = Math.max(0, ceiling - tax)
+  }
 
   const cess = (tax + surcharge) * Number(rules.cess_rate)
   const annualTax = Math.max(0, tax + surcharge + cess)

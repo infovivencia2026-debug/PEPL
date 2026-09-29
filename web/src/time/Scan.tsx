@@ -6,6 +6,7 @@
 import { useEffect, useRef, useState } from 'react'
 import jsQR from 'jsqr'
 import { X } from 'lucide-react'
+import { useDialogFocus } from '../useDialogFocus'
 
 export function ScanSheet({ onCode, onClose }: { onCode: (payload: string) => void; onClose: () => void }) {
   const video = useRef<HTMLVideoElement>(null)
@@ -34,8 +35,11 @@ export function ScanSheet({ onCode, onClose }: { onCode: (payload: string) => vo
     window.addEventListener('keydown', esc)
     return () => { cancelAnimationFrame(raf); stream?.getTracks().forEach((t) => t.stop()); window.removeEventListener('keydown', esc) }
   }, [onCode, onClose])
+  // Rendered only while open, so the trap is always on. Escape is handled
+  // here too; the sheet's own listener above is harmless alongside it.
+  const dialogRef = useDialogFocus<HTMLDivElement>(true, onClose)
   return (
-    <div className="scan-sheet" role="dialog" aria-modal="true" aria-label="Scan the kiosk code">
+    <div ref={dialogRef} className="scan-sheet" role="dialog" aria-modal="true" aria-label="Scan the kiosk code">
       <div className="scan-box">
         <button type="button" className="btn ghost scan-close" onClick={onClose} aria-label="Close scanner"><X size={18} aria-hidden="true" /></button>
         <h2>Point at the kiosk screen</h2>

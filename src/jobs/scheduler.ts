@@ -110,7 +110,12 @@ export async function runOnce(job: JobName): Promise<JobResult | null> {
     jobRuns.inc({ job, outcome: result.errors.length ? 'errors' : 'ok' })
     jobDuration.observe({ job }, (Date.now() - started) / 1000)
     log({
-      level: result.errors.length ? 'warn' : 'info',
+      // ERROR, not warn. `data.retention` failed on every tenant every night
+      // for months and nobody noticed, because a job that finishes WITH errors
+      // looked the same as a slow one. A job that throws already logs at error;
+      // a job that quietly fails for every tenant is the more dangerous case,
+      // because it keeps reporting that it ran.
+      level: result.errors.length ? 'error' : 'info',
       msg: 'job finished', job,
       tenants: result.tenants, affected: result.affected,
       errors: result.errors.length, ms: Date.now() - started,

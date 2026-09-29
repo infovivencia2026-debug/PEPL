@@ -5,8 +5,8 @@
  * decision in one place means an unreachable route fails the same way
  * everywhere — with the page that explains it, not a blank panel.
  */
-import type { ReactElement } from 'react'
-import { Card, Empty } from '../ui'
+import { lazy, Suspense, type ReactElement } from 'react'
+import { Card, Empty, Skeleton } from '../ui'
 import { Dashboard } from '../Dashboard'
 import { People, EmployeeProfile } from '../People'
 import { AttendancePage, ApprovalsPage, LeavePage } from '../Workforce'
@@ -17,19 +17,19 @@ import {
   ActivityPage,
 } from '../Operations'
 import { PayrollPage } from '../Payroll'
-import { Communications } from '../Communications'
+const Communications = lazy(() => import('../Communications').then((m) => ({ default: m.Communications })))
 import { EngagePage } from '../engage/Engage'
-import { GrowthPage } from '../growth/Growth'
+const GrowthPage = lazy(() => import('../growth/Growth').then((m) => ({ default: m.GrowthPage })))
 import { CompanyPage } from '../company/Company'
-import { ReportBuilder } from '../reports/Builder'
+const ReportBuilder = lazy(() => import('../reports/Builder').then((m) => ({ default: m.ReportBuilder })))
 import { DocumentsPage, ImportPage } from '../DataTools'
 import { PaymentsPage } from '../PaymentsPage'
 import { MyTaxDeclaration, TaxDeclarationsQueue } from '../TaxDeclarations'
 import { PushSettings } from '../PushSettings'
 import { AccountSettings } from '../Account'
 import { Organisation } from '../Organisation'
-import { RecruitmentPage } from '../Recruitment'
-import { PerformancePage } from '../Performance'
+const RecruitmentPage = lazy(() => import('../Recruitment').then((m) => ({ default: m.RecruitmentPage })))
+const PerformancePage = lazy(() => import('../Performance').then((m) => ({ default: m.PerformancePage })))
 import type { Workspace } from '../types'
 import type { FormSpec } from '../forms'
 
@@ -113,5 +113,9 @@ export function screenFor({
   else if (section === 'reports') page = route.split('/')[1] === 'builder' ? <ReportBuilder data={data} /> : <ReportsPage {...props} />
   else if (section === 'activity') page = <ActivityPage {...props} />
   else if (section === 'settings') page = <SettingsPage {...props} />
-  return page
+  // Each lazy screen is its own chunk, so the first load no longer carries
+  // Mailbox, Recruitment, Performance, Growth and the report builder for
+  // somebody who only opens the dashboard. The fallback is the app's own
+  // skeleton, not a spinner, so the layout does not jump when it arrives.
+  return page === null ? null : <Suspense fallback={<Skeleton />}>{page}</Suspense>
 }

@@ -37,6 +37,8 @@ export interface LoadedStatutory {
   id: string
   config: StatutoryConfig
   ptSlabs: PtSlab[]
+  /** Who does not pay it despite falling in a slab. */
+  ptExemptions: PtExemption[]
   lwfRates: LwfRate[]
   taxSlabs: Record<'old' | 'new', TaxSlab[]>
   taxRules: Partial<Record<'old' | 'new', TaxRules>>
@@ -50,14 +52,25 @@ export async function loadStatutory(tx: PoolClient, asOf?: string): Promise<Load
     id: string
     pf_employee_rate: string; pf_employer_rate: string; pf_wage_ceiling_paise: string
     esi_employee_rate: string; esi_employer_rate: string; esi_gross_threshold_paise: string
+    eps_rate: string; eps_wage_ceiling_paise: string
+    edli_rate: string; edli_wage_ceiling_paise: string
   }>(
     `SELECT id, pf_employee_rate::text, pf_employer_rate::text, pf_wage_ceiling_paise::text,
-            esi_employee_rate::text, esi_employer_rate::text, esi_gross_threshold_paise::text
+            esi_employee_rate::text, esi_employer_rate::text, esi_gross_threshold_paise::text,
+            eps_rate::text, eps_wage_ceiling_paise::text,
+            edli_rate::text, edli_wage_ceiling_paise::text
        FROM statutory_configs
       WHERE effective_from <= $1::date AND (effective_to IS NULL OR effective_to > $1::date)
       ORDER BY effective_from DESC LIMIT 1`,
     [date],
   )
+  const { rows: exemptionRows } = await tx.query<{ state_code: string; gender: string | null; gross_upto_paise: string }>(
+    `SELECT state_code, gender, gross_upto_paise::text
+       FROM pt_exemptions
+      WHERE effective_from <= $1::date AND (effective_to IS NULL OR effective_to > $1::date)`,
+    [date])
+  const ptExemptions = exemptionRows
+
   const row = rows[0]
   if (!row) {
     throw new StatutoryError(
@@ -114,13 +127,46 @@ export async function loadStatutory(tx: PoolClient, asOf?: string): Promise<Load
       esi_employee_rate: Number(row.esi_employee_rate),
       esi_employer_rate: Number(row.esi_employer_rate),
       esi_gross_threshold_paise: BigInt(row.esi_gross_threshold_paise),
+      // The employer's 12% is split into pension and provident fund, and EDLI
+      // rides on top. Effective-dated like every other rate, so a locked run
+      // keeps computing the way it did when it was locked.
+      eps_rate: Number(row.eps_rate),
+      eps_wage_ceiling_paise: BigInt(row.eps_wage_ceiling_paise),
+      edli_rate: Number(row.edli_rate),
+      edli_wage_ceiling_paise: BigInt(row.edli_wage_ceiling_paise),
     },
     ptSlabs: slabs,
+    ptExemptions,
   }
 }
 
-/** Slab lookup. A state with no slabs levies no professional tax. */
-export function ptFor(slabs: readonly PtSlab[], stateCode: string, grossPaise: bigint, month?: number): bigint {
+export interface PtExemption {
+  state_code: string
+  gender: string | null
+  gross_upto_paise: string
+}
+
+/**
+ * Slab lookup. A state with no slabs levies no professional tax.
+ *
+ * Exemptions are checked FIRST and are separate data: Maharashtra exempts
+ * women up to Rs 25,000 a month, and PEPL used to apply the general slab to
+ * everyone -- deducting professional tax from people who did not owe it.
+ */
+export function ptFor(
+  slabs: readonly PtSlab[],
+  stateCode: string,
+  grossPaise: bigint,
+  month?: number,
+  gender?: string | null,
+  exemptions: readonly PtExemption[] = [],
+): bigint {
+  for (const e of exemptions) {
+    if (e.state_code !== stateCode) continue
+    // A NULL gender on the exemption means it is not gendered at all.
+    if (e.gender !== null && e.gender !== gender) continue
+    if (grossPaise <= BigInt(e.gross_upto_paise)) return 0n
+  }
   const applicable = slabs.filter((s) => s.state_code === stateCode)
   if (applicable.length === 0) return 0n
 

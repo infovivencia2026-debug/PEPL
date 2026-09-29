@@ -28,6 +28,13 @@ export const allowedHosts = (
       // degrades to the old behaviour rather than locking everyone out.
     }
   }
+  // Once PEPL_PUBLIC_URL is configured it is the answer, and the forwarded
+  // header stops being consulted at all: a header the caller can set should
+  // not widen the check when configuration already states the truth.
+  if (hosts.size > 0) {
+    if (headers.host) hosts.add(headers.host)
+    return hosts
+  }
   const forwardedRaw = headers['x-forwarded-host']
   const forwarded = (Array.isArray(forwardedRaw) ? forwardedRaw[0] : forwardedRaw)?.split(',')[0]?.trim()
   if (forwarded) hosts.add(forwarded)

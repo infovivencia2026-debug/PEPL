@@ -25,6 +25,23 @@ export interface GratuityInput {
   lastWorkingDay: Date
   /** Death or disablement: eligible from day one. */
   waiveMinimumService?: boolean
+  /**
+   * A fixed-term employee, who qualifies after ONE year rather than five.
+   *
+   * Code on Social Security 2020, s.53(1) proviso. Without this a fixed-term
+   * employee of two years was told they had no gratuity, which is both wrong
+   * and the kind of wrong that surfaces at a tribunal.
+   */
+  fixedTerm?: boolean
+  /**
+   * Total monthly remuneration, used for the 50% wages floor.
+   *
+   * The Codes define wages so that excluded allowances cannot exceed half of
+   * total remuneration; anything beyond that is added back. A structure of
+   * 30% basic and 70% allowances therefore computes gratuity on 50% of
+   * remuneration, not on the 30%. Omit it and the basic is used as given.
+   */
+  totalRemunerationPaise?: number
 }
 
 export interface GratuityResult {
@@ -50,11 +67,17 @@ export function gratuity(input: GratuityInput): GratuityResult {
 
   const wholeYears = Math.floor(days / 365.25)
   const remainderDays = days - Math.floor(wholeYears * 365.25)
-  const eligibleByService = wholeYears >= 5 || (wholeYears === 4 && remainderDays >= 240)
+  // A fixed-term employee qualifies after one year, not five.
+  const minimumYears = input.fixedTerm ? 1 : 5
+  const eligibleByService = input.fixedTerm
+    ? wholeYears >= 1
+    : wholeYears >= 5 || (wholeYears === 4 && remainderDays >= 240)
   if (!eligibleByService && !input.waiveMinimumService) {
     return {
       eligible: false, yearsCounted: wholeYears, amountPaise: 0, computedPaise: 0,
-      note: `${wholeYears} year(s) and ${remainderDays} day(s) of service; gratuity needs five years (4 years 240 days)`,
+      note: input.fixedTerm
+        ? `${wholeYears} year(s) and ${remainderDays} day(s); a fixed-term employee qualifies after one year`
+        : `${wholeYears} year(s) and ${remainderDays} day(s) of service; gratuity needs ${minimumYears} years (4 years 240 days)`,
     }
   }
 
@@ -63,13 +86,23 @@ export function gratuity(input: GratuityInput): GratuityResult {
     return { eligible: true, yearsCounted: 0, amountPaise: 0, computedPaise: 0,
       note: 'eligible, but under six months of service counts as zero years' }
   }
-  const computed = Math.round(input.wagePaise * 15 / 26 * yearsCounted)
+  // The 50% floor. Under the Codes the excluded allowances cannot be more than
+  // half of total remuneration; whatever exceeds that is added back into
+  // wages. A 30/70 basic-to-allowance structure therefore pays gratuity on
+  // half of remuneration rather than on the 30%, which is the whole point of
+  // the provision -- it existed precisely to stop the basic being shrunk.
+  const floor = input.totalRemunerationPaise === undefined
+    ? input.wagePaise
+    : Math.max(input.wagePaise, Math.round(input.totalRemunerationPaise * 0.5))
+  const computed = Math.round(floor * 15 / 26 * yearsCounted)
   const amount = Math.min(computed, GRATUITY_CAP_PAISE)
   return {
     eligible: true, yearsCounted, amountPaise: amount, computedPaise: computed,
-    note: computed > GRATUITY_CAP_PAISE
-      ? `${yearsCounted} years × 15/26 × last drawn; capped at ₹20,00,000`
-      : `${yearsCounted} years × 15/26 × last drawn`,
+    note: [
+      `${yearsCounted} years × 15/26 × ${floor > input.wagePaise ? 'wages raised to 50% of remuneration' : 'last drawn'}`,
+      computed > GRATUITY_CAP_PAISE ? 'capped at ₹20,00,000' : null,
+      input.fixedTerm ? 'fixed-term: one year qualifies' : null,
+    ].filter(Boolean).join('; '),
   }
 }
 

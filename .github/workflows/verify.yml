@@ -93,3 +93,43 @@ jobs:
             sleep 2
           done
           SHOOT_BASE=http://127.0.0.1:3100 npm run check:responsive
+
+      - name: Smoke and browser gates
+        # These drive the RUNNING server and are what caught four
+        # production-breaking defects that the unit suite passed cleanly:
+        # a same-origin check that refused every write behind a proxy, a
+        # duplicated Origin header, a browser posting to a route that had
+        # never been unified, and nav items advertising unbought modules.
+        # Unit tests cannot see any of that.
+        run: |
+          node --experimental-strip-types src/http/server.ts &
+          for i in $(seq 1 30); do
+            curl -sf http://127.0.0.1:3100/health && break
+            sleep 2
+          done
+          # The rigs sign in as the demo company's users.
+          npm run seed:demo
+          SMOKE_BASE=http://127.0.0.1:3100 npm run smoke
+          DEEP_BASE=http://127.0.0.1:3100 npm run e2e:deep
+          WF_BASE=http://127.0.0.1:3100 npm run e2e:workflow
+
+  image:
+    # The Dockerfile had never been built -- not here, and not on the machine
+    # it was written on, which has no Docker. An image nobody has built is a
+    # deployment plan, not an artefact.
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build the production image
+        run: docker build -t pepl:ci .
+      - name: It starts and answers its own HEALTHCHECK
+        # Building proves it compiles; this proves it RUNS. The runtime stage
+        # found two real bugs the first time it was simulated by hand.
+        run: |
+          docker run -d --name pepl-ci -e NODE_ENV=production pepl:ci || true
+          sleep 5
+          docker logs pepl-ci 2>&1 | tail -20
+          # No database here, so /health/ready cannot pass; what is being
+          # checked is that the process starts rather than dying at import.
+          docker inspect -f '{{.State.Status}}' pepl-ci

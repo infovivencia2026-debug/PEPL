@@ -18,6 +18,7 @@
 import type { PoolClient } from 'pg'
 import { controlDb, ControlPlaneError } from './index.ts'
 import { GST_RATE } from './billing.ts'
+import { financialYear } from './financial-year.ts'
 
 export interface CreditNote {
   id: string
@@ -35,13 +36,14 @@ export interface CreditNote {
 const COLS = `id, tenant_id, invoice_id, number, reason, subtotal_paise::text,
               gst_rate::text, gst_paise::text, total_paise::text, issued_on::text`
 
-async function nextCreditNoteNumber(client: PoolClient, tenantId: string, issuedOn: string): Promise<string> {
+/** `CRN/26-27/00001`. Same rule and the same reasoning as the invoice series. */
+async function nextCreditNoteNumber(client: PoolClient, _tenantId: string, issuedOn: string): Promise<string> {
+  const fy = financialYear(issuedOn)
   const { rows } = await client.query<{ next: number }>(
-    `INSERT INTO control_plane.credit_note_counters (tenant_id, next) VALUES ($1, 2)
-     ON CONFLICT (tenant_id) DO UPDATE SET next = control_plane.credit_note_counters.next + 1
-     RETURNING next - 1 AS next`, [tenantId])
-  const short = tenantId.replace(/-/g, '').slice(0, 6).toUpperCase()
-  return `CRN-${issuedOn.slice(0, 4)}-${short}-${String(rows[0]!.next).padStart(5, '0')}`
+    `INSERT INTO control_plane.document_series (kind, fy, next) VALUES ('credit_note', $1, 2)
+     ON CONFLICT (kind, fy) DO UPDATE SET next = control_plane.document_series.next + 1
+     RETURNING next - 1 AS next`, [fy])
+  return `CRN/${fy}/${String(rows[0]!.next).padStart(5, '0')}`
 }
 
 /** What has already been credited against an invoice, in paise. */
@@ -98,7 +100,14 @@ export async function issueCreditNote(args: {
 
     // The invoice's own rate, not today's: the customer claimed input credit at
     // the rate that was charged and the reversal has to match it.
-    const rate = Number(invoice.gst_rate) || GST_RATE
+    //
+    // `Number(x) || GST_RATE` did the OPPOSITE of that comment for a 0% invoice,
+    // because 0 is falsy -- so an invoice raised before this supplier was
+    // GST-registered would be credited at 18%. A full credit then exceeded the
+    // invoice and was refused outright; a partial one reversed tax the customer
+    // never paid. Only a missing or unparseable rate falls back.
+    const recorded = Number(invoice.gst_rate)
+    const rate = Number.isFinite(recorded) ? recorded : GST_RATE
     const gst = (subtotal * BigInt(Math.round(rate * 10_000))) / 10_000n
     const total = subtotal + gst
 

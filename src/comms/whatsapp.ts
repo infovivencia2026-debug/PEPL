@@ -11,6 +11,7 @@
  * Nothing is sent without the person's opt-in and the company's provider.
  */
 import type { PoolClient } from 'pg'
+import { parseOutboundUrl, assertResolvesPublic } from '../net/outbound-url.ts'
 import { encryptSecret, decryptSecret } from './index.ts'
 
 export class WhatsAppError extends Error {
@@ -33,7 +34,13 @@ export async function getProvider(tx: PoolClient): Promise<Provider | null> {
 export async function setProvider(tx: PoolClient, args: { provider: Provider['provider']; endpoint: string; fromNumber?: string | null; secret?: string | null; templates?: Record<string, string>; master: string | undefined }): Promise<Provider> {
   const tid = await tenantId(tx)
   if (!['meta_cloud', 'generic_webhook'].includes(args.provider)) throw new WhatsAppError('VALIDATION_FAILED', 'provider is meta_cloud or generic_webhook')
-  if (!/^https:\/\//.test(args.endpoint) && !/^http:\/\/(127\.0\.0\.1|localhost)/.test(args.endpoint)) throw new WhatsAppError('VALIDATION_FAILED', 'endpoint must be https')
+  // Same reasoning as webhooks: a tenant admin supplies this and the server
+  // calls it.
+  try {
+    parseOutboundUrl(args.endpoint)
+  } catch (e) {
+    throw new WhatsAppError('VALIDATION_FAILED', (e as Error).message)
+  }
   if (args.secret && !args.master) throw new WhatsAppError('MAIL_KEY_MISSING', 'this server cannot store credentials (PEPL_MAIL_KEY is not set)')
   const cipher = args.secret && args.master ? encryptSecret(args.secret, tid, args.master) : null
   await tx.query(
@@ -72,6 +79,13 @@ export function buildPayload(p: Provider, m: Outbound): { url: string; body: unk
 
 export type Sender = (url: string, body: unknown, bearer: string | null) => Promise<{ ok: boolean; status: number; error?: string }>
 export const httpSender: Sender = async (url, body, bearer) => {
+  // Re-checked at send time, not only when the endpoint was saved: a hostname
+  // the customer owns can be repointed at an internal address afterwards.
+  try {
+    await assertResolvesPublic(parseOutboundUrl(url))
+  } catch (e) {
+    return { ok: false, status: 0, error: (e as Error).message }
+  }
   try {
     const r = await fetch(url, { method: 'POST', headers: { 'content-type': 'application/json', ...(bearer ? { authorization: `Bearer ${bearer}` } : {}) }, body: JSON.stringify(body), signal: AbortSignal.timeout(10_000) })
     return { ok: r.ok, status: r.status, error: r.ok ? undefined : (await r.text()).slice(0, 300) }

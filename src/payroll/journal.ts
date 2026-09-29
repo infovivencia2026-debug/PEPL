@@ -25,6 +25,10 @@ export const DEFAULT_MAPPINGS: Array<Omit<Mapping, 'id'>> = [
   { component_code: '*', component_type: 'employer_contribution', debit_account: 'Employer Contributions', credit_account: 'Statutory Payable', cost_centre_by: 'department' },
   { component_code: 'PF_EE', component_type: 'deduction', debit_account: 'Salary Payable', credit_account: 'PF Payable', cost_centre_by: 'none' },
   { component_code: 'PF_ER', component_type: 'employer_contribution', debit_account: 'PF Employer Contribution', credit_account: 'PF Payable', cost_centre_by: 'department' },
+  // The pension share of the same 12%, and the insurance levy on top of it.
+  // Separate accounts because the ECR return reports them separately.
+  { component_code: 'PF_EPS', component_type: 'employer_contribution', debit_account: 'Pension Employer Contribution', credit_account: 'PF Payable', cost_centre_by: 'department' },
+  { component_code: 'EDLI_ER', component_type: 'employer_contribution', debit_account: 'EDLI Employer Contribution', credit_account: 'PF Payable', cost_centre_by: 'department' },
   { component_code: 'ESI_EE', component_type: 'deduction', debit_account: 'Salary Payable', credit_account: 'ESI Payable', cost_centre_by: 'none' },
   { component_code: 'ESI_ER', component_type: 'employer_contribution', debit_account: 'ESI Employer Contribution', credit_account: 'ESI Payable', cost_centre_by: 'department' },
   { component_code: 'PT', component_type: 'deduction', debit_account: 'Salary Payable', credit_account: 'Professional Tax Payable', cost_centre_by: 'none' },

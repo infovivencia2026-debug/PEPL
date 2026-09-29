@@ -3,3 +3,11 @@ node_modules/
 *.log
 dist/
 .pepl-dev.json
+
+# Output from the browser harnesses (e2e-walkthrough, e2e-deep, e2e-login,
+# e2e-console). These are produced on every run and are evidence for one run,
+# not reference images. docs/ui-checks already carries 77 MB of committed
+# screenshots and 161 MB of packed history; do not add to it automatically.
+docs/ui-checks/walkthrough/
+docs/ui-checks/unified-*.png
+docs/ui-checks/console-*.png

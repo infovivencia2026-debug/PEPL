@@ -158,20 +158,38 @@ export async function freezeInputs(
           : { code: 'ARREARS_RECOVERY', amountPaise: -amount, type: 'deduction' }] }
       }
     }
+    // Was this person already ESI-covered earlier in THIS contribution period?
+    // If so the wage ceiling must not be re-tested: cover is settled at the
+    // start of the period and runs to its end. Resolved once, here, and stored
+    // as a value -- the engine never looks anything up for itself.
+    const covered = await tx.query<{ covered: boolean }>(
+      `SELECT EXISTS (
+         SELECT 1
+           FROM payroll_lines pl
+           JOIN payroll_runs pr ON (pr.tenant_id, pr.id) = (pl.tenant_id, pl.run_id)
+           JOIN payroll_periods pp ON (pp.tenant_id, pp.id) = (pr.tenant_id, pr.period_id)
+          WHERE pl.tenant_id = $1 AND pl.employee_id = $2
+            AND pl.component_code = 'ESI_EE'
+            AND esi_contribution_period(pp.period_start) = esi_contribution_period($3::date)
+            AND pp.period_start < $3::date
+       ) AS covered`,
+      [tid, r.employeeId, period[0]!.period_start])
     await tx.query(
       `INSERT INTO payroll_inputs
          (tenant_id, run_id, employee_id, calendar_days, payable_days, lop_days,
           paid_leave_days, ot_minutes, monthly_components, annual_ctc_paise, state_code,
           pf_applicable, esi_applicable, tax_regime, adhoc, joined_mid_period, exited_mid_period,
-          chapter_via_paise, ytd_taxable_paise, ytd_tds_paise, months_remaining)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9::jsonb,$10,$11,$12,$13,$14,$15::jsonb,$16,$17,$18,$19,$20,$21)`,
+          chapter_via_paise, ytd_taxable_paise, ytd_tds_paise, months_remaining, esi_covered_period,
+          gender)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9::jsonb,$10,$11,$12,$13,$14,$15::jsonb,$16,$17,$18,$19,$20,$21,$22,
+               (SELECT gender FROM employees WHERE tenant_id = $1 AND id = $3))`,
       [tid, runId, r.employeeId, r.calendarDays, r.payableDays, r.lopDays,
        r.paidLeaveDays ?? 0, r.otMinutes ?? 0,
        JSON.stringify(r.monthlyComponents), String(r.annualCtcPaise), r.stateCode,
        r.pfApplicable ?? true, r.esiApplicable ?? false, r.taxRegime ?? 'new',
        JSON.stringify(r.adhoc ?? []), r.joinedMidPeriod ?? false, r.exitedMidPeriod ?? false,
        String(r.chapterViaPaise ?? 0), String(r.ytdTaxablePaise ?? 0), String(r.ytdTdsPaise ?? 0),
-       monthsRemaining],
+       monthsRemaining, covered.rows[0]!.covered],
     )
   }
 
@@ -468,11 +486,13 @@ async function readInputs(tx: PoolClient, runId: string): Promise<PayrollInput[]
     adhoc: { code: string; amountPaise: number; taxable?: boolean; type?: 'earning' | 'deduction' }[]
     joined_mid_period: boolean; exited_mid_period: boolean; chapter_via_paise: string
     ytd_taxable_paise: string; ytd_tds_paise: string; months_remaining: number
+    esi_covered_period: boolean; gender: string | null
   }>(
     `SELECT employee_id, calendar_days::text, payable_days::text, lop_days::text,
             monthly_components, state_code, pf_applicable, esi_applicable, tax_regime,
             adhoc, joined_mid_period, exited_mid_period, chapter_via_paise::text,
-            ytd_taxable_paise::text, ytd_tds_paise::text, months_remaining
+            ytd_taxable_paise::text, ytd_tds_paise::text, months_remaining,
+            esi_covered_period, gender
        FROM payroll_inputs WHERE run_id = $1 ORDER BY employee_id`,
     [runId],
   )
@@ -485,6 +505,8 @@ async function readInputs(tx: PoolClient, runId: string): Promise<PayrollInput[]
     stateCode: r.state_code,
     pfApplicable: r.pf_applicable,
     esiApplicable: r.esi_applicable,
+    esiCoveredPeriod: r.esi_covered_period,
+    gender: r.gender,
     taxRegime: r.tax_regime,
     adhoc: r.adhoc ?? [],
     joinedMidPeriod: r.joined_mid_period,

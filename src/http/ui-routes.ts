@@ -65,8 +65,20 @@ export function orgScope(c: Ctx) {
       'This action requires company-wide access',
     )
 }
+/**
+ * Secure whenever this deployment is served over https, not merely when
+ * NODE_ENV happens to say 'production'.
+ *
+ * A deployment behind TLS with NODE_ENV unset would have sent the session
+ * cookie without Secure, so a single plain-http request to the same host
+ * hands it over. PEPL_PUBLIC_URL is configuration and says what the site
+ * actually is; NODE_ENV is a label somebody has to remember to set.
+ */
+const secureCookies = (): boolean =>
+  process.env.NODE_ENV === 'production' || (process.env.PEPL_PUBLIC_URL ?? '').startsWith('https://')
+
 const cookie = (token: string, maxAge = 2592000) =>
-  `pepl_session=${token}; HttpOnly; SameSite=Strict; Path=/; Max-Age=${maxAge}${process.env.NODE_ENV === 'production' ? '; Secure' : ''}`
+  `pepl_session=${token}; HttpOnly; SameSite=Strict; Path=/; Max-Age=${maxAge}${secureCookies() ? '; Secure' : ''}`
 const audit = (
   c: Ctx,
   action: string,

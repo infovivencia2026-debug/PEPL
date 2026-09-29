@@ -7,6 +7,7 @@ import { useEffect, useRef, useState, type FormEvent } from 'react'
 import { MessageCircleQuestion, Send, ThumbsDown, ThumbsUp, X } from 'lucide-react'
 import { domainApi } from '../domainApi'
 import { Button, ErrorBox } from '../ui'
+import { useDialogFocus } from '../useDialogFocus'
 
 interface Source { type: string; id?: string; label: string }
 interface Answer { intent: string | null; confidence: number; text: string; sources: Source[]; suggestions: string[]; queryId?: string | null }
@@ -33,10 +34,13 @@ export function AssistantDrawer({ open, onClose }: { open: boolean; onClose: () 
     try { setAnswer(await domainApi<Answer>('/assistant/ask', { question: q })) } catch (e) { setError((e as Error).message) } finally { setBusy(false) }
   }
   const submit = (e: FormEvent) => { e.preventDefault(); if (question.trim()) void ask(question.trim()) }
+  // Keyboard containment: Tab stays inside, Escape closes, focus returns to
+  // whatever opened it.
+  const dialogRef = useDialogFocus<HTMLElement>(open, onClose)
   if (!open) return null
   return (
     <div className="assistant-scrim" onPointerDown={(e) => { if (e.target === e.currentTarget) onClose() }}>
-      <aside className="assistant" role="dialog" aria-modal="true" aria-label="Ask PEPL">
+      <aside ref={dialogRef} className="assistant" role="dialog" aria-modal="true" aria-label="Ask PEPL">
         <header>
           <h2><MessageCircleQuestion size={18} aria-hidden="true" /> Ask PEPL</h2>
           <button type="button" className="btn ghost" onClick={onClose} aria-label="Close"><X size={18} aria-hidden="true" /></button>

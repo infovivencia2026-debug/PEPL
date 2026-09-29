@@ -12,6 +12,13 @@ import { controlDb } from '../src/control-plane/index.ts'
 import { signup, closePeriods, markInvoicePaid, listInvoices } from '../src/control-plane/billing.ts'
 import { issueCreditNote, listCreditNotes, creditedAgainst } from '../src/control-plane/credit-notes.ts'
 
+// These notes reverse GST, which only a REGISTERED supplier ever charged. GST
+// is now conditional on PEPL_GSTIN, so the registration is stated rather than
+// assumed -- an unregistered supplier correctly credits at 0%, and that case
+// lives in test/gst-registration.test.ts.
+const GSTIN_BEFORE = process.env.PEPL_GSTIN
+process.env.PEPL_GSTIN = '36AABCP1234C1ZX'
+
 let tenantId: string
 let invoiceId: string
 let invoiceTotal: bigint
@@ -43,6 +50,9 @@ beforeAll(async () => {
 })
 
 afterAll(async () => {
+  // Restored so file order cannot leak this setting into another suite.
+  if (GSTIN_BEFORE === undefined) delete process.env.PEPL_GSTIN
+  else process.env.PEPL_GSTIN = GSTIN_BEFORE
   await closePools()
   await controlDb.end()
 })
@@ -52,8 +62,11 @@ describe('a credit note reverses a paid invoice', () => {
     // A gap in either sequence has to mean exactly one thing, so the two cannot
     // share a counter.
     const note = await issueCreditNote({ invoiceId, subtotalPaise: 100000, reason: 'Agreed goodwill adjustment' })
-    expect(note.number).toMatch(/^CRN-\d{4}-[0-9A-F]{6}-00001$/)
-    expect(note.number.startsWith('INV-')).toBe(false)
+    // CRN/26-27/00001. CGST Rule 46(b) applies to a credit note as it does to
+    // an invoice: sixteen characters, unique within the financial year.
+    expect(note.number).toMatch(/^CRN\/\d{2}-\d{2}\/\d{5}$/)
+    expect(note.number.length).toBeLessThanOrEqual(16)
+    expect(note.number.startsWith('INV')).toBe(false)
   })
 
   it('adds GST at the invoice rate, so the reversal matches what was charged', async () => {

@@ -165,6 +165,7 @@ const LABELS: Record<string, string> = {
   BASIC: 'Basic', HRA: 'House rent allowance', SPECIAL: 'Special allowance',
   CONVEYANCE: 'Conveyance', MEDICAL: 'Medical allowance', LTA: 'Leave travel allowance',
   PF_EE: 'Provident fund (employee)', PF_ER: 'Provident fund (employer)',
+  PF_EPS: 'Pension fund (employer)', EDLI_ER: 'EDLI insurance (employer)',
   ESI_EE: 'ESI (employee)', ESI_ER: 'ESI (employer)', PT: 'Professional tax',
   TDS: 'Income tax (TDS)', LOP: 'Loss of pay',
 }

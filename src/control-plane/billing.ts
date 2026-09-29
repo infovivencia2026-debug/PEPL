@@ -10,9 +10,30 @@
 import { randomBytes } from 'node:crypto'
 import type pg from 'pg'
 import { controlDb, provisionTenant, projectEntitlements, ControlPlaneError } from './index.ts'
+import { financialYear } from './financial-year.ts'
 import { hashPassword } from '../auth/index.ts'
 
 export const GST_RATE = 0.18
+
+/**
+ * Whether this deployment may charge GST at all.
+ *
+ * A supplier who is not GST-registered MUST NOT collect GST. Until today the
+ * 18% went onto every invoice regardless, while the PDF printed "Not a tax
+ * invoice - no GSTIN configured for the supplier" -- a document that refuses to
+ * call itself a tax invoice and charges tax anyway. Whichever way the customer
+ * reads that, one of the two is wrong, and collecting tax you are not
+ * registered to collect is the worse half.
+ *
+ * Registration is the deployment's own fact, so it lives in the environment
+ * beside the rest of the supplier identity. The day a GSTIN is set, invoices
+ * raised after it carry GST; ones already raised are untouched, which is what
+ * you want -- an issued invoice is a record, not a view.
+ */
+export const gstApplies = (): boolean => Boolean(process.env.PEPL_GSTIN?.trim())
+
+/** The rate actually charged: zero when this supplier is not registered. */
+export const effectiveGstRate = (): number => (gstApplies() ? GST_RATE : 0)
 export const TRIAL_DAYS = 14
 export const DUE_DAYS = 7
 export const PAST_DUE_AFTER_DAYS = 15
@@ -102,7 +123,7 @@ export interface BillingSummary {
 
 export function priceFor(plan: Plan, employees: number): { subtotal: bigint; gst: bigint; total: bigint } {
   const subtotal = BigInt(plan.base_price_paise) + BigInt(plan.per_employee_price_paise) * BigInt(employees)
-  const gst = BigInt(Math.round(Number(subtotal) * GST_RATE))
+  const gst = BigInt(Math.round(Number(subtotal) * effectiveGstRate()))
   return { subtotal, gst, total: subtotal + gst }
 }
 
@@ -194,7 +215,7 @@ export function prorationFor(
 
   const subtotal = ((after - before) * BigInt(Math.min(daysRemaining, daysInPeriod))) / BigInt(daysInPeriod)
   if (subtotal <= 0n) return nothing
-  const gst = (subtotal * BigInt(Math.round(GST_RATE * 10_000))) / 10_000n
+  const gst = (subtotal * BigInt(Math.round(effectiveGstRate() * 10_000))) / 10_000n
   return { subtotalPaise: subtotal, gstPaise: gst, totalPaise: subtotal + gst }
 }
 
@@ -247,7 +268,7 @@ export async function switchPlan(tenantId: string, planCode: string): Promise<Bi
               subtotal_paise, gst_rate, gst_paise, total_paise, due_on)
            VALUES ($1,$2,CURRENT_DATE,$3::date,$4,$5,0,0,$6,$7,$8,$9, CURRENT_DATE + $10::int)`,
           [tenantId, number, sub.current_period_end, planCode, employees,
-           prorata.subtotalPaise.toString(), GST_RATE, prorata.gstPaise.toString(),
+           prorata.subtotalPaise.toString(), effectiveGstRate(), prorata.gstPaise.toString(),
            prorata.totalPaise.toString(), DUE_DAYS])
         await client.query(
           `INSERT INTO control_plane.platform_audit (action, tenant_id, detail) VALUES ('subscription.prorated', $1, $2::jsonb)`,
@@ -307,7 +328,7 @@ export async function closePeriods(now = new Date()): Promise<{ invoiced: number
          VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12::bigint, CASE WHEN $12::bigint = 0 THEN 'paid' ELSE 'due' END, $4::date + $13::int)
          ON CONFLICT (tenant_id, period_start) DO NOTHING`,
         [s.tenant_id, number, s.current_period_start, s.current_period_end, plan.code, employees,
-         plan.base_price_paise, plan.per_employee_price_paise, String(p.subtotal), GST_RATE, String(p.gst), String(p.total), DUE_DAYS])
+         plan.base_price_paise, plan.per_employee_price_paise, String(p.subtotal), effectiveGstRate(), String(p.gst), String(p.total), DUE_DAYS])
       // Roll the period forward by a month from its end, whatever today is.
       await client.query(
         `UPDATE control_plane.subscriptions
@@ -327,13 +348,27 @@ export async function closePeriods(now = new Date()): Promise<{ invoiced: number
   return { invoiced, skipped }
 }
 
-async function nextInvoiceNumber(client: pg.PoolClient, tenantId: string, periodEnd: string): Promise<string> {
+/**
+ * `INV/26-27/00001`.
+ *
+ * CGST Rule 46(b): consecutive, unique within the FINANCIAL year, letters,
+ * digits, '-' and '/' only, and at most SIXTEEN characters. The old form was
+ * `INV-2026-ABCDEF-00001` -- twenty-one -- so every invoice PEPL could issue
+ * breached the length limit, and the year came off the period end as a CALENDAR
+ * year, which is not the unit the rule is about.
+ *
+ * One supplier-wide series per financial year rather than one per customer.
+ * Multiple series are permitted, but one is easier to defend and PEPL is one
+ * supplier. The tenant id is not in the number; the invoice row already says
+ * whose it is.
+ */
+async function nextInvoiceNumber(client: pg.PoolClient, _tenantId: string, periodEnd: string): Promise<string> {
+  const fy = financialYear(periodEnd)
   const { rows } = await client.query<{ next: number }>(
-    `INSERT INTO control_plane.invoice_counters (tenant_id, next) VALUES ($1, 2)
-     ON CONFLICT (tenant_id) DO UPDATE SET next = control_plane.invoice_counters.next + 1
-     RETURNING next - 1 AS next`, [tenantId])
-  const short = tenantId.replace(/-/g, '').slice(0, 6).toUpperCase()
-  return `INV-${periodEnd.slice(0, 4)}-${short}-${String(rows[0]!.next).padStart(5, '0')}`
+    `INSERT INTO control_plane.document_series (kind, fy, next) VALUES ('invoice', $1, 2)
+     ON CONFLICT (kind, fy) DO UPDATE SET next = control_plane.document_series.next + 1
+     RETURNING next - 1 AS next`, [fy])
+  return `INV/${fy}/${String(rows[0]!.next).padStart(5, '0')}`
 }
 
 /**

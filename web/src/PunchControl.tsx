@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Clock3, Coffee, LocateFixed, LogIn, LogOut, Play, QrCode } from 'lucide-react'
 import { ScanSheet } from './time/Scan'
-import { ApiError } from './api'
+import { ApiError, timeLabel } from './api'
 import { domainApi } from './domainApi'
 import type { Attendance, Workspace } from './types'
 import type { RemoteRequest } from './RemoteWork'
@@ -87,7 +87,7 @@ export function PunchControl({ data, compact = false }: { data: Workspace; compa
   if (!data.user.employeeId || !data.permissions.includes('attendance.read') || !data.modules.attendance) return null
   return <section className={`punch-control ${compact ? 'compact' : ''}`}>
     {mode && <div className={`punch-mode ${mode}`}><LocateFixed size={15} /><span>{mode === 'wfh' ? 'Working from home today — no location check' : 'On field duty today'}</span></div>}
-    <div className="punch-state"><span><Clock3 size={18} /></span><div><small>TODAY</small><strong>{punchedIn ? 'You’re working' : day?.last_out ? 'Day complete' : 'Ready to start'}</strong><p>{day?.first_in ? `${new Date(day.first_in).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}${punchedIn ? ` · ${elapsedLabel(day.first_in, day.worked_minutes, now)}` : day.last_out ? ` – ${new Date(day.last_out).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}` : ''}` : 'No punch recorded yet'}</p></div></div>
+    <div className="punch-state"><span><Clock3 size={18} /></span><div><small>TODAY</small><strong>{punchedIn ? 'You’re working' : day?.last_out ? 'Day complete' : 'Ready to start'}</strong><p>{day?.first_in ? `${timeLabel(day.first_in)}${punchedIn ? ` · ${elapsedLabel(day.first_in, day.worked_minutes, now)}` : day.last_out ? ` – ${timeLabel(day.last_out)}` : ''}` : 'No punch recorded yet'}</p></div></div>
     <button className={punchedIn ? 'punch-button out' : 'punch-button'} disabled={busy} onClick={() => void punch()}>{punchedIn ? <LogOut size={22} /> : <LogIn size={22} />}<span>{busy ? 'Please wait…' : punchedIn ? 'Punch Out' : 'Punch In'}</span><LocateFixed size={15} /></button>
     <div className="punch-extras">
       {punchedIn && <button type="button" className={`btn ${onBreak ? 'primary' : 'secondary'}`} disabled={busy} onClick={() => void toggleBreak()}>{onBreak ? <Play size={15} aria-hidden="true" /> : <Coffee size={15} aria-hidden="true" />}{onBreak ? `Resume · on break ${elapsedLabel(onBreak.since, 0, now)}` : 'Break'}</button>}

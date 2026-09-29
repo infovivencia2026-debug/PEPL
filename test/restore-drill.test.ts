@@ -8,8 +8,17 @@ import { spawnSync } from 'node:child_process'
 import { restoreDrill } from '../scripts/restore-drill.ts'
 
 const hasPgTools = spawnSync('pg_dump', ['--version'], { encoding: 'utf8' }).status === 0
+// Skipping locally is fine; skipping in CI means the one check that proves a
+// backup can be restored passes without ever running. A green suite that
+// silently omits it is worse than no check at all, because it reads as proof.
+const inCI = process.env.CI === 'true' || process.env.CI === '1'
 
 describe('restore drill', () => {
+  it('CI must have the postgres client tools, or this drill proves nothing', () => {
+    // Deliberately not skippable.
+    if (inCI) expect(hasPgTools, 'pg_dump not on PATH in CI').toBe(true)
+  })
+
   it.skipIf(!hasPgTools)('dumps, restores into a scratch database, matches every row count, keeps RLS, re-verifies the audit chain', async () => {
     const r = await restoreDrill()
     expect(r.tables).toBeGreaterThan(80)
