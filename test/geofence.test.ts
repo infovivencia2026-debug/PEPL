@@ -11,9 +11,13 @@ import { createHandler } from '../src/http/router.ts'
 import { buildRouter } from '../src/http/app.ts'
 import { createUser } from '../src/auth/index.ts'
 import { setSetting } from '../src/config/write.ts'
+import { today as todayIn } from '../src/lib/timezone.ts'
 import {
   createSite, distanceMetres, evaluatePunch, getMembership, listSites, retireSite, setMembership, updateSite,
 } from '../src/attendance/geofence.ts'
+
+/** A punch belongs to today, in the company's zone: the server refuses any other day. */
+const PUNCH_DAY = todayIn('Asia/Kolkata')
 
 let A: Tenant
 let B: Tenant
@@ -106,7 +110,7 @@ describe('the punch route decides server-side', () => {
   }
 
   it('records and flags an outside punch by default, ignores the client flag, refuses when enforced', async () => {
-    const outside = await punch({ direction: 'in', localDate: '2026-09-21', clientPunchId: 'g1', geo: FAR, withinGeofence: true })
+    const outside = await punch({ direction: 'in', localDate: PUNCH_DAY, clientPunchId: 'g1', geo: FAR, withinGeofence: true })
     expect(outside.status).toBe(200)
     expect(outside.body.geofence).toMatchObject({ status: 'outside', siteCode: 'HQ' })
     const { rows } = await withTenant(A.id, (tx) => tx.query<{ within_geofence: boolean; distance_m: number }>(
@@ -115,10 +119,10 @@ describe('the punch route decides server-side', () => {
     expect(rows[0]!.distance_m).toBeGreaterThan(12_000)
 
     await withTenant(A.id, (tx) => setSetting(tx, { key: 'attendance.geofence_enforce', value: true, reason: 'test' }))
-    const refused = await punch({ direction: 'in', localDate: '2026-09-21', clientPunchId: 'g2', geo: FAR })
+    const refused = await punch({ direction: 'in', localDate: PUNCH_DAY, clientPunchId: 'g2', geo: FAR })
     expect(refused.status).toBe(422)
     expect((refused.body.error as { code: string }).code).toBe('OUTSIDE_GEOFENCE')
-    const inside = await punch({ direction: 'in', localDate: '2026-09-21', clientPunchId: 'g3', geo: { lat: HQ.lat + 0.001, lng: HQ.lng } })
+    const inside = await punch({ direction: 'in', localDate: PUNCH_DAY, clientPunchId: 'g3', geo: { lat: HQ.lat + 0.001, lng: HQ.lng } })
     expect(inside.status).toBe(200)
     expect(inside.body.geofence).toMatchObject({ status: 'inside', distanceM: 111 })
   })

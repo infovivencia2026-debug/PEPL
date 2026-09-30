@@ -4,6 +4,7 @@ import { inbox } from '../approvals/index.ts'
 import { balance } from '../leave/ledger.ts'
 import { taskInbox } from '../work/tasks.ts'
 import { REGISTRY } from '../config-registry/index.ts'
+import { today as localToday } from '../lib/timezone.ts'
 export function scopeIds(c: Ctx): string[] | null {
   return c.auth.scope === 'all'
     ? null
@@ -34,8 +35,10 @@ export async function workspaceData(c: Ctx, date?: string) {
   const [company] = await read('SELECT display_name FROM tenants WHERE id=$1', [
     c.auth.tenantId,
   ])
-  const today = (await read('SELECT CURRENT_DATE::text AS date'))[0]!
-    .date as string
+  // The COMPANY's today. This was the database server's CURRENT_DATE -- UTC on the VPS -- so
+  // for five and a half hours after midnight in India it was still yesterday, and the browser
+  // sends this back as the day a punch belongs to.
+  const today = localToday(c.config.get<string>('attendance.timezone'))
   const workDate = date ?? today
   const employees = can(c.auth, 'employee.read')
     ? await read(

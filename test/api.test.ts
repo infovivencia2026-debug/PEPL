@@ -10,6 +10,7 @@ import { withTenant } from '../src/db/tenant-tx.ts'
 import { createUser } from '../src/auth/index.ts'
 import { changeCompensation } from '../src/people/history.ts'
 import { setSetting } from '../src/config/write.ts'
+import { today as todayIn } from '../src/lib/timezone.ts'
 
 let server: Server
 let base: string
@@ -17,6 +18,8 @@ let tenantId: string
 const ids: Record<string, string> = {}
 
 const PASSWORD = 'integration-test-password'
+/** A punch belongs to today, in the company's zone: the server refuses any other day. */
+const PUNCH_DAY = todayIn('Asia/Kolkata')
 const L = (rupees: number): number => rupees * 100
 
 interface ApiResult<T = Record<string, never>> {
@@ -425,7 +428,7 @@ describe('attendance over HTTP', () => {
   it('records a punch and refuses a duplicate silently', async () => {
     const token = await loginAs(ids.employee!)
     const body = {
-      direction: 'in', localDate: '2026-09-18', clientPunchId: 'api-test-1',
+      direction: 'in', localDate: PUNCH_DAY, clientPunchId: 'api-test-1',
       geo: { lat: 17.4, lng: 78.4 }, withinGeofence: true,
     }
     const first = await api<{ recorded: boolean }>('POST', '/api/v1/attendance/punch', { token, body })
@@ -437,7 +440,7 @@ describe('attendance over HTTP', () => {
   it('enforces the tenant location requirement', async () => {
     const token = await loginAs(ids.employee!)
     const r = await api('POST', '/api/v1/attendance/punch', {
-      token, body: { direction: 'in', localDate: '2026-09-19', clientPunchId: 'api-test-2' },
+      token, body: { direction: 'in', localDate: PUNCH_DAY, clientPunchId: 'api-test-2' },
     })
     expect(r.status).toBe(422)
     expect(r.body.error?.code).toBe('LOCATION_REQUIRED')

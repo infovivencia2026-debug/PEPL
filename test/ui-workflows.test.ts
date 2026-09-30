@@ -7,6 +7,8 @@ import { withTenant } from '../src/db/tenant-tx.ts'
 import { closePools } from '../src/db/pool.ts'
 import { createUser, login } from '../src/auth/index.ts'
 import { appendEntry, balance } from '../src/leave/ledger.ts'
+import { setSetting } from '../src/config/write.ts'
+import { today as todayIn } from '../src/lib/timezone.ts'
 import type { Workspace, Profile } from '../web/src/types.ts'
 
 type TestResponse = Workspace & Profile & {
@@ -385,3 +387,21 @@ describe('browser workspace boundary', () => {
   })
 })
 
+
+describe('the workspace date is the company day', () => {
+  // The workspace took `today` from the database (SELECT CURRENT_DATE), which is the SERVER's
+  // date -- UTC on the VPS -- and the browser sends it back as the day a punch belongs to.
+  // The server now insists a punch belongs to the company's today, so between midnight and
+  // 05:30 IST (when the UTC date is still yesterday) every punch from the web app would have
+  // been refused. Two zones 25 hours apart guarantee at least one disagrees with the database
+  // whatever time of day this runs.
+  // The key affects payroll, so each change carries an effective date; later ones win.
+  for (const [i, zone] of ['Pacific/Kiritimati', 'Pacific/Pago_Pago', 'Asia/Kolkata'].entries()) {
+    it(`is the date in ${zone} when that is the company's zone`, async () => {
+      await withTenant(A.id, (tx) => setSetting(tx, { key: 'attendance.timezone', value: zone, reason: 'test', effectiveFrom: `2026-01-0${i + 1}` }))
+      const r = await request('/workspace', 'employee')
+      expect(r.status).toBe(200)
+      expect(r.body.today).toBe(todayIn(zone))
+    })
+  }
+})

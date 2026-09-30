@@ -29,6 +29,7 @@ import { startBreak, endBreak, breaksOn, setLateReason, controlRoom, qrCode, ver
 import { summaryPolicy } from './shifts.ts'
 import { hold, listPending } from '../../approvals/pending.ts'
 import { today as localToday } from '../../lib/timezone.ts'
+import { assertPunchWindow } from '../../attendance/punch-window.ts'
 
 /**
  * The company's attendance rules, read once per request.
@@ -58,16 +59,25 @@ export function register(router: Router): void {
     authed('attendance.read', async (ctx) => {
       requireModule(ctx, 'attendance.enabled')
       // `withinGeofence` from the client is ignored on purpose: the server decides.
-      const b = requireBody<{ direction: 'in' | 'out'; localDate: string; clientPunchId?: string; geo?: { lat: number; lng: number }; employeeId?: string; qr?: string }>(
-        ctx.req, ['direction', 'localDate'])
+      const b = requireBody<{ direction: 'in' | 'out'; localDate?: string; clientPunchId?: string; geo?: { lat: number; lng: number }; employeeId?: string; qr?: string }>(
+        ctx.req, ['direction'])
       if (b.geo && (typeof b.geo.lat !== 'number' || typeof b.geo.lng !== 'number')) {
         throw new HttpError(422, 'VALIDATION_FAILED', 'geo needs numeric lat and lng')
       }
       const employeeId = b.employeeId ?? ctx.auth.employeeId
       if (!employeeId) throw new HttpError(422, 'NO_EMPLOYEE_RECORD', 'this user has no employee record')
       assertScope(ctx.auth, employeeId)
+      // Punching FOR someone else is a correction in effect, so it takes the right to correct.
+      if (employeeId !== ctx.auth.employeeId && !can(ctx.auth, 'attendance.correct')) {
+        throw new HttpError(403, 'PERMISSION_DENIED', 'punching on someone else\'s behalf needs the right to correct attendance')
+      }
 
-      const localDate = asDate(b.localDate, 'localDate')
+      // Optional: a client with no trustworthy clock omits it and gets the company's today.
+      const localDate = b.localDate ? asDate(b.localDate, 'localDate') : localToday(ctx.config.get<string>('attendance.timezone'))
+      // The server decides which day a punch belongs to; a period that has closed takes none.
+      await assertPunchWindow(ctx.tx, {
+        employeeId, localDate, direction: b.direction, timezone: ctx.config.get<string>('attendance.timezone'),
+      })
       // An approved work-from-home or field day is not fenced: the punch is
       // recorded with whatever location it has and the day carries the mode.
       const mode = await remoteModeOn(ctx.tx, employeeId, localDate)
@@ -94,8 +104,9 @@ export function register(router: Router): void {
 
       const createdPunch = await recordPunch(ctx.tx, {
         employeeId, punchedAt: new Date().toISOString(),
-        localDate: asDate(b.localDate, 'localDate'), direction: b.direction, source: 'mobile',
+        localDate, direction: b.direction, source: 'mobile',
         clientPunchId: b.clientPunchId, geo: b.geo, via: qrSite ? 'qr' : undefined,
+        recordedByUserId: ctx.session.userId,
         geofence: {
           withinGeofence: verdict.status === 'unfenced' ? null : verdict.status === 'inside',
           siteId: verdict.siteId, distanceM: verdict.distanceM,
@@ -235,7 +246,11 @@ export function register(router: Router): void {
       requireModule(ctx, 'attendance.enabled')
       if (!ctx.auth.employeeId) throw new HttpError(422, 'NO_EMPLOYEE_RECORD', 'this user has no employee record')
       const b = requireBody<{ place: string; contact?: string; purpose: string; geo?: { lat: number; lng: number }; projectId?: string; localDate?: string }>(ctx.req, ['place', 'purpose'])
-      const workDate = b.localDate ? asDate(b.localDate, 'localDate') : localToday(ctx.config.get<string>('attendance.timezone'))
+      const zone = ctx.config.get<string>('attendance.timezone')
+      const workDate = b.localDate ? asDate(b.localDate, 'localDate') : localToday(zone)
+      // A visit marks its day on duty -- a paid day -- so it can only be logged for TODAY, and
+      // only into a period that is still open. Any date used to turn an absent day into pay.
+      await assertPunchWindow(ctx.tx, { employeeId: ctx.auth.employeeId, localDate: workDate, direction: 'in', timezone: zone })
       const v = await startVisit(ctx.tx, { employeeId: ctx.auth.employeeId, workDate, place: b.place, contact: b.contact, purpose: b.purpose, geo: b.geo, projectId: b.projectId ? asUuid(b.projectId, 'projectId') : null })
       await markModeOnDay(ctx.tx, { employeeId: ctx.auth.employeeId, workDate, mode: 'field', actorUserId: ctx.auth.userId, policy: dayPolicy(ctx) })
       await emit(ctx.tx, { action: 'attendance.visit.logged', entityType: 'field_visit', entityId: v.id, subjectEmployeeId: ctx.auth.employeeId, actorUserId: ctx.auth.userId, metadata: { place: v.place } })

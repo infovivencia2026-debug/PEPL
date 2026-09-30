@@ -91,6 +91,7 @@ const STATUS_BY_CODE: Record<string, number> = {
   PERIOD_NOT_FOUND: 404,
   // conflicts with the state of the world, not with the request
   PERIOD_CLOSED: 409,
+  DATE_OUT_OF_WINDOW: 422,
   PERIOD_FROZEN_NO_TARGET: 409,
   CONFIG_LOCKED_PERIOD: 409,
   RUN_NOT_DRAFT: 409,
