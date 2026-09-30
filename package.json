@@ -33,6 +33,7 @@
     "gate:modules": "node --experimental-strip-types scripts/gate-modules.ts",
     "e2e:login": "node --experimental-strip-types scripts/e2e-login.ts",
     "e2e:deep": "node --experimental-strip-types scripts/e2e-deep.ts",
+    "e2e:csp": "node --experimental-strip-types scripts/e2e-csp.ts",
     "e2e:workflow": "node --experimental-strip-types scripts/e2e-workflow.ts",
     "e2e:walkthrough": "node --experimental-strip-types scripts/e2e-walkthrough.ts",
     "e2e:console": "node --experimental-strip-types scripts/e2e-console.ts",

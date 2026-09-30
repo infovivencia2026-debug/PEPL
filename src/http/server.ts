@@ -12,6 +12,7 @@ import { appPool, closePools } from '../db/pool.ts'
 import { applyServerTimeouts, gracefulShutdown } from './shutdown.ts'
 import { preflight } from './preflight.ts'
 import { originAllowed } from './origin.ts'
+import { CONTENT_SECURITY_POLICY } from './csp.ts'
 
 installProcessGuards()
 // Live events reach browsers on every instance, not just the one that handled the request.
@@ -30,6 +31,8 @@ const server = createServer(async (req, res) => {
   res.setHeader('X-Content-Type-Options', 'nosniff')
   res.setHeader('Referrer-Policy', 'same-origin')
   res.setHeader('X-Frame-Options', 'DENY')
+  res.setHeader('Content-Security-Policy', CONTENT_SECURITY_POLICY)
+  res.setHeader('Permissions-Policy', 'camera=(self), geolocation=(self), microphone=(), payment=(), usb=()')
   // Only behind a proxy that terminated TLS, and only in production. Sent from
   // a plain-HTTP dev box it would pin localhost to https in the developer's
   // browser for a year, which is a genuinely annoying thing to undo.
