@@ -391,7 +391,7 @@ async function nextInvoiceNumber(client: pg.PoolClient, _tenantId: string, perio
 export async function runDunning(now = new Date()): Promise<{ pastDue: number; suspended: number; reactivated: number }> {
   const today = now.toISOString().slice(0, 10)
   const r1 = await controlDb.query(
-    `UPDATE control_plane.subscriptions SET status = 'suspended'
+    `UPDATE control_plane.subscriptions SET status = 'suspended', suspension_cause = 'automatic'
       WHERE status = 'trialing' AND trial_ends_on IS NOT NULL AND trial_ends_on < $1::date RETURNING tenant_id`, [today])
   const r2 = await controlDb.query(
     `UPDATE control_plane.subscriptions s SET status = 'past_due'
@@ -399,13 +399,18 @@ export async function runDunning(now = new Date()): Promise<{ pastDue: number; s
         SELECT 1 FROM control_plane.invoices i WHERE i.tenant_id = s.tenant_id AND i.status = 'due' AND i.due_on + $2::int < $1::date)
       RETURNING tenant_id`, [today, PAST_DUE_AFTER_DAYS])
   const r3 = await controlDb.query(
-    `UPDATE control_plane.subscriptions s SET status = 'suspended'
+    `UPDATE control_plane.subscriptions s SET status = 'suspended', suspension_cause = 'automatic'
       WHERE s.status IN ('active','past_due') AND EXISTS (
         SELECT 1 FROM control_plane.invoices i WHERE i.tenant_id = s.tenant_id AND i.status = 'due' AND i.due_on + $2::int < $1::date)
       RETURNING tenant_id`, [today, SUSPEND_AFTER_DAYS])
+  // Lifts only what THIS job put there. "Suspended, trial over, nothing owed" is equally
+  // true of a customer an operator suspended on purpose -- a dispute, an abuse complaint,
+  // a request to be paused -- and the job used to switch them back on the next night.
+  // A row with no recorded cause counts as an operator's decision, not as the job's.
   const r4 = await controlDb.query(
-    `UPDATE control_plane.subscriptions s SET status = 'active'
-      WHERE s.status IN ('past_due','suspended') AND s.trial_ends_on IS NULL
+    `UPDATE control_plane.subscriptions s SET status = 'active', suspension_cause = NULL
+      WHERE (s.status = 'past_due' OR (s.status = 'suspended' AND s.suspension_cause = 'automatic'))
+        AND s.trial_ends_on IS NULL
         AND NOT EXISTS (SELECT 1 FROM control_plane.invoices i WHERE i.tenant_id = s.tenant_id AND i.status = 'due')
       RETURNING tenant_id`)
   const touched = new Set([...r1.rows, ...r2.rows, ...r3.rows, ...r4.rows].map((r: { tenant_id: string }) => r.tenant_id))

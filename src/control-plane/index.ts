@@ -241,8 +241,12 @@ export async function changePlan(tenantId: string, planCode: string): Promise<vo
 }
 
 export async function setSubscriptionStatus(tenantId: string, status: string): Promise<void> {
+  // Called by people (the console, `ops suspend`), so a suspension made here is an
+  // OPERATOR's, and the dunning job will not lift it. Any other status clears the cause.
   await controlDb.query(
-    `UPDATE control_plane.subscriptions SET status = $2 WHERE tenant_id = $1`,
+    `UPDATE control_plane.subscriptions
+        SET status = $2, suspension_cause = CASE WHEN $2 = 'suspended' THEN 'operator' ELSE NULL END
+      WHERE tenant_id = $1`,
     [tenantId, status],
   )
   await projectEntitlements(controlDb, tenantId)

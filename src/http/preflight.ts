@@ -28,6 +28,12 @@ export interface Finding {
   message: string
 }
 
+/** A database password shorter than this is a word, not a secret. */
+const MIN_SECRET_LENGTH = 12
+
+/** Benchmark salts that are published in the repository. */
+const KNOWN_SALTS: readonly string[] = ['pepl-benchmarks', 'dev-benchmark-salt-not-for-production']
+
 /** Defaults from .env.example. Fine on a laptop, catastrophic in production. */
 const DEV_SECRETS: ReadonlyArray<[string, string]> = [
   ['SUPER_PASSWORD', 'postgres'],
@@ -39,13 +45,55 @@ export function inspect(env: NodeJS.ProcessEnv = process.env): Finding[] {
   const findings: Finding[] = []
   const has = (k: string) => (env[k] ?? '').trim().length > 0
 
+  // MISSING is as bad as WRONG, and this used to check only wrong. An unset variable is
+  // not equal to the dev value, so a production deploy with no database passwords at all
+  // passed -- while config.ts, reading the same variables, substituted the development
+  // passwords as its fallback and `bootstrap` then set the database roles to them.
   for (const [key, devValue] of DEV_SECRETS) {
-    if ((env[key] ?? '') === devValue) {
+    const value = env[key] ?? ''
+    if (value.trim().length === 0) {
+      findings.push({
+        level: 'refuse', key,
+        message: 'is not set: without it the process would fall back to the development password from .env.example',
+      })
+    } else if (value === devValue) {
       findings.push({
         level: 'refuse', key,
         message: `is still the development value from .env.example — anyone who has read the repository knows it`,
       })
+    } else if (/change[-_ ]?me/i.test(value)) {
+      findings.push({ level: 'refuse', key, message: 'is still a placeholder ("change me"), not a secret' })
+    } else if (value.length < MIN_SECRET_LENGTH) {
+      findings.push({
+        level: 'refuse', key,
+        message: `is shorter than ${MIN_SECRET_LENGTH} characters: not a secret worth protecting a payroll database with`,
+      })
     }
+  }
+
+  // The owner runs DDL and the app runs every customer query. One password for both
+  // undoes the separation the two roles exist to provide.
+  if (has('OWNER_PASSWORD') && env.OWNER_PASSWORD === env.APP_PASSWORD) {
+    findings.push({
+      level: 'refuse', key: 'APP_PASSWORD',
+      message: 'is the same as OWNER_PASSWORD: the owner and the runtime role must have distinct passwords',
+    })
+  }
+
+  // Salary benchmarks hash each company id with this so published bands cannot be
+  // walked back to a named company. Unset, the code falls back to a constant that is IN
+  // THE REPOSITORY -- and then anyone with the source can do exactly that walk.
+  const salt = env.PEPL_BENCHMARK_SALT ?? ''
+  if (salt.trim().length === 0) {
+    findings.push({
+      level: 'refuse', key: 'PEPL_BENCHMARK_SALT',
+      message: 'is not set: benchmarks would be hashed with a constant published in the source, so "anonymous" salary bands could be traced to named companies',
+    })
+  } else if (KNOWN_SALTS.includes(salt)) {
+    findings.push({
+      level: 'refuse', key: 'PEPL_BENCHMARK_SALT',
+      message: 'is a value that ships in the source or in .env.example: anyone with the repository can reverse the hashes',
+    })
   }
 
   // Read from the env passed in, not from `config`: that module snapshots the

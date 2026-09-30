@@ -13,6 +13,7 @@
  *
  *   npm run scheduler
  */
+import { preflight } from '../http/preflight.ts'
 import { pathToFileURL } from 'node:url'
 import { jobDuration, jobRuns } from '../lib/metrics.ts'
 import { JOBS, type JobName, type JobResult } from './index.ts'
@@ -207,6 +208,10 @@ export function startIdle(): { stop: () => Promise<void> } | null {
 }
 
 if (import.meta.url === pathToFileURL(process.argv[1] ?? '').href) {
+  // The same checks the API runs. This is a separate process with the same database
+  // credentials, and it never ran them -- so it could start on a configuration the API
+  // would have refused.
+  preflight()
   installProcessGuards()
   const stop = startScheduler()
   const idle = startIdle()

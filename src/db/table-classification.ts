@@ -35,6 +35,18 @@ export const GLOBAL_TABLES: ReadonlySet<string> = new Set([
   'login_choices',
 ])
 
+/**
+ * The global tables the runtime role MAY write, and why. Every other global table is
+ * the law (rates, slabs, exemptions) and read-only to the application: `gate:launch`
+ * and test/reference-tables-readonly.test.ts fail on a write grant outside this list.
+ * 099 forgot the revoke for pt_exemptions; adding a name here is the review point.
+ */
+export const RUNTIME_WRITABLE_GLOBAL_TABLES: ReadonlyMap<string, string> = new Map([
+  ['login_attempts', 'records a login before any tenant is known'],
+  ['rate_limit_buckets', 'rate-limits requests before any tenant is known'],
+  ['login_choices', 'a proved password choosing between companies, before a tenant is fixed'],
+])
+
 /** Tenant-scoped, but keyed on their own id rather than a tenant_id column. */
 export const TENANT_ROOT_TABLES: ReadonlySet<string> = new Set(['tenants'])
 

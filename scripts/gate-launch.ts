@@ -11,7 +11,7 @@ import { PT_STATES } from '../db/reference/pt-slabs.ts'
 import { config } from '../src/config.ts'
 import { REGISTRY } from '../src/config-registry/index.ts'
 import { ACTIONS } from '../src/audit/index.ts'
-import { GLOBAL_TABLES } from '../src/db/table-classification.ts'
+import { GLOBAL_TABLES, RUNTIME_WRITABLE_GLOBAL_TABLES } from '../src/db/table-classification.ts'
 
 type Row = Record<string, unknown>
 
@@ -81,6 +81,16 @@ async function main(): Promise<void> {
     `SELECT has_table_privilege($1, 'statutory_configs', 'UPDATE') AS u`, [config.appUser])
   record('statutory rates are read-only to the application', !statutory[0]!.u,
     `update=${statutory[0]!.u}`)
+
+  // ...and that holds for EVERY global table, not just the two 009 remembered.
+  const { rows: writable } = await db.query<Row>(
+    `SELECT DISTINCT table_name FROM information_schema.role_table_grants
+      WHERE table_schema = 'public' AND grantee = $1
+        AND privilege_type IN ('INSERT','UPDATE','DELETE','TRUNCATE')
+        AND table_name = ANY($2)`, [config.appUser, [...GLOBAL_TABLES]])
+  const unreviewed = writable.map((r) => r.table_name as string).filter((t) => !RUNTIME_WRITABLE_GLOBAL_TABLES.has(t))
+  record('no global reference table is writable by the runtime role', unreviewed.length === 0,
+    unreviewed.length === 0 ? 'only the reviewed allow-list' : `writable: ${unreviewed.join(', ')}`)
 
   // 5. Control plane is walled off.
   const { rows: cp } = await db.query<Row>(

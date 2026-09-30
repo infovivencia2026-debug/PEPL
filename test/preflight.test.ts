@@ -14,6 +14,8 @@ const production = (extra: Record<string, string> = {}) => ({
   SUPER_PASSWORD: 'a-real-secret',
   OWNER_PASSWORD: 'another-real-secret',
   APP_PASSWORD: 'a-third-real-secret',
+  // Required in production now: unset, benchmarks fall back to a salt published in the source.
+  PEPL_BENCHMARK_SALT: 'a-long-random-benchmark-salt-value',
   PEPL_MAIL_KEY: 'k',
   PEPL_PUBLIC_URL: 'https://pepl.example',
   PEPL_OBJECT_STORE_BUCKET: 'pepl-docs',
