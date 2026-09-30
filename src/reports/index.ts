@@ -64,7 +64,7 @@ export async function salaryRegister(tx: PoolClient, args: { from: string; to: s
   // Columns are the union of components seen, in a stable order: earnings first.
   const codes = new Set<string>()
   for (const r of rows) for (const c of Object.keys(r.lines ?? {})) codes.add(c)
-  const order = (c: string): number => ['PF_EE', 'ESI_EE', 'PT', 'TDS', 'LOP'].includes(c) ? 2 : ['PF_ER', 'ESI_ER'].includes(c) ? 3 : c.endsWith('_RECOVERY') || c === 'LOAN_EMI' || c === 'RECOVERY' ? 2 : 1
+  const order = (c: string): number => ['PF_EE', 'ESI_EE', 'PT', 'TDS', 'LOP'].includes(c) ? 2 : ['PF_ER', 'PF_EPS', 'EDLI_ER', 'ESI_ER'].includes(c) ? 3 : c.endsWith('_RECOVERY') || c === 'LOAN_EMI' || c === 'RECOVERY' ? 2 : 1
   const components = [...codes].sort((a, b) => order(a) - order(b) || a.localeCompare(b))
   const columns = ['period', 'employee_number', 'name', 'department', 'designation', 'payable_days', 'lop_days', ...components, 'gross', 'deductions', 'net']
   const out = rows.map((r) => {
@@ -81,7 +81,7 @@ export async function salaryRegister(tx: PoolClient, args: { from: string; to: s
 
 export async function statutorySummary(tx: PoolClient, args: { from: string; to: string }): Promise<Report> {
   const runs = await lockedRuns(tx, args.from, args.to)
-  const columns = ['period', 'employees', 'gross', 'pf_employee', 'pf_employer', 'pf_total', 'esi_employee', 'esi_employer', 'esi_total', 'pt', 'tds', 'net']
+  const columns = ['period', 'employees', 'gross', 'pf_employee', 'pf_employer', 'edli_employer', 'pf_total', 'esi_employee', 'esi_employer', 'esi_total', 'pt', 'tds', 'net']
   const out: Record<string, string | number | null>[] = []
   for (const run of runs) {
     const { rows } = await tx.query<{ code: string; total: string }>(
@@ -89,9 +89,14 @@ export async function statutorySummary(tx: PoolClient, args: { from: string; to:
     const t = Object.fromEntries(rows.map((r) => [r.code, rupees(r.total)]))
     const { rows: s } = await tx.query<{ n: string; gross: string; net: string }>(
       `SELECT count(*)::text AS n, sum(gross_paise)::text AS gross, sum(net_paise)::text AS net FROM payslips WHERE run_id = $1`, [run.id])
-    const pfE = t.PF_EE ?? 0, pfR = t.PF_ER ?? 0, esiE = t.ESI_EE ?? 0, esiR = t.ESI_ER ?? 0
+    // The employer's 12% is stored as TWO lines when a pension rate is set: PF_ER (the EPF share)
+    // and PF_EPS (the pension share). Reading PF_ER alone reported only the EPF share. EDLI is on
+    // top of the 12% and is the employer's alone; `pf_total` is everything remitted to the EPFO.
+    const pfE = t.PF_EE ?? 0, pfR = (t.PF_ER ?? 0) + (t.PF_EPS ?? 0), edli = t.EDLI_ER ?? 0
+    const esiE = t.ESI_EE ?? 0, esiR = t.ESI_ER ?? 0
     out.push({ period: run.label, employees: Number(s[0]!.n), gross: rupees(s[0]!.gross),
-      pf_employee: pfE, pf_employer: pfR, pf_total: pfE + pfR, esi_employee: esiE, esi_employer: esiR, esi_total: esiE + esiR,
+      pf_employee: pfE, pf_employer: pfR, edli_employer: edli, pf_total: pfE + pfR + edli,
+      esi_employee: esiE, esi_employer: esiR, esi_total: esiE + esiR,
       pt: t.PT ?? 0, tds: t.TDS ?? 0, net: rupees(s[0]!.net) })
   }
   return { columns, rows: out, csv: toCsv(columns, out) }

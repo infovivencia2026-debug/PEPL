@@ -92,6 +92,37 @@ describe('statutory summary', () => {
   })
 })
 
+describe('statutory summary: employer provident fund is EPF + EPS, with EDLI on top', () => {
+  // The engine splits the employer's 12% into PF_ER (the EPF share) and PF_EPS (the pension
+  // share), and adds EDLI_ER on top. The summary read PF_ER alone, so "pf_employer" reported
+  // only the EPF share (here Rs 600 of an employer cost of Rs 1,800) and dropped EDLI, and
+  // the existing test asserted pf_total = pf_employee + pf_employer, which restates the code.
+  // The expected figures here are worked from the rates, not read back from the report.
+  it('reports the whole employer contribution, EDLI separately, and a total that includes both', async () => {
+    const OPTS_SPLIT: EngineOptions = {
+      ...OPTS,
+      statutory: { ...OPTS.statutory, eps_rate: 0.08, edli_rate: 0.005 },
+      computeTds: undefined,
+    }
+    await withTenant(A.id, async (tx) => {
+      const p = await tx.query<{ id: string }>(
+        `INSERT INTO payroll_periods (tenant_id, label, period_start, period_end, pay_date) VALUES ($1,'2026-11',DATE '2026-11-01',DATE '2026-11-30',DATE '2026-12-01') RETURNING id`, [A.id])
+      const run = await createRun(tx, { periodId: p.rows[0]!.id, processedByUserId: PROCESSOR })
+      // Basic exactly at the Rs 15,000 wage ceiling, a full month: no LOP arithmetic to muddy the oracle.
+      await freezeInputs(tx, run, [{ employeeId: A.employeeId, calendarDays: 30, payableDays: 30, lopDays: 0, monthlyComponents: { BASIC: L(15_000) }, annualCtcPaise: L(180_000), stateCode: 'TS', pfApplicable: true }], {}, statutoryId)
+      await calculate(tx, run, OPTS_SPLIT); await validate(tx, run, { ...OPTS_SPLIT, variancePct: 1000 })
+      await approve(tx, run, APPROVER, { requireSeparateApprover: true }); await lock(tx, run, APPROVER, { requireSeparateApprover: true })
+    })
+    const r = await withTenant(A.id, (tx) => statutorySummary(tx, { from: '2026-11-01', to: '2026-11-30' }))
+    const s = r.rows[0]!
+    expect(s.pf_employee).toBe(1_800)                  // 12% of 15,000
+    expect(s.pf_employer).toBe(1_800)                  // EPF 600 + EPS 1,200 (8%): the employer's 12%, not just the 600
+    expect(s.edli_employer).toBe(75)                   // 0.5% of 15,000, on top
+    expect(s.pf_total).toBe(3_675)                     // 1,800 + 1,800 + 75: what is remitted to the EPFO
+    expect(r.columns).toContain('edli_employer')
+  })
+})
+
 describe('headcount', () => {
   it('counts joiners, leavers and the active total at month end', async () => {
     const r = await withTenant(A.id, (tx) => headcount(tx, { from: '2026-01-01', to: '2026-10-31' }))
