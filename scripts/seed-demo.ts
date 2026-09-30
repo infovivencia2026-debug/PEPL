@@ -10,6 +10,7 @@
 import { controlDb, provisionTenant } from '../src/control-plane/index.ts'
 import { updateBillingDetails } from '../src/control-plane/billing.ts'
 import { purgeTenant } from '../src/control-plane/sandbox.ts'
+import { demoSeedRefusal } from '../src/control-plane/demo-guard.ts'
 import { setSetting } from '../src/config/write.ts'
 import { withTenant } from '../src/db/tenant-tx.ts'
 import { closePools } from '../src/db/pool.ts'
@@ -54,6 +55,13 @@ const L = (rupees: number): number => rupees * 100
  * statutory retention and is two-person approved.
  */
 async function main(): Promise<void> {
+  // FIRST, before any query: this replaces tenants by name and plants a known password.
+  const refusal = demoSeedRefusal(process.env)
+  if (refusal) {
+    console.error(`Refusing to seed the demo company: ${refusal}.`)
+    process.exit(1)
+  }
+
   // Replace any previous demo tenant so re-running is safe.
   const existing = await controlDb.query<{ id: string }>(
     `SELECT id FROM tenants WHERE legal_name = $1`, [COMPANY])
@@ -89,7 +97,11 @@ async function main(): Promise<void> {
      ON CONFLICT (effective_from) DO NOTHING`,
     [String(L(15_000)), String(L(21_000))])
 
-  for (const [from, to, amount] of [
+  // Reference data is ADDED when absent and never replaced: `npm run seed:statutory` owns
+  // it, every customer's payroll reads it, and this used to insert duplicate slabs on each
+  // run and delete the tax tables outright.
+  const hasSlabs = (await controlDb.query(`SELECT 1 FROM pt_slabs WHERE state_code = 'TS' AND effective_from = DATE '2026-04-01' LIMIT 1`)).rowCount
+  if (!hasSlabs) for (const [from, to, amount] of [
     [0, L(15_000), 0], [L(15_000), L(20_000), L(150)], [L(20_000), null, L(200)],
   ] as const) {
     await controlDb.query(
@@ -101,36 +113,38 @@ async function main(): Promise<void> {
   // Income tax reference data. REPRESENTATIVE FIGURES: reconcile against the
   // Finance Act in force before paying anyone. They live as data precisely so a
   // compliance owner can correct them without a deploy.
-  await controlDb.query(`DELETE FROM tax_slabs WHERE fiscal_year = '2026-27'`)
-  await controlDb.query(`DELETE FROM tax_rules WHERE fiscal_year = '2026-27'`)
-  const newRegime: [number, number | null, number][] = [
-    [0, 400_000, 0], [400_000, 800_000, 0.05], [800_000, 1_200_000, 0.10],
-    [1_200_000, 1_600_000, 0.15], [1_600_000, 2_000_000, 0.20],
-    [2_000_000, 2_400_000, 0.25], [2_400_000, null, 0.30],
-  ]
-  const oldRegime: [number, number | null, number][] = [
-    [0, 250_000, 0], [250_000, 500_000, 0.05], [500_000, 1_000_000, 0.20],
-    [1_000_000, null, 0.30],
-  ]
-  for (const [regime, rows] of [['new', newRegime], ['old', oldRegime]] as const) {
-    for (const [from, to, rate] of rows) {
-      await controlDb.query(
-        `INSERT INTO tax_slabs (regime, fiscal_year, income_from_paise, income_to_paise, rate)
-         VALUES ($1, '2026-27', $2, $3, $4)`,
-        [regime, String(L(from)), to === null ? null : String(L(to)), rate])
+  const hasTax = (await controlDb.query(`SELECT 1 FROM tax_slabs WHERE fiscal_year = '2026-27' LIMIT 1`)).rowCount
+    && (await controlDb.query(`SELECT 1 FROM tax_rules WHERE fiscal_year = '2026-27' LIMIT 1`)).rowCount
+  if (!hasTax) {
+    const newRegime: [number, number | null, number][] = [
+      [0, 400_000, 0], [400_000, 800_000, 0.05], [800_000, 1_200_000, 0.10],
+      [1_200_000, 1_600_000, 0.15], [1_600_000, 2_000_000, 0.20],
+      [2_000_000, 2_400_000, 0.25], [2_400_000, null, 0.30],
+    ]
+    const oldRegime: [number, number | null, number][] = [
+      [0, 250_000, 0], [250_000, 500_000, 0.05], [500_000, 1_000_000, 0.20],
+      [1_000_000, null, 0.30],
+    ]
+    for (const [regime, rows] of [['new', newRegime], ['old', oldRegime]] as const) {
+      for (const [from, to, rate] of rows) {
+        await controlDb.query(
+          `INSERT INTO tax_slabs (regime, fiscal_year, income_from_paise, income_to_paise, rate)
+           VALUES ($1, '2026-27', $2, $3, $4)`,
+          [regime, String(L(from)), to === null ? null : String(L(to)), rate])
+      }
     }
+    const surcharge = JSON.stringify([
+      { above_paise: L(5_000_000), rate: 0.10 },
+      { above_paise: L(10_000_000), rate: 0.15 },
+    ])
+    await controlDb.query(
+      `INSERT INTO tax_rules
+         (regime, fiscal_year, standard_deduction_paise, rebate_limit_paise, rebate_max_paise, cess_rate, surcharge_bands)
+       VALUES ('new','2026-27',$1,$2,$3,0.04,$4::jsonb),
+              ('old','2026-27',$5,$6,$7,0.04,$4::jsonb)`,
+      [String(L(75_000)), String(L(1_200_000)), String(L(60_000)), surcharge,
+       String(L(50_000)), String(L(500_000)), String(L(12_500))])
   }
-  const surcharge = JSON.stringify([
-    { above_paise: L(5_000_000), rate: 0.10 },
-    { above_paise: L(10_000_000), rate: 0.15 },
-  ])
-  await controlDb.query(
-    `INSERT INTO tax_rules
-       (regime, fiscal_year, standard_deduction_paise, rebate_limit_paise, rebate_max_paise, cess_rate, surcharge_bands)
-     VALUES ('new','2026-27',$1,$2,$3,0.04,$4::jsonb),
-            ('old','2026-27',$5,$6,$7,0.04,$4::jsonb)`,
-    [String(L(75_000)), String(L(1_200_000)), String(L(60_000)), surcharge,
-     String(L(50_000)), String(L(500_000)), String(L(12_500))])
 
   const ids: Record<string, string> = {}
   const userIds: Record<string, string> = {}
