@@ -30,3 +30,5 @@
 @import './styles/signup.css';
 @import './styles/pay.css';
 @import './styles/ux-polish.css';
+
+@import './styles/password-field.css';

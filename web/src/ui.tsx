@@ -1,8 +1,10 @@
 import {
   useEffect,
   useRef,
+  useState,
   type ReactNode,
   type ButtonHTMLAttributes,
+  type InputHTMLAttributes,
 } from 'react'
 import {
   ArrowUpRight,
@@ -12,6 +14,8 @@ import {
   Search,
   AlertCircle,
   Lock,
+  Eye,
+  EyeOff,
 } from 'lucide-react'
 import { pretty } from './api'
 export function Button({
@@ -435,5 +439,46 @@ export function ViewLink({
       {children}
       <ArrowRight size={17} />
     </a>
+  )
+}
+
+/**
+ * A password field with a show/hide toggle.
+ *
+ * Every password box in the app goes through this, so the toggle is the same
+ * everywhere and cannot be forgotten on the next form. test/password-field.test.ts
+ * fails if a bare password-typed input appears anywhere else in web/src.
+ *
+ * Callers pass `aria-label` with the same words as the visible label. The button
+ * sits inside the caller's <label>, and without an explicit name the input would
+ * be announced as "Password Show password" -- the button's own name folded into
+ * the label's.
+ *
+ * Hidden by default and again on unmount: a revealed password does not survive
+ * navigating away.
+ */
+export function PasswordInput(props: Omit<InputHTMLAttributes<HTMLInputElement>, 'type'>) {
+  const [shown, setShown] = useState(false)
+  return (
+    <span className="password-field">
+      <input
+        {...props}
+        type={shown ? 'text' : 'password'}
+        // Once it is plain text, the keyboard must not "help": autocorrect and
+        // autocapitalise would quietly rewrite what somebody is checking.
+        autoCapitalize="off"
+        autoCorrect="off"
+        spellCheck={false}
+      />
+      <button
+        type="button"
+        className="password-toggle"
+        aria-label={shown ? 'Hide password' : 'Show password'}
+        aria-pressed={shown}
+        onClick={() => setShown((value) => !value)}
+      >
+        {shown ? <EyeOff size={18} aria-hidden="true" /> : <Eye size={18} aria-hidden="true" />}
+      </button>
+    </span>
   )
 }

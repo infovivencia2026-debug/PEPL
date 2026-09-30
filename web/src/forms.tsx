@@ -3,7 +3,7 @@ import { domainApi } from './domainApi'
 import { ApprovalSubmission, type HeldChange } from './ApprovalSubmission'
 import { ArrowRight, Building2, Check } from 'lucide-react'
 import { api } from './api'
-import { Button, ErrorBox, Modal } from './ui'
+import { Button, ErrorBox, Modal, PasswordInput } from './ui'
 import { toErrorView, type ErrorView } from './api'
 export interface Field {
   name: string
@@ -292,9 +292,9 @@ export function Login({ onSuccess }: { onSuccess: () => Promise<void> }) {
           </label>
           <label className="field">
             <span>Password</span>
-            <input
+            <PasswordInput
               name="password"
-              type="password"
+              aria-label="Password"
               placeholder="Enter your password"
               autoComplete="current-password"
               required

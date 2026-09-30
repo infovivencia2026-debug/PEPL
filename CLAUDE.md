@@ -717,3 +717,26 @@ the background, TRUNCATEing `pepl_test` under it. It passed in isolation and in 
 repeats, which is the tell. The process check in this file is the first thing to run
 when a suite is flaky — and see "A process query that matches itself" for how to run
 it without counting itself.
+
+## Every password box is a `PasswordInput`
+
+`web/src/ui.tsx` exports `PasswordInput` (show/hide toggle inside the box). Sign
+in, choose-a-new-password, change-password and the external mailbox all use it;
+`test/password-field.test.ts` fails on any raw `type="password"` input elsewhere in
+`web/src`, and `scripts/e2e-password.ts` clicks the real toggle. Three things cost
+time and are worth keeping:
+
+- **The toggle sits inside the caller's `<label>`,** so every use must pass
+  `aria-label` with the visible label's words, or the input is announced as
+  "Password Show password".
+- **`.field > input` is a CHILD selector.** Wrapping the input one level deeper
+  silently drops its size and border colour; `password-field.css` repeats them for
+  `.field > .password-field > input`.
+- **A form's own button rule can capture the toggle.** `.lifecycle-form button
+  { align-self:end }` shrank the absolutely-positioned toggle to 18px and pinned it
+  to the bottom of a 42px box — invisible in a screenshot at a glance, caught only
+  by MEASURING the toggle against its input. The toggle's selector is
+  `.password-field > .password-toggle` and states every property that positions or
+  sizes it. A blanket `min-height` on the input made it WORSE (it replaced sign-in's
+  taller floor, leaving the password box 4px shorter than the email box), so the
+  44px floor is scoped to `.lifecycle-form`.
