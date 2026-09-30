@@ -309,3 +309,7 @@ dd { margin: 0; color: #274d44; font-size: 11px; font-weight: 700; text-align: r
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { scroll-behavior: auto !important; animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; }
 }
+
+/* The organisation-type hint sits under its row and spans it, so it shares the
+   fields' column rather than the section's outer edge. */
+.ops-form-grid > .ops-type-hint { grid-column: 1 / -1; margin: -8px 0 0; }
