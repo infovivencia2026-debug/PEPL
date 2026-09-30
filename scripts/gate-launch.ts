@@ -11,7 +11,7 @@ import { PT_STATES } from '../db/reference/pt-slabs.ts'
 import { config } from '../src/config.ts'
 import { REGISTRY } from '../src/config-registry/index.ts'
 import { ACTIONS } from '../src/audit/index.ts'
-import { GLOBAL_TABLES, RUNTIME_WRITABLE_GLOBAL_TABLES } from '../src/db/table-classification.ts'
+import { APPEND_ONLY_TABLES, GLOBAL_TABLES, NO_DELETE_TABLES, RUNTIME_WRITABLE_GLOBAL_TABLES } from '../src/db/table-classification.ts'
 
 type Row = Record<string, unknown>
 
@@ -62,11 +62,7 @@ async function main(): Promise<void> {
     `${triggers.length}/4 present`)
 
   // 3. Append-only tables: history cannot be rewritten by the application.
-  const APPEND_ONLY = [
-    'audit_events', 'config_change_log', 'leave_ledger', 'attendance_punches',
-    'attendance_corrections', 'approval_actions', 'ticket_events',
-  ]
-  for (const table of APPEND_ONLY) {
+  for (const table of APPEND_ONLY_TABLES) {
     const { rows } = await db.query<Row>(
       `SELECT has_table_privilege($1, $2, 'UPDATE') AS u,
               has_table_privilege($1, $2, 'DELETE') AS d`,
@@ -74,6 +70,11 @@ async function main(): Promise<void> {
     const r = rows[0]!
     record(`${table} is append-only for the runtime role`, !r.u && !r.d,
       `update=${r.u} delete=${r.d}`)
+  }
+
+  for (const table of NO_DELETE_TABLES) {
+    const { rows } = await db.query<Row>(`SELECT has_table_privilege($1, $2, 'DELETE') AS d`, [config.appUser, table])
+    record(`${table} is never hard-deleted by the runtime role`, !rows[0]!.d, `delete=${rows[0]!.d}`)
   }
 
   // 4. Statutory data is reference data, not customer data.

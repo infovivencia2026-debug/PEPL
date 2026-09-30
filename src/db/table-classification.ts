@@ -47,6 +47,29 @@ export const RUNTIME_WRITABLE_GLOBAL_TABLES: ReadonlyMap<string, string> = new M
   ['login_choices', 'a proved password choosing between companies, before a tenant is fixed'],
 ])
 
+/**
+ * Tables the runtime role may only INSERT into and read: history and evidence. Default
+ * privileges grant UPDATE and DELETE on every new table (003), so an append-only table is
+ * append-only only because a migration REVOKEd it -- and `gate:launch` and
+ * test/append-only-grants.test.ts fail when one is not. Add a table here when nothing in
+ * `src/` needs to change a row after it is written.
+ */
+export const APPEND_ONLY_TABLES: readonly string[] = [
+  'audit_events', 'config_change_log', 'leave_ledger', 'attendance_punches',
+  'attendance_corrections', 'approval_actions', 'ticket_events',
+  // The thread of a ticket is what was said; editing or deleting it rewrites a grievance.
+  'ticket_messages',
+  // Lockout counters. If the runtime role could UPDATE or DELETE them, one compromised
+  // request would reset every brute-force limit -- and the limit is what stops guessing.
+  'login_attempts',
+]
+
+/**
+ * Updated by the application (soft-delete, supersede, erase) but never HARD-deleted:
+ * a document or a bank account is a record, and is retired, not removed.
+ */
+export const NO_DELETE_TABLES: readonly string[] = ['documents', 'employee_bank_accounts']
+
 /** Tenant-scoped, but keyed on their own id rather than a tenant_id column. */
 export const TENANT_ROOT_TABLES: ReadonlySet<string> = new Set(['tenants'])
 
