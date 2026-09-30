@@ -740,3 +740,61 @@ time and are worth keeping:
   sizes it. A blanket `min-height` on the input made it WORSE (it replaced sign-in's
   taller floor, leaving the password box 4px shorter than the email box), so the
   44px floor is scoped to `.lifecycle-form`.
+
+## The 2026-09-30 audit round: what to keep
+
+`AUDIT-2026-09-30.md` is a reviewer-reported list. Every fix below was reproduced as a failing test
+FIRST, then mutation-checked. Rules that fell out of it:
+
+- **Write privileges on a global table are a reviewed decision.** 003 grants DML on every table, so a
+  table is read-only only because a migration REVOKEd it -- 099 forgot, and `pt_exemptions` was writable
+  by the runtime role. `RUNTIME_WRITABLE_GLOBAL_TABLES`, `APPEND_ONLY_TABLES` and `NO_DELETE_TABLES` in
+  `src/db/table-classification.ts` are the review points; `gate:launch` and
+  `test/append-only-grants.test.ts` read them.
+- **`gate:rls` lints policies structurally** (`src/db/policy-lint.ts`): USING and WITH CHECK are judged
+  separately, an OR needs every branch tenant-guarded (or the one reviewed `CURRENT_USER = 'pepl_owner'`
+  exemption), views must be `security_invoker`, unknown schemas fail. It used to grep one joined string
+  and passed `WITH CHECK (true)`.
+- **A trigger that guards a row must judge BOTH ends of an UPDATE** (103): `COALESCE(NEW.run_id, OLD.run_id)`
+  looked only at where a row was going, so lines could be moved OUT of a locked run.
+- **A child table's policy must follow its parent's visibility** (104): `ticket_messages`/`ticket_events`
+  now require the parent ticket to be visible, so the tickets policy is the one place confidentiality lives.
+- **Session and API-key lookups join the user and require `status = 'active'`** (106), and completing a
+  separation disables the login (`src/people/access.ts`). Deactivation must not depend on remembering to
+  revoke each credential.
+- **A revision is money already paid**: its bank file pays only the increase (REVn reference), its journal
+  posts only the difference, its loan instalment is carried but recorded once. A pay DECREASE produces no
+  transfer and no recovery yet -- that is a known gap, not a feature.
+- **Plan switches bill the period at the plan it STARTED on** (107: `period_plan_code`,
+  `period_covered_plan_code`, invoice `kind`). An upgrade pays the top-up; a downgrade waits for the next
+  period. The whole switch is one locked transaction.
+- **Documents are authorised per owner type** (`src/documents/access.ts`); "not yours" is a 404, and a
+  direct message's files are for its participants only -- not even an administrator.
+- **The server decides which day a punch belongs to** (`src/attendance/punch-window.ts`). The workspace
+  `today` is the COMPANY's date (`attendance.timezone`), never `CURRENT_DATE`, which is UTC on the VPS:
+  between 00:00 and 05:30 IST it was yesterday and would have refused every early-morning web punch.
+- **One CSV cell function** (`src/lib/csv.ts`), guarding `= + - @ tab CR` but not plain numbers;
+  `test/csv-injection.test.ts` fails on any hand-rolled quote-doubling in `src/`.
+- **CSP** (`src/http/csp.ts`) is proved in a browser, not by reading it: `npm run build`, start the server
+  on another port, `CSP_BASE=http://127.0.0.1:3199 npm run e2e:csp`. The script has a positive control
+  (it provokes a violation and requires the watcher to see it). Camera and geolocation stay allowed for
+  QR punch and geofence; a blanket `camera=()` would have broken attendance silently.
+- **Install shutdown handling before `listen()`** (`src/http/shutdown.ts`): it counts requests from the
+  moment it is created. Signals cannot be tested on Windows; the logic is a function that takes a server.
+- **`seed:demo` refuses production and unknown databases** (`src/control-plane/demo-guard.ts`), and only
+  ADDS reference data. It used to delete the shared 2026-27 tax tables.
+
+Tooling notes from the same round:
+
+- A Python patch script with `'''` triple quotes inside a Bash heredoc dies with "unexpected EOF". Write
+  the script (and any large replacement text) with the Write tool and run it; keep `sub()` helpers
+  tolerant (`label=''`) so a missing argument does not abort a half-applied patch.
+- A `describe('the employer's ...')` title with an apostrophe ends the string and reports "no tests".
+- Start a long verify without blocking: `(npm run verify > "$TEMP/v.log" 2>&1; echo "VERIFY_EXIT=$?" >> "$TEMP/v.log") &`
+  then `until grep -q VERIFY_EXIT "$TEMP/v.log"; do sleep 5; done` as a background command. Do not edit
+  `src/`, `test/` or `db/` while it runs.
+- Kill exactly one local server by port: `Get-NetTCPConnection -LocalPort 3199 -State Listen`, then
+  `Stop-Process -Id <OwningProcess>`.
+- A test that leaves a company or invoice behind poisons `closePeriods()`, which bills EVERY tenant.
+  Clean up your own rows in `afterAll`, and give each period a distinct start so idempotency keys do not
+  swallow a second close.
