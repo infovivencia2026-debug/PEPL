@@ -12,6 +12,8 @@ was checked against the source, not against the design.
 
 | Design says | What is built | Where to look |
 |---|---|---|
+| **Next.js** web, **NestJS** API, **Flutter** mobile | A **React + Vite** single-page app, served by the same Node process as the API. The API is plain `node:http` with a small hand-written router (`src/http/router.ts`), run directly with `--experimental-strip-types` (no build step for the server). There is no native mobile app: the web app is responsive and ships a service worker | `web/`, `src/http/` |
+| Payslips and letters from **headless Chromium** | A small in-repo PDF writer | `src/pdf/document.ts` |
 | Passwords hashed with **argon2id** | **scrypt** with a random 16-byte salt per password | `src/auth/index.ts` |
 | Short-lived access token plus **rotating refresh token**; reuse revokes the family | One **opaque server-side session token** (random, stored only as a hash), with an expiry, revocable per session or per user, and a `mfa_pending` flag until the second factor is proved. There is no refresh token | `sessions`, `auth_session_by_hash` (106 makes it require an active user) |
 | Roles `pepl_migrator` and `app_user` | `pepl_owner` (migrations and DDL only), `pepl_app` (every runtime query; `NOBYPASSRLS`, owns nothing), and a control connection for the control plane. `postgres` bootstraps | `CLAUDE.md`, "Three database roles" |
