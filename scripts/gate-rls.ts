@@ -16,6 +16,7 @@ import pg from 'pg'
 import { config } from '../src/config.ts'
 
 import { GLOBAL_TABLES, TENANT_ROOT_TABLES } from '../src/db/table-classification.ts'
+import { lintPolicy } from '../src/db/policy-lint.ts'
 
 type Row = Record<string, unknown>
 const failures: string[] = []
@@ -37,11 +38,11 @@ async function main(): Promise<void> {
            c.relforcerowsecurity AS rls_forced
       FROM pg_class c
       JOIN pg_namespace n ON n.oid = c.relnamespace
-     WHERE n.nspname = 'public' AND c.relkind = 'r'
+     WHERE n.nspname = 'public' AND c.relkind IN ('r','p')
      ORDER BY c.relname`)
 
   const { rows: policies } = await db.query<Row>(`
-    SELECT tablename AS table_name, policyname AS name, qual, with_check
+    SELECT tablename AS table_name, policyname AS name, cmd, qual, with_check
       FROM pg_policies WHERE schemaname = 'public'`)
 
   const { rows: columns } = await db.query<Row>(`
@@ -76,15 +77,40 @@ async function main(): Promise<void> {
       fail(`table "${name}" has RLS but no policy - it is unreadable AND unwritable, which is a bug, not safety`)
       continue
     }
+    // Each clause is judged on its own, by the structure of the expression: a substring
+    // search over USING and WITH CHECK joined together accepted `WITH CHECK (true)` and
+    // `... OR true` (see src/db/policy-lint.ts).
     for (const p of own) {
-      if (!p.qual) fail(`policy "${p.name}" on "${name}" has no USING clause`)
-      if (!p.with_check) fail(`policy "${p.name}" on "${name}" has no WITH CHECK clause - a tenant could write another tenant's row`)
-      const expr = `${p.qual ?? ''} ${p.with_check ?? ''}`
-      if (!expr.includes('current_tenant()')) {
-        fail(`policy "${p.name}" on "${name}" does not reference current_tenant()`)
-      }
+      for (const problem of lintPolicy({
+        table: name, name: p.name as string, cmd: p.cmd as string,
+        qual: (p.qual as string | null) ?? null, withCheck: (p.with_check as string | null) ?? null,
+      })) fail(problem)
     }
   }
+
+  // Row-level security does not apply through a view unless the view runs as its CALLER.
+  // A plain view runs as its owner -- which FORCE binds too, but a view over a tenant table
+  // owned by anything else would read every tenant. Require security_invoker.
+  const { rows: views } = await db.query<Row>(`
+    SELECT c.relname AS name, c.relkind AS kind, c.reloptions AS opts
+      FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
+     WHERE n.nspname = 'public' AND c.relkind IN ('v','m')`)
+  for (const v of views) {
+    const opts = (v.opts as string[] | null) ?? []
+    if (v.kind === 'm') fail(`materialized view "${v.name}" cannot be row-level secured; it would hold every tenant's rows`)
+    else if (!opts.includes('security_invoker=true')) {
+      fail(`view "${v.name}" is not security_invoker=true, so it would read tables as its owner and bypass their policies`)
+    }
+  }
+
+  // A schema nobody classified is a place tenant data can sit with no policy at all.
+  const { rows: schemas } = await db.query<Row>(`
+    SELECT DISTINCT n.nspname AS name
+      FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
+     WHERE c.relkind IN ('r','p','v','m','f')
+       AND n.nspname NOT IN ('public','control_plane','pg_catalog','information_schema')
+       AND n.nspname NOT LIKE 'pg\_%'`)
+  for (const sc of schemas) fail(`schema "${sc.name}" holds tables but is neither public nor control_plane; classify it before it holds data`)
 
   const { rows: roleRows } = await db.query<Row>(
     'SELECT rolbypassrls, rolsuper FROM pg_roles WHERE rolname = $1',
