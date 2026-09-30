@@ -311,6 +311,52 @@ describe('helpdesk: confidential categories are enforced by RLS, not by a filter
     expect(rows).toHaveLength(0)
   })
 
+  // ticket_messages and ticket_events carried a tenant-only policy, so the confidentiality
+  // that hid the TICKET did not hide what was SAID on it: any query that reached the
+  // message table directly returned a grievance's whole thread to anyone in the company.
+  describe('the thread and the event log follow the ticket', () => {
+    const raiseGrievance = async (): Promise<string> => {
+      const cat = await seedCategory(A.id, { name: 'Grievance', confidential: true })
+      return withTenant(A.id, async (tx) => {
+        const id = await raiseTicket(tx, {
+          categoryId: cat, raisedByUserId: EMPLOYEE, title: 'Complaint', description: 'named a manager',
+        })
+        await respond(tx, id, { authorUserId: EMPLOYEE, body: 'further detail' })
+        return id
+      }, { userId: EMPLOYEE })
+    }
+    const count = (userId: string | undefined, table: string, ticketId: string) =>
+      withTenant(A.id, async (tx) =>
+        Number((await tx.query(`SELECT count(*)::int AS n FROM ${table} WHERE ticket_id = $1`, [ticketId])).rows[0].n),
+      userId ? { userId } : {})
+
+    for (const table of ['ticket_messages', 'ticket_events']) {
+      it(`${table}: hidden from general HR and from a job with no user`, async () => {
+        const id = await raiseGrievance()
+        expect(await count(EMPLOYEE, table, id)).toBeGreaterThan(0)   // the raiser still sees it
+        expect(await count(HR, table, id)).toBe(0)
+        expect(await count(MANAGER, table, id)).toBe(0)
+        expect(await count(undefined, table, id)).toBe(0)
+      })
+    }
+
+    it('the named committee sees the thread', async () => {
+      const id = await raiseGrievance()
+      const cat = (await withTenant(A.id, async (tx) =>
+        (await tx.query(`SELECT category_id FROM tickets WHERE id = $1`, [id])).rows[0].category_id, { userId: EMPLOYEE }))
+      await withTenant(A.id, (tx) => tx.query(
+        `INSERT INTO ticket_confidential_access (tenant_id, category_id, user_id) VALUES ($1,$2,$3)`, [A.id, cat, COMMITTEE]))
+      expect(await count(COMMITTEE, 'ticket_messages', id)).toBeGreaterThan(0)
+    })
+
+    it('a user who cannot see a ticket cannot write onto it either', async () => {
+      const id = await raiseGrievance()
+      await expect(withTenant(A.id, (tx) => tx.query(
+        `INSERT INTO ticket_messages (tenant_id, ticket_id, author_user_id, author_type, body) VALUES ($1,$2,$3,'employee','x')`,
+        [A.id, id, HR]), { userId: HR })).rejects.toThrow(/row-level security|violates/)
+    })
+  })
+
   it('rejects a ticket in an unknown category', async () => {
     const err = await withTenant(A.id, async (tx) =>
       raiseTicket(tx, {
