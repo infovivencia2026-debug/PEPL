@@ -10,6 +10,7 @@ import { AttendanceError } from './index.ts'
  */
 import type { PoolClient } from 'pg'
 import { summarisePeriod, type PolicyFor, type MusterCell } from './summary.ts'
+import { csvCell } from '../lib/csv.ts'
 
 export interface MusterRow {
   employeeId: string
@@ -84,7 +85,7 @@ export async function musterRoll(
 
 /** Form-25-shaped CSV: one row per employee, one column per day, then the totals. */
 export function musterCsv(m: Muster): string {
-  const q = (v: unknown): string => { const s = v === null || v === undefined ? '' : String(v); return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s }
+  const q = csvCell
   const head = ['Emp No', 'Name', 'Department', 'Designation', ...m.days.map((d) => d.slice(8)), 'Present', 'Half', 'Absent', 'Leave', 'LWP', 'WO', 'Holiday', 'OD', 'WFH', 'No record', 'Late', 'OT hrs', 'Payable', 'LOP']
   const lines = m.rows.map((r) => [r.employeeNumber, r.name, r.department, r.designation, ...r.days.map((c) => c.code),
     r.totals.present, r.totals.half, r.totals.absent, r.totals.leave, r.totals.unpaidLeave, r.totals.weeklyOff, r.totals.holiday, r.totals.onDuty, r.totals.remote, r.totals.unmarked, r.totals.late, r.totals.otHours, r.totals.payable, r.totals.lop].map(q).join(','))

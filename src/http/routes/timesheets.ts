@@ -8,6 +8,7 @@ import {
 } from '../../work/timesheets.ts'
 import { scopeIds } from '../ui-data.ts'
 import type { ChainCode } from '../../approvals/index.ts'
+import { csvCell } from '../../lib/csv.ts'
 
 export function register(router: Router): void {
   router.get('/api/v1/projects/profitability', { summary: 'Per project: approved hours, billable revenue, cost of hours at CTC/173, margin (?from=&to=&projectId=)', tag: 'timesheets', permission: 'project.write' },
@@ -134,7 +135,7 @@ export function register(router: Router): void {
       if (ctx.req.query.get('format') === 'csv') {
         const head = 'project_code,project_name,client,employee_number,employee_name,hours,billable_hours,billable_rupees'
         const csv = [head, ...rows.map((r) => [r.project_code, r.project_name, r.client ?? '', r.employee_number, r.employee_name, r.hours, r.billable_hours ?? '0', (Number(r.billable_paise) / 100).toFixed(2)]
-          .map((v) => `"${String(v).replace(/"/g, '""')}"`).join(','))].join('\n')
+          .map(csvCell).join(','))].join('\n')
         return ok({ csv, rows })
       }
       return ok({ rows })

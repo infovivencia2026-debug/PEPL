@@ -15,6 +15,7 @@ import type { PoolClient } from 'pg'
 import type { ResolvedConfig } from '../config/resolver.ts'
 import { OBLIGATIONS, dueDatesBetween } from '../../db/reference/compliance.ts'
 import { notify } from '../comms/index.ts'
+import { csvCell } from '../lib/csv.ts'
 
 export class ComplianceError extends Error {
   readonly code: string
@@ -106,7 +107,7 @@ export async function remindObligations(tx: PoolClient, today = new Date().toISO
 // ── registers ────────────────────────────────────────────────────────────────
 
 export interface Register { columns: string[]; rows: Record<string, string | number | null>[]; csv: string }
-const q = (v: unknown): string => { const s = v === null || v === undefined ? '' : String(v); return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s }
+const q = csvCell
 const csvOf = (columns: string[], rows: Record<string, unknown>[]): string => [columns.map(q).join(','), ...rows.map((r) => columns.map((c) => q(r[c])).join(','))].join('\n') + '\n'
 const rupees = (paise: string | number | null): number => Math.round(Number(paise ?? 0)) / 100
 

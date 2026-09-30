@@ -22,6 +22,7 @@
  *   silently has a hole. Every generator returns `omitted` with the reason.
  */
 import type { PoolClient } from 'pg'
+import { csvCell } from '../lib/csv.ts'
 
 export class FilingError extends Error {
   readonly code: string
@@ -69,10 +70,7 @@ const rupees = (paise: bigint): string => (Number(paise) / 100).toFixed(2)
 const wholeRupees = (paise: bigint): string => String(Math.floor(Number(paise) / 100))
 
 /** CSV field: quote only when it must be, and never let a value break the row. */
-const csv = (v: string | number): string => {
-  const s = String(v)
-  return /[",\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s
-}
+const csv = (v: string | number): string => csvCell(v)
 
 /**
  * The run's rows, joined to the statutory identifiers.

@@ -8,6 +8,7 @@
 import type { PoolClient } from 'pg'
 import type { AuthzContext, Permission } from '../authz/permissions.ts'
 import { can } from '../authz/permissions.ts'
+import { csvCell } from '../lib/csv.ts'
 
 export class ReportError extends Error {
   readonly code: string
@@ -119,7 +120,6 @@ export interface Measure { field: string; fn: Fn; label?: string }
 export interface Spec { model: string; columns?: string[]; filters?: Filter[]; groupBy?: string[]; measures?: Measure[]; sort?: Array<{ field: string; dir?: 'asc' | 'desc' }>; limit?: number }
 export interface Result { columns: Array<{ key: string; label: string; type: FieldType }>; rows: Record<string, unknown>[]; total: number; truncated: boolean; csv: string }
 
-const csvCell = (v: unknown): string => { const s = v === null || v === undefined ? '' : String(v); return /[",\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s }
 const OPS: Record<Op, string> = { eq: '=', neq: '<>', in: 'IN', gte: '>=', lte: '<=', gt: '>', lt: '<', contains: 'ILIKE', is_null: 'IS NULL', not_null: 'IS NOT NULL' }
 const MAX_ROWS = 5000
 

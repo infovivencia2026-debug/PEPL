@@ -12,6 +12,7 @@
  * CSV rendering, so the route can hand over a file.
  */
 import type { PoolClient } from 'pg'
+import { csvCell } from '../lib/csv.ts'
 
 export interface Report {
   columns: string[]
@@ -19,10 +20,6 @@ export interface Report {
   csv: string
 }
 
-const csvCell = (v: unknown): string => {
-  const s = v === null || v === undefined ? '' : String(v)
-  return /[",\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s
-}
 const toCsv = (columns: string[], rows: Record<string, unknown>[]): string =>
   [columns.join(','), ...rows.map((r) => columns.map((c) => csvCell(r[c])).join(','))].join('\n') + '\n'
 const rupees = (paise: string | number | null | undefined): number => Number(paise ?? 0) / 100

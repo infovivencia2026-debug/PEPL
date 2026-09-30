@@ -11,6 +11,7 @@
  * defaults below are what an Indian SME's chart of accounts calls them.
  */
 import type { PoolClient } from 'pg'
+import { csvCell } from '../lib/csv.ts'
 
 export class JournalError extends Error {
   readonly code: string
@@ -115,7 +116,7 @@ const xml = (s: string): string => s.replace(/&/g, '&amp;').replace(/</g, '&lt;'
 
 export function journalCsv(j: Journal): string {
   const head = 'Date,Account,Cost centre,Debit,Credit,Narration'
-  const body = j.lines.map((l) => [j.date, l.account, l.costCentre ?? '', l.debitPaise ? inr(l.debitPaise) : '', l.creditPaise ? inr(l.creditPaise) : '', l.narration].map((v) => /[",\n]/.test(v) ? `"${v.replace(/"/g, '""')}"` : v).join(','))
+  const body = j.lines.map((l) => [j.date, l.account, l.costCentre ?? '', l.debitPaise ? inr(l.debitPaise) : '', l.creditPaise ? inr(l.creditPaise) : '', l.narration].map(csvCell).join(','))
   return [head, ...body, `,TOTAL,,${inr(j.totalDebitPaise)},${inr(j.totalCreditPaise)},`].join('\n') + '\n'
 }
 
