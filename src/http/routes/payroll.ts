@@ -261,16 +261,28 @@ export function register(router: Router): void {
     { summary: 'The full component breakdown behind a payslip', tag: 'payroll',
       permission: 'payroll.read' },
     authed('payroll.read', async (ctx) => {
-      const { rows: slip } = await ctx.tx.query<{ employee_id: string; run_id: string }>(
-        `SELECT employee_id, run_id FROM payslips WHERE id = $1`, [asUuid(ctx.req.params.id, 'id')])
+      const slipId = asUuid(ctx.req.params.id, 'id')
+      const { rows: slip } = await ctx.tx.query<{ employee_id: string; run_id: string; status: string }>(
+        `SELECT s.employee_id, s.run_id, r.status
+           FROM payslips s JOIN payroll_runs r ON (r.tenant_id, r.id) = (s.tenant_id, s.run_id)
+          WHERE s.id = $1`, [slipId])
       if (!slip[0]) throw new HttpError(404, 'NOT_FOUND', 'no such payslip')
-      assertScope(ctx.auth, slip[0].employee_id)
+      // A draft is the payroll team's to read: its numbers can still change. An employee sees
+      // their own once the run is locked, like everything else about their pay.
+      if (slip[0].status === 'locked') assertScope(ctx.auth, slip[0].employee_id)
+      else assertOrgWide(ctx.auth)
 
       const { rows } = await ctx.tx.query(
         `SELECT component_code, component_type, amount_paise::text, calc_note
            FROM payroll_lines WHERE run_id = $1 AND employee_id = $2
           ORDER BY component_type, component_code`,
         [slip[0].run_id, slip[0].employee_id])
+      // The breakdown is the same tier-3 disclosure as the PDF; it used to leave no record.
+      await emit(ctx.tx, {
+        action: 'access.tier3.revealed', entityType: 'payslip', entityId: slipId,
+        actorUserId: ctx.session.userId, subjectEmployeeId: slip[0].employee_id,
+        metadata: { format: 'lines' },
+      })
       return ok({ lines: rows })
     }))
 
@@ -279,10 +291,13 @@ export function register(router: Router): void {
       permission: 'payroll.read' },
     authed('payroll.read', async (ctx) => {
       const id = asUuid(ctx.req.params.id, 'id')
-      const { rows } = await ctx.tx.query<{ employee_id: string }>(
-        `SELECT employee_id FROM payslips WHERE id = $1`, [id])
+      const { rows } = await ctx.tx.query<{ employee_id: string; status: string }>(
+        `SELECT s.employee_id, r.status
+           FROM payslips s JOIN payroll_runs r ON (r.tenant_id, r.id) = (s.tenant_id, s.run_id)
+          WHERE s.id = $1`, [id])
       if (!rows[0]) throw new HttpError(404, 'NOT_FOUND', 'no such payslip')
-      assertScope(ctx.auth, rows[0].employee_id)
+      if (rows[0].status === 'locked') assertScope(ctx.auth, rows[0].employee_id)
+      else assertOrgWide(ctx.auth)
 
       const pdf = await payslipPdf(ctx.tx, id)
       // A payslip carries net pay, so reading one is a tier-3 reveal.

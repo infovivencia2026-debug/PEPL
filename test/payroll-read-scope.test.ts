@@ -131,3 +131,40 @@ describe('reading a run\'s validation changes nothing', () => {
     expect(await statusOf(runId)).toBe('validated')
   })
 })
+
+describe('a payslip of a run that is not locked yet', () => {
+  // Until the run is locked the numbers are a draft: they can still change, and a payroll
+  // team is still checking them. GET /payslips/:id/lines served them to the employee they
+  // belong to (payroll.read is what lets anyone see their own pay), and unlike the PDF it left
+  // no access record. Reported by an audit.
+  const slipId = () => withTenant(A.id, async (tx) =>
+    (await tx.query<{ id: string }>(`SELECT id FROM payslips WHERE run_id = $1`, [runId])).rows[0]!.id)
+  const audited = async (id: string) => Number((await controlPool.query(
+    `SELECT count(*)::int AS n FROM audit_events WHERE tenant_id = $1 AND action = 'access.tier3.revealed'
+        AND entity_id = $2 AND metadata->>'format' = 'lines'`, [A.id, id])).rows[0].n)
+
+  it('is not readable by its owner while the run is a draft', async () => {
+    const id = await slipId()
+    expect((await call(`/api/v1/payslips/${id}/lines`, 'employee')).status).toBe(403)
+    expect((await call(`/api/v1/payslips/${id}/pdf`, 'employee')).status).toBe(403)
+  })
+
+  it('is readable by the payroll team, and each read of the lines is recorded', async () => {
+    const id = await slipId()
+    const before = await audited(id)
+    const r = await call(`/api/v1/payslips/${id}/lines`, 'payroll_admin')
+    expect(r.status).toBe(200)
+    expect(await audited(id)).toBe(before + 1)
+  })
+
+  it('is readable by its owner once the run is locked -- and that read is recorded too', async () => {
+    // Locked directly: the approval chain is not what is under test.
+    await controlPool.query(`UPDATE payroll_runs SET status = 'locked' WHERE id = $1`, [runId])
+    const id = await slipId()
+    const before = await audited(id)
+    const r = await call(`/api/v1/payslips/${id}/lines`, 'employee')
+    expect(r.status).toBe(200)
+    expect(await audited(id)).toBe(before + 1)
+    expect((await call(`/api/v1/payslips/${id}/pdf`, 'employee')).status).toBe(200)
+  })
+})
