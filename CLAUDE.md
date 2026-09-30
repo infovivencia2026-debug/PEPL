@@ -677,3 +677,43 @@ ITSELF: its own command line contains the pattern. It reported 4 to 18 "running"
 test processes for hours when nothing was running. Use the PowerShell tool (no
 wrapper process), or add `-and $_.ProcessId -ne $PID`, before deciding a verify
 is still in flight — and before killing anything.
+
+## A list of choices lives in ONE place, and the UI asks for it
+
+The console's New company form hard-coded five organisation types — company,
+ngo, school, hospital, government. The server's presets were office,
+field_sales, education, manufacturing, retail, agency. **None of the five
+matched**, and the form's default ("company") was one of them. Picking
+"Education" sent `school`, provisioning found out at its `preset` step, and two
+half-built companies were left in production. The API-driven e2e never saw it
+because it created companies without going through the form.
+
+`GET /api/platform/presets` is the list; the console carries none of its own
+(`test/organisation-types.test.ts` fails if a hard-coded option comes back).
+`scripts/e2e-console.ts` now picks a type in the real form. Any `<select>` whose
+values the server validates should be populated from the server.
+
+## Provisioning can fail part-way, so it has to fail TIDILY
+
+Each provisioning step commits. Three things used to be missing and each made the
+others worse: an unknown organisation type was found only at the `preset` step
+(now refused before the first insert); `provisionTenant` had no `catch`, so a
+throwing step left its job `running` with nothing recorded (now `failed`, with the
+reason); and the retry hit the admin row the failure left behind and was told
+"an account with this email already exists; sign in instead" — for an account with
+no password. `signup` now cleans up after a failed provisioning, and
+`npm run ops stuck` / `npm run ops abandon <id>` handle any that slip through.
+
+`abandonProvisioning` is fenced twice and must stay that way: it refuses a company
+whose job COMPLETED (that is a customer — suspending is how one leaves) and any
+that already holds people or a sign-in. A completed test company is removed by
+hand; the guard is not something to loosen so a test can clean up.
+
+## Before running a targeted test, look for a verify you forgot
+
+An intermittent `Cannot read properties of undefined (reading 'id')` from a suite
+that passed alone was a `npm run verify` I had started earlier and left running in
+the background, TRUNCATEing `pepl_test` under it. It passed in isolation and in five
+repeats, which is the tell. The process check in this file is the first thing to run
+when a suite is flaky — and see "A process query that matches itself" for how to run
+it without counting itself.
