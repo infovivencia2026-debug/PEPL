@@ -64,18 +64,24 @@ export interface JournalLine { account: string; costCentre: string | null; debit
 export interface Journal { runId: string; period: string; date: string; lines: JournalLine[]; totalDebitPaise: bigint; totalCreditPaise: bigint; balanced: boolean; unmapped: string[] }
 
 export async function buildJournal(tx: PoolClient, runId: string): Promise<Journal> {
-  const run = (await tx.query<{ status: string; period_start: string; period_end: string }>(
-    `SELECT r.status, p.period_start::text, p.period_end::text FROM payroll_runs r JOIN payroll_periods p ON (p.tenant_id, p.id) = (r.tenant_id, r.period_id) WHERE r.id = $1`, [runId])).rows[0]
+  const run = (await tx.query<{ status: string; period_start: string; period_end: string; supersedes_run_id: string | null }>(
+    `SELECT r.status, p.period_start::text, p.period_end::text, r.supersedes_run_id FROM payroll_runs r JOIN payroll_periods p ON (p.tenant_id, p.id) = (r.tenant_id, r.period_id) WHERE r.id = $1`, [runId])).rows[0]
   if (!run) throw new JournalError('NOT_FOUND', 'no such run')
   if (run.status !== 'locked') throw new JournalError('RUN_NOT_LOCKED', 'only a locked run posts to the books')
   const mappings = await listMappings(tx)
   const byCode = new Map(mappings.map((m) => [m.component_code, m]))
   const { rows } = await tx.query<{ component_code: string; component_type: string; amount: string; department: string | null; location: string | null; cost_centre: string | null }>(
-    `SELECT l.component_code, l.component_type, sum(l.amount_paise)::text AS amount, a.department, a.location_code AS location, e.cost_centre
+    // A revision recomputes a month whose original is ALREADY in the ledger, so it posts the
+    // DIFFERENCE: this run's lines less the run it supersedes ($3, NULL for an ordinary run,
+    // which matches nothing). Posting the whole revised month again booked the salary twice.
+    `SELECT l.component_code, l.component_type,
+            sum(CASE WHEN l.run_id = $1 THEN l.amount_paise ELSE -l.amount_paise END)::text AS amount,
+            a.department, a.location_code AS location, e.cost_centre
        FROM payroll_lines l JOIN employees e ON e.id = l.employee_id
        LEFT JOIN LATERAL (SELECT department, location_code FROM employee_assignments x WHERE x.employee_id = l.employee_id AND x.superseded_at IS NULL AND x.effective_from <= $2::date ORDER BY effective_from DESC LIMIT 1) a ON true
-      WHERE l.run_id = $1 AND l.component_type IN ('earning','deduction','employer_contribution')
-      GROUP BY l.component_code, l.component_type, a.department, a.location_code, e.cost_centre ORDER BY l.component_type, l.component_code`, [runId, run.period_end])
+      WHERE l.run_id IN ($1, $3::uuid) AND l.component_type IN ('earning','deduction','employer_contribution')
+      GROUP BY l.component_code, l.component_type, a.department, a.location_code, e.cost_centre ORDER BY l.component_type, l.component_code`,
+    [runId, run.period_end, run.supersedes_run_id])
   const acc = new Map<string, JournalLine>()
   const post = (account: string, cc: string | null, dr: bigint, cr: bigint, narration: string): void => {
     const k = `${account}|${cc ?? ''}`
@@ -88,12 +94,15 @@ export async function buildJournal(tx: PoolClient, runId: string): Promise<Journ
     if (!m?.debit_account || !m.credit_account) { unmapped.add(r.component_code); continue }
     const amt = BigInt(r.amount)
     if (amt === 0n) continue
+    // A negative difference is a reversal: the same two heads with the sides swapped.
+    const reversal = amt < 0n
+    const abs = reversal ? -amt : amt
     const cc = m.cost_centre_by === 'department' ? r.department : m.cost_centre_by === 'location' ? r.location : m.cost_centre_by === 'cost_centre' ? r.cost_centre : null
     const narr = `Payroll ${run.period_start.slice(0, 7)} · ${r.component_code}`
     // Cost centres belong to expense heads only; a payable split by department never nets to zero.
     const expenseSide = r.component_type === 'earning' || r.component_type === 'employer_contribution'
-    post(m.debit_account, expenseSide ? cc : null, amt, 0n, narr)
-    post(m.credit_account, null, 0n, amt, narr)
+    post(m.debit_account, expenseSide ? cc : null, reversal ? 0n : abs, reversal ? abs : 0n, narr)
+    post(m.credit_account, null, reversal ? abs : 0n, reversal ? 0n : abs, narr)
   }
   // Employee deductions were credited to their liabilities and debited to Salary Payable; net pay = payable balance
   const lines = [...acc.values()].filter((l) => l.debitPaise !== l.creditPaise || l.debitPaise !== 0n).sort((a, b) => a.account.localeCompare(b.account) || (a.costCentre ?? '').localeCompare(b.costCentre ?? ''))

@@ -123,7 +123,29 @@ async function settleIfClear(tx: PoolClient, loan: Loan): Promise<LoanView> {
 export async function deductForRun(
   tx: PoolClient,
   args: { employeeId: string; runId: string; periodStart: string; all?: boolean },
-): Promise<{ amountPaise: number; loans: { loanId: string; amountPaise: number }[] }> {
+): Promise<{ amountPaise: number; loans: { loanId: string; amountPaise: number }[]; settlement?: boolean }> {
+  // A revision recomputes a month that has already been recovered. It carries the SAME
+  // deduction on the corrected payslip -- so the correction does not look like the employee
+  // was let off the instalment -- but records nothing: the loan was repaid once, and a second
+  // repayment row would take a second instalment off its balance for the same month.
+  const prior = await tx.query<{ loan_id: string; amount_paise: string; kind: string }>(
+    `WITH RECURSIVE chain(id, sup) AS (
+       SELECT id, supersedes_run_id FROM payroll_runs WHERE id = $1
+       UNION ALL
+       SELECT r.id, r.supersedes_run_id FROM payroll_runs r JOIN chain c ON r.id = c.sup)
+     SELECT lr.loan_id, lr.amount_paise::text, lr.kind
+       FROM loan_repayments lr
+       JOIN employee_loans l ON l.id = lr.loan_id
+      WHERE lr.run_id IN (SELECT id FROM chain WHERE id <> $1) AND l.employee_id = $2`,
+    [args.runId, args.employeeId])
+  const isRevision = (await tx.query(`SELECT 1 FROM payroll_runs WHERE id = $1 AND supersedes_run_id IS NOT NULL`, [args.runId])).rowCount
+  if (isRevision) {
+    const loans = prior.rows.map((r) => ({ loanId: r.loan_id, amountPaise: Number(r.amount_paise) }))
+    return {
+      amountPaise: loans.reduce((n, l) => n + l.amountPaise, 0), loans,
+      settlement: prior.rows.some((r) => r.kind === 'exit'),
+    }
+  }
   const { rows } = await tx.query<Loan>(
     `SELECT ${COLUMNS} FROM employee_loans WHERE employee_id = $1 AND status = 'active' AND starts_on <= $2::date ORDER BY disbursed_on`,
     [args.employeeId, args.periodStart])

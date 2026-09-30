@@ -124,8 +124,8 @@ export async function generateBankFile(
   const tenantId = tRows[0]?.t
   if (!tenantId) throw new PaymentError('NO_TENANT_CONTEXT', 'no tenant context')
 
-  const { rows: runRows } = await tx.query<{ status: string; period_label: string }>(
-    `SELECT r.status, p.label AS period_label
+  const { rows: runRows } = await tx.query<{ status: string; period_label: string; revision: number; supersedes_run_id: string | null }>(
+    `SELECT r.status, p.label AS period_label, r.revision, r.supersedes_run_id
        FROM payroll_runs r
        JOIN payroll_periods p ON (p.tenant_id, p.id) = (r.tenant_id, r.period_id)
       WHERE r.id = $1`,
@@ -159,16 +159,24 @@ export async function generateBankFile(
     employee_id: string; employee_number: string; first_name: string; last_name: string | null
     net_paise: string; account_number: string | null; ifsc: string | null
   }>(
+    // What is TRANSFERRED for each person: their net, less what the run this one supersedes
+    // already owed them. For an ordinary run there is nothing to subtract. A revision is a
+    // full recomputation, and its original was paid -- the whole net again would be a second
+    // month's salary. Only an increase is a payment: a decrease is a recovery from the
+    // employee, which is not something a bank file can do, so it produces no line at all.
     `SELECT s.employee_id, e.employee_number, e.first_name, e.last_name,
-            s.net_paise::text, b.account_number, b.ifsc
+            (s.net_paise - coalesce(prev.net_paise, 0))::text AS net_paise, b.account_number, b.ifsc
        FROM payslips s
        JOIN employees e ON (e.tenant_id, e.id) = (s.tenant_id, s.employee_id)
+       LEFT JOIN payslips prev
+              ON (prev.tenant_id, prev.employee_id) = (s.tenant_id, s.employee_id)
+             AND prev.run_id = $2::uuid
        LEFT JOIN employee_bank_accounts b
               ON (b.tenant_id, b.employee_id) = (s.tenant_id, s.employee_id)
              AND b.is_primary
-      WHERE s.run_id = $1 AND s.net_paise > 0
+      WHERE s.run_id = $1 AND (s.net_paise - coalesce(prev.net_paise, 0)) > 0
       ORDER BY e.employee_number`,
-    [args.runId],
+    [args.runId, run.supersedes_run_id],
   )
 
   const missing = slips.filter((s) => !s.account_number || !s.ifsc)
@@ -186,7 +194,11 @@ export async function generateBankFile(
     accountNumber: s.account_number!,
     ifsc: s.ifsc!,
     amountPaise: BigInt(s.net_paise),
-    reference: `SAL ${run.period_label} ${s.employee_number}`,
+    // A revision's transfer is a DIFFERENT payment from the original salary: say so, so the
+    // two cannot be mistaken for one another (or for a duplicate) on a bank statement.
+    reference: run.supersedes_run_id
+      ? `SAL ${run.period_label} REV${run.revision} ${s.employee_number}`
+      : `SAL ${run.period_label} ${s.employee_number}`,
   }))
 
   const file = renderBankFile(instructions, args.format, args.valueDate)

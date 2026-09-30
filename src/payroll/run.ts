@@ -140,7 +140,7 @@ export async function freezeInputs(
     if (!(r.adhoc ?? []).some((a) => a.code.toUpperCase() === 'LOAN_EMI')) {
       const emi = await deductForRun(tx, { employeeId: r.employeeId, runId, periodStart: period[0].period_start, all: !!exit })
       if (emi.amountPaise > 0) {
-        r = { ...r, adhoc: [...(r.adhoc ?? []), { code: exit ? 'LOAN_SETTLEMENT' : 'LOAN_EMI', amountPaise: emi.amountPaise, type: 'deduction' }] }
+        r = { ...r, adhoc: [...(r.adhoc ?? []), { code: (exit || emi.settlement) ? 'LOAN_SETTLEMENT' : 'LOAN_EMI', amountPaise: emi.amountPaise, type: 'deduction' }] }
       }
     }
     // Approved expense claims and travel advances are paid with this run,
