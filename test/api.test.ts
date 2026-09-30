@@ -793,6 +793,49 @@ describe('a fresh tenant can onboard a person without the demo seed', () => {
     expect(status.body).toMatchObject({ user_id: inv.body.userId, email, roles: ['employee'] })
   })
 
+  // Re-inviting an existing login used to issue a reset link for ANY role and hand the link
+  // back in the response: anyone with employee.write could invite the employee record of an
+  // administrator, set that administrator's password, and sign in as them.
+  describe('re-inviting a login that already exists', () => {
+    const inviteAs = (token: string, empId: string) =>
+      api<{ userId?: string; created?: boolean; link?: string; error?: { code: string } }>(
+        'POST', `/api/v1/employees/${empId}/invite`, { token, body: { email: 'ignored@apitest.local' } })
+
+    it('is refused for a login holding elevated roles unless the caller has roles.write', async () => {
+      const hr = await loginAs(ids.hr!)          // employee.write, no roles.write
+      const r = await inviteAs(hr, ids.managerEmp!)   // the manager's login holds 'manager'
+      expect(r.status).toBe(403)
+      expect(JSON.stringify(r.body)).toContain('PRIVILEGED_LOGIN')
+      expect(JSON.stringify(r.body)).not.toContain('reset-password')
+    })
+
+    it('is allowed for someone with roles.write, but the link is still not returned', async () => {
+      const admin = await loginAs(ids.admin!)
+      const r = await inviteAs(admin, ids.managerEmp!)
+      expect(r.status).toBe(200)
+      expect(r.body.created).toBe(false)
+      expect(r.body.link).toBeUndefined()
+    })
+
+    it('for a plain employee login re-issues by email only: the link is not in the response', async () => {
+      const hr = await loginAs(ids.hr!)
+      const r = await inviteAs(hr, ids.employeeEmp!)
+      expect(r.status).toBe(200)
+      expect(r.body.link).toBeUndefined()
+    })
+
+    it('a NEW login still returns the link, so HR can hand it over when mail is not set up', async () => {
+      const hr = await loginAs(ids.hr!)
+      const email = `fresh-${Date.now()}@apitest.local`
+      const emp = await withTenant(tenantId, async (tx) => (await tx.query<{ id: string }>(
+        `INSERT INTO employees (tenant_id, employee_number, first_name, date_of_joining)
+         VALUES ($1,$2,'Fresh',DATE '2025-06-01') RETURNING id`, [tenantId, `T-9${Date.now() % 1000}`])).rows[0]!.id)
+      const r = await api<{ link?: string; created?: boolean }>('POST', `/api/v1/employees/${emp}/invite`, { token: hr, body: { email } })
+      expect(r.status).toBe(201)
+      expect(r.body.link).toContain('reset-password?token=')
+    })
+  })
+
   it('manager on the assignment: set, carried forward, cycle refused; the manager gains scope over the report', async () => {
     const hr = await loginAs(ids.hr!)
     // Sneha (otherEmp) now reports to Arjun (managerEmp)

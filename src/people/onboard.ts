@@ -108,7 +108,11 @@ export async function loginFor(tx: PoolClient, employeeId: string): Promise<Logi
  */
 export async function inviteEmployee(
   tx: PoolClient,
-  args: { employeeId: string; email: string; roles?: string[]; issuedByUserId: string; ip?: string },
+  args: {
+    employeeId: string; email: string; roles?: string[]; issuedByUserId: string; ip?: string
+    /** Re-issuing a link for a login that holds more than the plain employee role. Only a caller with roles.write may. */
+    allowPrivilegedReissue?: boolean
+  },
 ): Promise<{ userId: string; email: string; token: string; expiresAt: Date; created: boolean }> {
   const tid = await tenantId(tx)
   const email = args.email.trim().toLowerCase()
@@ -122,6 +126,18 @@ export async function inviteEmployee(
   const existing = await loginFor(tx, args.employeeId)
   let userId = existing.user_id
   let created = false
+  if (userId) {
+    // A reset link is a way to become that user. Handing one out for an EXISTING login is
+    // therefore a takeover unless the caller could already grant that login's roles:
+    // employee.write alone let anyone re-invite an administrator's employee record, set the
+    // administrator's password, and sign in as them.
+    if (existing.status !== 'active') {
+      throw new OnboardError('LOGIN_NOT_ACTIVE', 'this login is not active; a set-password link would do nothing')
+    }
+    if (existing.roles.some((r) => r !== 'employee') && !args.allowPrivilegedReissue) {
+      throw new OnboardError('PRIVILEGED_LOGIN', 'this login holds elevated roles; re-issuing its set-password link needs roles.write')
+    }
+  }
   if (!userId) {
     const taken = await tx.query(`SELECT 1 FROM app_users WHERE lower(email) = $1`, [email])
     if (taken.rowCount) throw new OnboardError('EMAIL_TAKEN', `${email} already belongs to another login in this company`)

@@ -84,7 +84,7 @@ export function register(router: Router): void {
             await notify(ctx.tx, { userId: r.userId, eventType: 'security.login.invited', title: 'Your PEPL login',
               body: `Set your password here (link valid for 30 minutes): ${link}`, channels: ['email'], dedupeKey: `invite:${r.userId}:${r.token.slice(0, 8)}` })
             await ctx.tx.query('RELEASE SAVEPOINT invite')
-            invites.push({ employeeNumber: row.employeeNumber, email: row.email, link })
+            if (r.created) invites.push({ employeeNumber: row.employeeNumber, email: row.email, link })   // an existing login's link is emailed only
           } catch (err) {
             await ctx.tx.query('ROLLBACK TO SAVEPOINT invite')
             inviteErrors.push({ employeeNumber: row.employeeNumber, email: row.email, error: (err as Error).message })

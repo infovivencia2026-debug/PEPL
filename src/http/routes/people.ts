@@ -244,7 +244,10 @@ export function register(router: Router): void {
       if (b.roles?.length && !can(ctx.auth, 'roles.write')) {
         throw new HttpError(403, 'PERMISSION_DENIED', 'assigning roles other than employee needs roles.write')
       }
-      const r = await inviteEmployee(ctx.tx, { employeeId: id, email: b.email, roles: b.roles, issuedByUserId: ctx.auth.userId, ip: ctx.req.ip })
+      const r = await inviteEmployee(ctx.tx, {
+        employeeId: id, email: b.email, roles: b.roles, issuedByUserId: ctx.auth.userId, ip: ctx.req.ip,
+        allowPrivilegedReissue: can(ctx.auth, 'roles.write'),
+      })
       const link = `${publicUrl(ctx.req)}/reset-password?token=${r.token}`
       // Email it when the company has a sender mailbox; the link is returned either way
       // so HR can hand it over in person when mail is not set up.
@@ -257,7 +260,12 @@ export function register(router: Router): void {
         action: 'people.login.invited', entityType: 'user', entityId: r.userId, subjectEmployeeId: id,
         actorUserId: ctx.auth.userId, metadata: { email: r.email, created: r.created, roles: b.roles ?? ['employee'] },
       })
-      return (r.created ? created : ok)({ userId: r.userId, email: r.email, created: r.created, link, expiresAt: r.expiresAt.toISOString() })
+      // The link is in the response only for a login that has just been created, when nobody
+      // else can be locked out by it. For an existing login it goes to that person's mailbox
+      // alone: returning it here would let the caller sign in as them.
+      return (r.created ? created : ok)({
+        userId: r.userId, email: r.email, created: r.created, ...(r.created ? { link } : {}), expiresAt: r.expiresAt.toISOString(),
+      })
     }))
 
   router.post('/api/v1/employees/:id/assignments/:recordId/correct',
