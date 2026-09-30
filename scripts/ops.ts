@@ -25,7 +25,7 @@ import {
 } from '../src/control-plane/billing.ts'
 import { invoicePdf, supplierFromEnv } from '../src/control-plane/invoice-pdf.ts'
 import { issueCreditNote, listCreditNotes } from '../src/control-plane/credit-notes.ts'
-import { upsertPlatformUser, listPlatformUsers, setPlatformUserStatus } from '../src/control-plane/platform-auth.ts'
+import { upsertPlatformUser, listPlatformUsers, setPlatformUserStatus, resetPlatformMfa } from '../src/control-plane/platform-auth.ts'
 import { randomBytes } from 'node:crypto'
 import { writeFileSync } from 'node:fs'
 import { closePools } from '../src/db/pool.ts'
@@ -275,6 +275,18 @@ until they do.`)
       rows.map((u) => [u.email, u.full_name, u.status, u.mfa_enabled ? 'yes' : 'NOT SET', u.last_login_at ?? 'never'])))
   },
 
+  async 'staff-reset-mfa'(p) {
+    const email = p[0]
+    if (!email) throw new Error('usage: ops staff-reset-mfa <email>')
+    // The ONLY way to replace an enrolled second factor. There is deliberately
+    // no route for it: a route that can clear a second factor is a route that
+    // can bypass one. Needing a shell on the server is the point.
+    await resetPlatformMfa(email)
+    console.log(`${email}: second factor cleared and every session ended.\n` +
+      '  Their next sign-in shows a fresh QR code. Ask them to scan it straight away:\n' +
+      '  until they do, whoever knows the password can enrol first.')
+  },
+
   async 'staff-suspend'(p) {
     const email = p[0]
     if (!email) throw new Error('usage: ops staff-suspend <email>')
@@ -361,6 +373,7 @@ const USAGE = `PEPL back office
   npm run ops staff                             who can sign in to the operator console
   npm run ops staff-add --email a@b.c --name "..."   create an operator
   npm run ops staff-suspend <email>             revoke access and every session
+  npm run ops staff-reset-mfa <email>           clear a lost or half-enrolled second factor
 
   PEPL_DEMO_SUFFIX=ravi npm run seed:demo       a demo company of this rep's own,
                                                 so two people can demo at once

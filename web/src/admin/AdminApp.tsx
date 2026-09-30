@@ -34,7 +34,6 @@ type Staff = Operator & { last_login_at: string | null }
 type Screen = 'companies' | 'company' | 'new' | 'revenue' | 'staff'
 type AuthPhase = 'loading' | 'login' | 'verify' | 'enrol' | 'ready'
 
-const ENROL_PENDING = 'pepl.platform.enrol.pending'
 
 function Logo({ compact = false }: { compact?: boolean }) {
   return <div className="ops-logo"><span><ShieldCheck size={compact ? 21 : 25} /></span><div><strong>PEPL</strong>{!compact && <small>Operator console</small>}</div></div>
@@ -64,7 +63,6 @@ function AuthScreen({ phase, setPhase, setOperator }: { phase: AuthPhase; setPha
   const [error, setError] = useState('')
 
   const beginEnrol = useCallback(async (token?: string) => {
-    sessionStorage.setItem(ENROL_PENDING, 'true')
     const result = await platformApi<{ secret: string; otpauth: string }>('/mfa/enrol', { method: 'POST', body: {}, token })
     setEnrol(result)
     setPhase('enrol')
@@ -76,9 +74,9 @@ function AuthScreen({ phase, setPhase, setOperator }: { phase: AuthPhase; setPha
     if (!token) { setPhase('login'); return }
     void platformApi<{ user: Operator; mfaPending: boolean }>('/me', { token }).then(async result => {
       setOperator(result.user)
-      if (sessionStorage.getItem(ENROL_PENDING) === 'true' || !result.user.mfa_enabled) await beginEnrol(token)
+      if (!result.user.mfa_enabled) await beginEnrol(token)
       else setPhase(result.mfaPending ? 'verify' : 'ready')
-    }).catch(() => { sessionStorage.removeItem(PLATFORM_TOKEN); sessionStorage.removeItem(ENROL_PENDING); setPhase('login') })
+    }).catch(() => { sessionStorage.removeItem(PLATFORM_TOKEN); setPhase('login') })
   }, [beginEnrol, phase, setOperator, setPhase])
 
   // One login window for the whole product. The console deliberately has no
@@ -94,7 +92,6 @@ function AuthScreen({ phase, setPhase, setOperator }: { phase: AuthPhase; setPha
     event.preventDefault(); setBusy(true); setError('')
     try {
       await platformApi('/mfa/verify', { method: 'POST', body: { code } })
-      sessionStorage.removeItem(ENROL_PENDING)
       const result = await platformApi<{ user: Operator }>('/me')
       setOperator(result.user); setPhase('ready')
     } catch (caught) { setError(caught instanceof Error ? caught.message : 'Unable to verify that code.') }
@@ -115,13 +112,13 @@ function AuthScreen({ phase, setPhase, setOperator }: { phase: AuthPhase; setPha
         <p className="ops-muted">PEPL has one sign-in page for everyone. Your operator account is recognised there and brings you straight back here.</p>
         <a className="ops-button primary" href="/">Go to sign in<ChevronRight size={17} /></a>
       </> : phase === 'enrol' ? <>
-        <button className="ops-back" onClick={() => { sessionStorage.removeItem(PLATFORM_TOKEN); sessionStorage.removeItem(ENROL_PENDING); setPhase('login') }}><ArrowLeft size={16} /> Start again</button>
+        <button className="ops-back" onClick={() => { sessionStorage.removeItem(PLATFORM_TOKEN); setPhase('login') }}><ArrowLeft size={16} /> Start again</button>
         <div className="ops-auth-heading"><span><ShieldCheck /></span><div><small>REQUIRED SETUP</small><h2>Add your second factor</h2></div></div>
         <p className="ops-muted">Scan this code with an authenticator app. The console stays closed until a current code verifies the setup.</p>
         {enrol ? <div className="ops-enrol"><QrCanvas value={enrol.otpauth} /><div><small>CAN'T SCAN?</small><code>{enrol.secret}</code><button type="button" onClick={() => void navigator.clipboard.writeText(enrol.secret)}><Clipboard size={14} /> Copy secret</button></div></div> : <span className="ops-spinner" />}
         <form onSubmit={verify} className="ops-form code-form"><label>6-digit authenticator code<input inputMode="numeric" autoComplete="one-time-code" pattern="[0-9]{6}" maxLength={6} value={code} onChange={event => setCode(event.target.value.replace(/\D/g, ''))} placeholder="000000" required autoFocus /></label>{error && <div className="ops-error" role="alert"><AlertTriangle size={17} />{error}</div>}<button className="ops-button primary" disabled={busy || code.length !== 6}>{busy ? 'Checking…' : 'Verify and open console'}</button></form>
       </> : <>
-        <button className="ops-back" onClick={() => { sessionStorage.removeItem(PLATFORM_TOKEN); sessionStorage.removeItem(ENROL_PENDING); setPhase('login') }}><ArrowLeft size={16} /> Back to sign in</button>
+        <button className="ops-back" onClick={() => { sessionStorage.removeItem(PLATFORM_TOKEN); setPhase('login') }}><ArrowLeft size={16} /> Back to sign in</button>
         <div className="ops-auth-heading"><span><ShieldCheck /></span><div><small>SECOND FACTOR</small><h2>Verify it’s you</h2></div></div>
         <p className="ops-muted">Enter the current code from your authenticator. Password-only sessions cannot access company or billing data.</p>
         <form onSubmit={verify} className="ops-form code-form"><label>6-digit authenticator code<input inputMode="numeric" autoComplete="one-time-code" pattern="[0-9]{6}" maxLength={6} value={code} onChange={event => setCode(event.target.value.replace(/\D/g, ''))} placeholder="000000" required autoFocus /></label>{error && <div className="ops-error" role="alert"><AlertTriangle size={17} />{error}</div>}<button className="ops-button primary" disabled={busy || code.length !== 6}>{busy ? 'Checking…' : 'Open operator console'}</button></form>
@@ -257,7 +254,7 @@ export function AdminApp() {
     return () => { window.removeEventListener('pepl-platform-auth-expired', expired); window.removeEventListener('pepl-platform-mfa-required', verify) }
   }, [notify])
   useEffect(() => { if (phase === 'ready') void platformApi<{ plans: Plan[] }>('/plans').then(result => setPlans(result.plans)).catch(caught => notify((caught as Error).message, 'bad')) }, [notify, phase])
-  const logout = async () => { await platformApi('/logout', { method: 'POST', body: {} }).catch(() => undefined); sessionStorage.removeItem(PLATFORM_TOKEN); sessionStorage.removeItem(ENROL_PENDING); setOperator(null); setPhase('login'); setScreen('companies') }
+  const logout = async () => { await platformApi('/logout', { method: 'POST', body: {} }).catch(() => undefined); sessionStorage.removeItem(PLATFORM_TOKEN); setOperator(null); setPhase('login'); setScreen('companies') }
   if (phase !== 'ready') return <AuthScreen phase={phase} setPhase={setPhase} setOperator={setOperator} />
   const openCompany = (tenant: Tenant) => { setCompanyId(tenant.id); setScreen('company') }
   return <div className="ops-stage"><div className="ops-shell"><header className="ops-topbar"><Logo /><nav aria-label="Operator navigation"><button className={screen === 'companies' || screen === 'company' ? 'active' : ''} onClick={() => setScreen('companies')}><LayoutDashboard size={17} />Companies</button><button className={screen === 'revenue' ? 'active' : ''} onClick={() => setScreen('revenue')}><BadgeIndianRupee size={17} />Revenue</button><button className={screen === 'staff' ? 'active' : ''} onClick={() => setScreen('staff')}><Users size={17} />Staff</button></nav><div className="ops-operator"><span>{operator?.full_name.split(' ').map(part => part[0]).slice(0, 2).join('')}</span><div><strong>{operator?.full_name}</strong><small>{operator?.email}</small></div><button onClick={() => void logout()} title="Sign out"><LogOut size={18} /></button></div></header><main>{screen === 'companies' ? <Companies onOpen={openCompany} onNew={() => setScreen('new')} notify={notify} /> : screen === 'new' ? <NewCompany plans={plans} onBack={() => setScreen('companies')} onCreated={id => { setCompanyId(id); setScreen('company') }} notify={notify} /> : screen === 'company' && companyId ? <CompanyDetail id={companyId} plans={plans} onBack={() => setScreen('companies')} notify={notify} /> : screen === 'revenue' ? <Revenue notify={notify} /> : <StaffView notify={notify} />}</main></div>{toast && <div className={`ops-toast ${toast.kind}`} role="status">{toast.kind === 'good' ? <Check size={17} /> : <AlertTriangle size={17} />}{toast.message}<button onClick={() => setToast(null)}><X size={15} /></button></div>}</div>

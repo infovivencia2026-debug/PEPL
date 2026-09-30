@@ -75,7 +75,26 @@ const main = async () => {
   check(Boolean(secret), 'the enrolment secret is shown so it can be scanned', secret ? `${secret.length} chars` : 'not found')
   if (!secret) { await browser.close(); process.exit(1) }
 
-  await page.fill('input[inputmode="numeric"], input[autocomplete="one-time-code"]', totp(base32Decode(secret), stepAt()))
+  // A wrong code, then a reload -- exactly what a person does when a code does
+  // not take. It used to answer 401, which the console read as "signed out":
+  // straight back to the login page, and signing in again minted a NEW secret,
+  // so the QR already on their phone was stale and every retry failed.
+  const codeBox = 'input[inputmode="numeric"], input[autocomplete="one-time-code"]'
+  await page.fill(codeBox, '000000')
+  await page.click('button[type="submit"], form button')
+  await page.waitForTimeout(2500)
+  const stayed = /\/admin/.test(page.url())
+  check(stayed, 'a wrong code keeps you on the console instead of the login page', page.url())
+  if (!stayed) { await browser.close(); console.log('\nstopped: the loop reproduced'); process.exit(1) }
+  check(/not right|codes change/i.test((await page.textContent('body')) ?? ''), 'the wrong code is explained where you typed it')
+
+  await page.reload({ waitUntil: 'domcontentloaded' })
+  await page.waitForTimeout(2500)
+  const secretAfterReload = await page.evaluate(() =>
+    Array.from(document.querySelectorAll('code')).map((c) => (c.textContent ?? '').trim()).find((t) => /^[A-Z2-7]{16,}$/.test(t)) ?? '')
+  check(secretAfterReload === secret, 'a reload shows the SAME secret, so the QR on your phone stays valid')
+
+  await page.fill(codeBox, totp(base32Decode(secret), stepAt()))
   await page.click('button[type="submit"], form button')
   await page.waitForTimeout(3500)
   const afterVerify = (await page.textContent('body')) ?? ''

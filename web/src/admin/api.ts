@@ -26,7 +26,13 @@ export async function platformApi<T>(path: string, options: { method?: string; b
   })
   const result = await response.json().catch(() => ({ error: { code: 'UNREADABLE_RESPONSE', message: 'The server returned an unreadable response.' } })) as T & ErrorEnvelope
   if (!response.ok) {
-    if (response.status === 401 && path !== '/login') {
+    // A 401 only ends the session when the SERVER says the session is what is
+    // wrong. Treating every 401 as "signed out" sent people back to the login
+    // page on a mistyped code, and signing in again meant a new secret and a
+    // stale QR: an unwinnable loop. The server no longer answers a wrong code
+    // with 401, but the console should not depend on that staying true.
+    const sessionIsGone = result.error?.code === 'INVALID_SESSION' || result.error?.code === 'MISSING_TOKEN'
+    if (response.status === 401 && path !== '/login' && sessionIsGone) {
       sessionStorage.removeItem(PLATFORM_TOKEN)
       window.dispatchEvent(new Event('pepl-platform-auth-expired'))
     } else if (result.error?.code === 'MFA_REQUIRED') {

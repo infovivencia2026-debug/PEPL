@@ -236,24 +236,67 @@ const base32Decode = (s: string): Buffer => {
   return Buffer.from(out)
 }
 
-/** Starts enrolment: returns the secret to put in an authenticator. */
+/**
+ * Starts enrolment: returns the secret to put in an authenticator.
+ *
+ * Three properties, each of which was missing:
+ *
+ *  - It REFUSES an account that already has a second factor. This route is
+ *    reachable from a session that has cleared only the password (enrolling is
+ *    what such a session is for), so if it could overwrite an enrolled secret,
+ *    knowing a password would be enough to enrol your own authenticator and
+ *    then "verify" with it. Replacing an enrolled factor is an operator reset
+ *    from the shell, never a request.
+ *  - It is IDEMPOTENT while enrolment is unfinished. Refreshing the page used
+ *    to mint a new secret and strand the QR code already on the person's phone.
+ *  - The secret is only PENDING. It becomes the account's second factor when a
+ *    code proves it was scanned, so abandoning the page cannot enrol an account
+ *    with a secret nobody holds.
+ */
 export async function beginPlatformMfa(userId: string, email: string): Promise<{ secret: string; otpauth: string }> {
-  const secret = base32Encode(randomBytes(20))
-  await controlDb.query(
-    // Stored immediately but the session stays mfaPending until a code proves
-    // the operator actually scanned it — otherwise a half-finished enrolment
-    // locks them out.
-    `UPDATE control_plane.platform_users SET mfa_secret = $2 WHERE id = $1`, [userId, secret])
-  await audit('platform.mfa.enrolled', { email })
+  const candidate = base32Encode(randomBytes(20))
+  // One statement, so two concurrent calls cannot each store a different secret:
+  // coalesce keeps whichever pending secret won.
+  const { rows } = await controlDb.query<{ mfa_pending_secret: string }>(
+    `UPDATE control_plane.platform_users
+        SET mfa_pending_secret = coalesce(mfa_pending_secret, $2)
+      WHERE id = $1 AND mfa_secret IS NULL
+      RETURNING mfa_pending_secret`, [userId, candidate])
+  const secret = rows[0]?.mfa_pending_secret
+  if (!secret) {
+    await audit('platform.mfa.reenrol_refused', { email })
+    throw new PlatformAuthError('MFA_ALREADY_ENROLLED',
+      'a second factor is already set up for this account; ask another operator to reset it', 409)
+  }
+  if (secret === candidate) await audit('platform.mfa.enrolment_started', { email })
   return { secret, otpauth: `otpauth://totp/PEPL%20staff:${encodeURIComponent(email)}?secret=${secret}&issuer=PEPL` }
 }
 
-/** Verifies a code and opens the session. Accepts one step either side for clock drift. */
+/**
+ * Verifies a code and opens the session. Accepts one step either side for
+ * clock drift. The first valid code on an unfinished enrolment also PROMOTES the
+ * pending secret to the account's second factor -- that is what "enrolled"
+ * means.
+ */
 export async function verifyPlatformMfa(args: { token: string; code: string }): Promise<void> {
   const session = await resolvePlatformSession(args.token)
-  const { rows } = await controlDb.query<{ mfa_secret: string | null }>(
-    `SELECT mfa_secret FROM control_plane.platform_users WHERE id = $1`, [session.user.id])
-  const secret = rows[0]?.mfa_secret
+
+  // Six digits, three accepted at a time: unlimited guesses from a session that
+  // has cleared only the password is a brute force. The lock holds even for the
+  // RIGHT code, or it would only slow the guessing down.
+  const recent = await controlDb.query<{ n: string }>(
+    `SELECT count(*)::text AS n FROM control_plane.platform_audit
+      WHERE action = 'platform.mfa.failed' AND detail->>'email' = $1
+        AND occurred_at > now() - ($2 || ' minutes')::interval`, [session.user.email, LOCKOUT_MINUTES])
+  if (Number(recent.rows[0]!.n) >= MAX_FAILED) {
+    throw new PlatformAuthError('ACCOUNT_LOCKED',
+      `too many wrong codes; try again in ${LOCKOUT_MINUTES} minutes`, 429)
+  }
+
+  const { rows } = await controlDb.query<{ mfa_secret: string | null; mfa_pending_secret: string | null }>(
+    `SELECT mfa_secret, mfa_pending_secret FROM control_plane.platform_users WHERE id = $1`, [session.user.id])
+  const enrolled = rows[0]?.mfa_secret ?? null
+  const secret = enrolled ?? rows[0]?.mfa_pending_secret ?? null
   if (!secret) throw new PlatformAuthError('MFA_NOT_ENROLLED', 'set up your second factor first', 400)
 
   const key = base32Decode(secret)
@@ -266,9 +309,41 @@ export async function verifyPlatformMfa(args: { token: string; code: string }): 
   })
   if (!matched) {
     await audit('platform.mfa.failed', { email: session.user.email })
-    throw new PlatformAuthError('MFA_CODE_INVALID', 'that code is not right')
+    // 422, NOT 401. A wrong code is not an invalid session, and the console
+    // treats every 401 as "sign in again": it wiped the token, sent the person
+    // to the login page, and signing in again generated a fresh secret --
+    // making every retry fail against a QR code that was already stale.
+    throw new PlatformAuthError('MFA_CODE_INVALID',
+      'that code is not right. Codes change every 30 seconds, so enter the one showing now.', 422)
+  }
+
+  if (enrolled === null) {
+    // Promote only if the pending secret is still the one that just verified.
+    const promoted = await controlDb.query(
+      `UPDATE control_plane.platform_users
+          SET mfa_secret = mfa_pending_secret, mfa_pending_secret = NULL
+        WHERE id = $1 AND mfa_secret IS NULL AND mfa_pending_secret = $2`, [session.user.id, secret])
+    if (!promoted.rowCount) throw new PlatformAuthError('MFA_NOT_ENROLLED', 'set-up changed underneath you; start again', 409)
+    await audit('platform.mfa.enrolled', { email: session.user.email })
   }
   await controlDb.query(
     `UPDATE control_plane.platform_sessions SET mfa_verified_at = now() WHERE id = $1`, [session.sessionId])
   await audit('platform.mfa.verified', { email: session.user.email })
+}
+
+/**
+ * Removes an operator's second factor so they can enrol a new one, and ends
+ * every session they hold. Shell only -- there is deliberately no route for it,
+ * because a route that can clear a second factor is a route that can bypass it.
+ */
+export async function resetPlatformMfa(email: string): Promise<void> {
+  const { rowCount } = await controlDb.query(
+    `UPDATE control_plane.platform_users SET mfa_secret = NULL, mfa_pending_secret = NULL
+      WHERE lower(email) = lower($1)`, [email])
+  if (!rowCount) throw new ControlPlaneError('NOT_FOUND', 'no such platform user')
+  await controlDb.query(
+    `UPDATE control_plane.platform_sessions s SET revoked_at = now()
+       FROM control_plane.platform_users u
+      WHERE s.user_id = u.id AND lower(u.email) = lower($1) AND s.revoked_at IS NULL`, [email])
+  await audit('platform.mfa.reset', { email })
 }
