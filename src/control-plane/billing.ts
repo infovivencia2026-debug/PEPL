@@ -11,6 +11,7 @@ import { randomBytes } from 'node:crypto'
 import type pg from 'pg'
 import { controlDb, provisionTenant, projectEntitlements, ControlPlaneError } from './index.ts'
 import { financialYear } from './financial-year.ts'
+import { abandonProvisioning } from './abandon.ts'
 import { hashPassword } from '../auth/index.ts'
 
 export const GST_RATE = 0.18
@@ -80,10 +81,21 @@ export async function signup(args: {
   const plan = await controlDb.query(`SELECT 1 FROM control_plane.plans WHERE code = $1 AND status = 'active'`, [planCode])
   if (!plan.rowCount) throw new ControlPlaneError('PLAN_NOT_FOUND', `no such plan: ${planCode}`)
 
-  const { tenantId } = await provisionTenant({
-    legalName: args.legalName.trim(), displayName: (args.displayName ?? args.legalName).trim(),
-    planCode, adminEmail: email, adminName: args.adminName.trim(), stateCode: args.stateCode, organisationType: args.organisationType,
-  })
+  let tenantId: string
+  try {
+    ({ tenantId } = await provisionTenant({
+      legalName: args.legalName.trim(), displayName: (args.displayName ?? args.legalName).trim(),
+      planCode, adminEmail: email, adminName: args.adminName.trim(), stateCode: args.stateCode, organisationType: args.organisationType,
+    }))
+  } catch (err) {
+    // A failed set-up must not strand a company and hold the address hostage: the
+    // retry used to be told "an account with this email already exists; sign in
+    // instead" for an admin who has no password. abandonProvisioning refuses
+    // anything that is not plainly debris, so this cannot reach a real customer.
+    const half = (err as { tenantId?: string }).tenantId
+    if (half) await abandonProvisioning(half).catch(() => undefined)
+    throw err
+  }
   // The provisioner creates the admin without a password; the form gave us one.
   const hash = await hashPassword(args.password)
   const { rows } = await controlDb.query<{ id: string }>(

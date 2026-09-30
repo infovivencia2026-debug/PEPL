@@ -135,6 +135,42 @@ const main = async () => {
   const inside = await platform(page, 'GET', '/employees')
   check(inside.status >= 400, 'an operator has no route into customer data', `status ${inside.status}`)
 
+  // ── 6. the form itself, the way a rep uses it ─────────────────────────────
+  // Everything above creates companies through the API, which is exactly why it
+  // never noticed that the FORM offered five organisation types the server had
+  // never heard of. An operator picked "Education", got "an account with this
+  // email already exists", and two half-built companies were left behind.
+  await page.goto(`${BASE}/admin.html`, { waitUntil: 'domcontentloaded' })
+  await page.waitForTimeout(2000)
+  await page.getByRole('button', { name: /new company/i }).first().click()
+  await page.waitForTimeout(1500)
+
+  const typeSelect = page.locator('select[name="organisationType"]')
+  const options = await typeSelect.locator('option').allTextContents()
+  check(options.length >= 13, 'the form offers a real range of organisation types', `${options.length - 1} types: ${options.slice(1).join(' | ')}`)
+  check(options.some((o) => /education/i.test(o)), 'Education is among them')
+  await page.screenshot({ path: 'docs/ui-checks/console-new-company.png' })
+
+  const uiStamp = Date.now()
+  const uiName = `E2E Form Company ${uiStamp}`
+  const uiEmail = `e2e-form-${uiStamp}@example.test`
+  await page.fill('input[name="legalName"]', uiName)
+  await page.fill('input[name="adminName"]', 'E2E Form Admin')
+  await page.fill('input[name="adminEmail"]', uiEmail)
+  await typeSelect.selectOption({ label: options.find((o) => /education/i.test(o))! })
+  await page.click('button[type="submit"]')
+  await page.waitForTimeout(3500)
+  check(/hand over this password/i.test((await page.textContent('body')) ?? ''), 'choosing Education creates the company from the form')
+
+  const afterForm = await platform(page, 'GET', '/tenants')
+  const formTenant = ((afterForm.body as { tenants?: Array<{ id: string; legal_name: string; organisation_type?: string }> }).tenants ?? [])
+    .find((t) => t.legal_name === uiName)
+  check(Boolean(formTenant), 'the company made through the form is in the list')
+  if (formTenant?.organisation_type !== undefined) {
+    check(formTenant.organisation_type === 'education', 'and it is recorded as an education company', formTenant.organisation_type)
+  }
+  console.log(`CREATED_TENANT_FORM=${formTenant?.id ?? ''}`)
+
   await page.screenshot({ path: 'docs/ui-checks/console-after-create.png' })
   console.log(`\nCREATED_TENANT=${tenantId ?? ''}`)
   await browser.close()

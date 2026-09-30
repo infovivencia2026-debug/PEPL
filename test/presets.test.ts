@@ -22,7 +22,12 @@ afterAll(async () => { await closePools(); await controlPool.end() })
 describe('presets', () => {
   it('every preset names only real settings with valid values, and the picker lists them', () => {
     for (const p of PRESETS) expect(validatePreset(p)).toEqual([])
-    expect(listPresets().map((p) => p.code)).toEqual(['office', 'field_sales', 'education', 'manufacturing', 'retail', 'agency'])
+    const listed = listPresets().map((p) => p.code)
+    // The original six keep their codes and their order: a live tenant stores its
+    // organisation_type, so renaming or dropping one would orphan real companies.
+    expect(listed.slice(0, 6)).toEqual(['office', 'field_sales', 'education', 'manufacturing', 'retail', 'agency'])
+    // ...and the picker offers everything, including the types added later.
+    expect(listed).toEqual(PRESETS.map((p) => p.code))
     expect(listPresets().find((p) => p.code === 'manufacturing')!.shifts).toHaveLength(4)
   })
 
@@ -41,8 +46,12 @@ describe('presets', () => {
       const shifts = (await tx.query<{ code: string }>(`SELECT code FROM shifts ORDER BY code`)).rows.map((r) => r.code)
       expect(shifts).toEqual(['A', 'B', 'C', 'GEN'])
     })
-    // provisioning again is idempotent for the preset step
-    await expect(provisionTenant({ legalName: `Meghaa Infra ${stamp}`, displayName: 'Meghaa', planCode: 'professional', adminEmail: `admin-${stamp}@meghaa.test`, adminName: 'Admin', organisationType: 'nope' })).rejects.toMatchObject({ code: 'PRESET_NOT_FOUND' })
+    // An unknown type is refused BEFORE anything is created. It used to be found
+    // at the `preset` step, after the tenant and its admin existed -- so this very
+    // call created a SECOND "Meghaa Infra" and then failed, leaving it behind.
+    await expect(provisionTenant({ legalName: `Meghaa Infra ${stamp}`, displayName: 'Meghaa', planCode: 'professional', adminEmail: `admin-${stamp}@meghaa.test`, adminName: 'Admin', organisationType: 'nope' })).rejects.toMatchObject({ code: 'VALIDATION_FAILED' })
+    const count = await controlPool.query<{ n: string }>(`SELECT count(*)::text AS n FROM tenants WHERE legal_name = $1`, [`Meghaa Infra ${stamp}`])
+    expect(count.rows[0]!.n).toBe('1')
   })
 
   it('an admin re-applies a preset through the app role: payroll keys are effective-dated, shifts are not duplicated', async () => {

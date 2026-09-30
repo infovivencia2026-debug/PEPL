@@ -30,6 +30,7 @@ import {
   billingSummary, closePeriods, runDunning, priceFor, updateBillingDetails,
 } from '../../control-plane/billing.ts'
 import { issueCreditNote, listCreditNotes } from '../../control-plane/credit-notes.ts'
+import { listPresets } from '../../control-plane/presets.ts'
 import { invoicePdf } from '../../control-plane/invoice-pdf.ts'
 
 const bearer = (req: Req): string | undefined => {
@@ -301,6 +302,14 @@ export function register(router: Router): void {
   router.get('/api/platform/plans',
     { summary: 'The plans on sale', tag: 'platform', public: true },
     staff(async () => ok({ plans: await listPlans() })))
+
+  // The organisation types a company can be opened as. The console used to carry
+  // its own list of five -- company, ngo, school, hospital, government -- none of
+  // which the server knew, so choosing one (or leaving the default) stranded a
+  // half-built company. The server owns the list; the console asks.
+  router.get('/api/platform/presets',
+    { summary: 'The organisation types a company can be opened as', tag: 'platform', public: true },
+    staff(async () => ok({ presets: listPresets() })))
 
   router.get('/api/platform/staff',
     { summary: 'Who can sign in to this console', tag: 'platform', public: true },

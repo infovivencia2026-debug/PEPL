@@ -37,6 +37,21 @@ export const listPresets = (): Array<Pick<Preset, 'code' | 'label' | 'descriptio
     modulesOn: Object.entries(p.settings).filter(([k, v]) => k.endsWith('.enabled') && v === true).map(([k]) => k.split('.')[0]!),
     shifts: p.shifts.map((s) => s.name) }))
 
+/**
+ * Refuse an organisation type the server does not know, BEFORE any row exists.
+ *
+ * This used to be discovered at the `preset` step, after the tenant and its admin
+ * user had been created, so a wrong value left a half-built company behind. The
+ * console was sending values the server had never heard of -- its own hard-coded
+ * list -- and every attempt with one of them stranded a tenant.
+ */
+export function assertKnownOrganisationType(code: string | undefined | null): void {
+  if (code === undefined || code === null || code === '') return   // omitted = plain defaults
+  if (presetByCode(code)) return
+  throw new PresetError('VALIDATION_FAILED',
+    `unknown organisation type "${code}"; choose one of: ${PRESETS.map((p) => p.code).join(', ')}`)
+}
+
 /** Provisioning path: superuser client, tenant id explicit. Idempotent. */
 export async function applyPresetAtProvisioning(client: pg.PoolClient, tenantId: string, code: string): Promise<void> {
   const p = presetByCode(code)

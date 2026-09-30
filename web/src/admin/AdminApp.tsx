@@ -166,6 +166,11 @@ function NewCompany({ plans, onBack, onCreated, notify }: { plans: Plan[]; onBac
   const [busy, setBusy] = useState(false)
   const [created, setCreated] = useState<{ tenantId: string; adminEmail: string; password: string; planCode: string } | null>(null)
   const [copied, setCopied] = useState(false)
+  // Asked of the server, never hard-coded here: a list kept in two places drifted
+  // until none of the five options on this form was a type the server accepted.
+  const [presets, setPresets] = useState<Array<{ code: string; label: string; examples: string }>>([])
+  const [presetCode, setPresetCode] = useState('')
+  useEffect(() => { void platformApi<{ presets: Array<{ code: string; label: string; examples: string }> }>('/presets').then(result => setPresets(result.presets)).catch(caught => notify((caught as Error).message, 'bad')) }, [notify])
   const submit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault(); setBusy(true)
     const form = new FormData(event.currentTarget)
@@ -179,7 +184,7 @@ function NewCompany({ plans, onBack, onCreated, notify }: { plans: Plan[]; onBac
     <header className="ops-page-head"><div><button className="ops-back" onClick={onBack}><ArrowLeft size={16} /> Companies</button><span className="ops-eyebrow">ACCOUNT PROVISIONING</span><h1>New company</h1><p>Create the customer, its first administrator and the subscription sold.</p></div></header>
     <form className="ops-panel ops-company-form" onSubmit={submit}>
       <div className="ops-form-section"><span>01</span><div><h2>Organisation</h2><p>The legal identity and the name people see inside PEPL.</p></div></div>
-      <div className="ops-form-grid"><label>Legal name<input name="legalName" required placeholder="Vindhya Textiles Pvt Ltd" /></label><label>Display name<input name="displayName" placeholder="Vindhya Textiles" /></label><label>Organisation type<select name="organisationType" defaultValue="company"><option value="company">Company</option><option value="ngo">Non-profit</option><option value="school">Education</option><option value="hospital">Healthcare</option><option value="government">Government</option></select></label><label>State code<input name="stateCode" maxLength={2} placeholder="TS" /></label></div>
+      <div className="ops-form-grid"><label>Legal name<input name="legalName" required placeholder="Vindhya Textiles Pvt Ltd" /></label><label>Display name<input name="displayName" placeholder="Vindhya Textiles" /></label><label>Organisation type<select name="organisationType" value={presetCode} onChange={event => setPresetCode(event.target.value)}><option value="">Standard — no preset</option>{presets.map(preset => <option key={preset.code} value={preset.code}>{preset.label}</option>)}</select><span className="ops-muted">{presets.find(preset => preset.code === presetCode)?.examples ?? 'Sets the starting shifts, leave and attendance rules. The customer can change every one of them afterwards.'}</span></label><label>State code<input name="stateCode" maxLength={2} placeholder="TS" /></label></div>
       <div className="ops-form-section"><span>02</span><div><h2>First administrator</h2><p>This person receives the one-time credential shown after creation.</p></div></div>
       <div className="ops-form-grid"><label>Administrator name<input name="adminName" required placeholder="Lata Rao" /></label><label>Work email<input name="adminEmail" type="email" required placeholder="ops@vindhya.com" /></label></div>
       <div className="ops-form-section"><span>03</span><div><h2>Subscription</h2><p>Choose what sales agreed. Activation removes the trial immediately.</p></div></div>

@@ -25,6 +25,7 @@ import {
 } from '../src/control-plane/billing.ts'
 import { invoicePdf, supplierFromEnv } from '../src/control-plane/invoice-pdf.ts'
 import { issueCreditNote, listCreditNotes } from '../src/control-plane/credit-notes.ts'
+import { abandonProvisioning } from '../src/control-plane/abandon.ts'
 import { upsertPlatformUser, listPlatformUsers, setPlatformUserStatus, resetPlatformMfa } from '../src/control-plane/platform-auth.ts'
 import { randomBytes } from 'node:crypto'
 import { writeFileSync } from 'node:fs'
@@ -275,6 +276,31 @@ until they do.`)
       rows.map((u) => [u.email, u.full_name, u.status, u.mfa_enabled ? 'yes' : 'NOT SET', u.last_login_at ?? 'never'])))
   },
 
+  async stuck() {
+    // Companies whose set-up started and never finished. Provisioning used to
+    // leave these looking healthy ("running", no error recorded); they are the
+    // reason a retry was told "an account with this email already exists".
+    const { rows } = await controlDb.query<{ id: string; legal_name: string; status: string; last_error: string | null; age: string; steps: string }>(
+      `SELECT t.id, t.legal_name, j.status, j.last_error,
+              to_char(now() - j.created_at, 'HH24"h "MI"m"') AS age,
+              coalesce(array_to_string(j.completed_steps, ','), '') AS steps
+         FROM control_plane.provisioning_jobs j JOIN tenants t ON t.id = j.tenant_id
+        WHERE j.status <> 'completed' ORDER BY j.created_at`)
+    if (!rows.length) return console.log('No stuck set-ups.')
+    console.log(table(['ID', 'COMPANY', 'STATUS', 'AGE', 'GOT AS FAR AS', 'WHY'],
+      rows.map((r) => [r.id, r.legal_name, r.status, r.age, r.steps.split(',').pop() ?? '', r.last_error ?? '(nothing recorded)'])))
+    console.log('\nClear one with:  npm run ops abandon <id>')
+  },
+
+  async abandon(p) {
+    const id = p[0]
+    if (!id) throw new Error('usage: ops abandon <company id>   (see `ops stuck`)')
+    // Refuses a company that finished setting up, and one that holds people or a
+    // sign-in: deleting a customer is the one thing this must never do.
+    await abandonProvisioning(id)
+    console.log(`${id}: removed. The address it used can be used again.`)
+  },
+
   async 'staff-reset-mfa'(p) {
     const email = p[0]
     if (!email) throw new Error('usage: ops staff-reset-mfa <email>')
@@ -374,6 +400,8 @@ const USAGE = `PEPL back office
   npm run ops staff-add --email a@b.c --name "..."   create an operator
   npm run ops staff-suspend <email>             revoke access and every session
   npm run ops staff-reset-mfa <email>           clear a lost or half-enrolled second factor
+  npm run ops stuck                             companies whose set-up never finished
+  npm run ops abandon <id>                      remove one of those (refuses a real customer)
 
   PEPL_DEMO_SUFFIX=ravi npm run seed:demo       a demo company of this rep's own,
                                                 so two people can demo at once

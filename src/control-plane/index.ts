@@ -9,7 +9,7 @@
 import pg from 'pg'
 import { config } from '../config.ts'
 import { REGISTRY } from '../config-registry/index.ts'
-import { applyPresetAtProvisioning } from './presets.ts'
+import { applyPresetAtProvisioning, assertKnownOrganisationType } from './presets.ts'
 
 export class ControlPlaneError extends Error {
   readonly code: string
@@ -74,6 +74,11 @@ export async function provisionTenant(
   let done: string[] = []
 
   try {
+    // Before the first insert. A wrong type used to surface at the `preset` step,
+    // after the tenant and its admin existed, leaving a company nobody could use
+    // and an address nobody could reuse.
+    if (!opts.resumeJobId) assertKnownOrganisationType(input.organisationType)
+
     if (opts.resumeJobId) {
       const { rows } = await client.query<{ tenant_id: string; completed_steps: string[] }>(
         `SELECT tenant_id, completed_steps FROM control_plane.provisioning_jobs WHERE id = $1`,
@@ -164,6 +169,21 @@ export async function provisionTenant(
       [jobId],
     )
     return { tenantId, jobId, stepsRun, resumed: Boolean(opts.resumeJobId) }
+  } catch (err) {
+    // A step that throws must not leave the job saying "running" with nothing
+    // recorded: that is indistinguishable from one still in flight, and is how two
+    // half-built companies sat in production looking healthy. Mark it failed and
+    // keep the reason, so it can be resumed or abandoned on purpose.
+    if (jobId) {
+      await client.query(
+        `UPDATE control_plane.provisioning_jobs SET status = 'failed', last_error = $2
+          WHERE id = $1 AND status <> 'completed'`,
+        [jobId, (err as Error).message.slice(0, 500)],
+      ).catch(() => undefined)
+    }
+    // Tell the caller WHICH tenant is half-built, so it can clean up after itself.
+    if (tenantId && err instanceof Error) (err as Error & { tenantId?: string }).tenantId = tenantId
+    throw err
   } finally {
     client.release()
   }
