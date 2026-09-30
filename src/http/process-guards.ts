@@ -29,12 +29,30 @@ export function isAuxiliary(error: unknown): boolean {
   return AUXILIARY.test(e?.stack ?? '') || NETWORK.has(e?.code ?? '')
 }
 
+/**
+ * Whether an unhandled rejection is a bug in OUR code (fatal) or a fault at the edge (survivable).
+ *
+ * The handler used to log every rejection and carry on. Node's own default is to crash, for a
+ * reason: a rejection nobody handled means some code path failed in a way nobody planned for,
+ * and continuing serves requests on whatever state that left behind. The rule matches the
+ * uncaughtException one below -- an auxiliary or network fault is logged and survived; the rest
+ * restarts clean (systemd brings the process straight back).
+ */
+export function isFatalRejection(reason: unknown): boolean {
+  return !isAuxiliary(reason)
+}
+
 export function installProcessGuards(): void {
   process.on('unhandledRejection', (reason) => {
+    const fatal = isFatalRejection(reason)
     console.error(JSON.stringify({
-      t: new Date().toISOString(), level: 'error', msg: 'unhandledRejection',
+      t: new Date().toISOString(), level: 'error', msg: 'unhandledRejection', fatal,
       err: (reason as Error)?.message ?? String(reason),
     }))
+    if (fatal) {
+      console.error(reason)
+      process.exit(1)
+    }
   })
 
   process.on('uncaughtException', (err: NodeJS.ErrnoException) => {

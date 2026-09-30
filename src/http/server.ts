@@ -8,13 +8,14 @@ import { handleEvents } from '../realtime/sse.ts'
 import { installProcessGuards } from './process-guards.ts'
 import { handleMetrics } from './metrics-endpoint.ts'
 import { startRelay } from '../realtime/relay.ts'
-import { appPool } from '../db/pool.ts'
+import { appPool, closePools } from '../db/pool.ts'
+import { applyServerTimeouts, gracefulShutdown } from './shutdown.ts'
 import { preflight } from './preflight.ts'
 import { originAllowed } from './origin.ts'
 
 installProcessGuards()
 // Live events reach browsers on every instance, not just the one that handled the request.
-startRelay(appPool)
+const relay = startRelay(appPool)
 
 const handler = createHandler(buildUiRouter())
 const domainHandler = createHandler(router)
@@ -112,6 +113,23 @@ const server = createServer(async (req, res) => {
     res.end('Page not found. Run npm run build to build the frontend.')
   }
 })
+applyServerTimeouts(server)
+
+// SIGTERM is what `systemctl restart` and every deploy send. Without a handler the process
+// ended where it stood and cut off whoever was mid-request. Installed BEFORE listen(), so every
+// request is counted from the first one.
+const shutdown = gracefulShutdown(server, {
+  timeoutMs: 15_000,
+  log: (message) => console.log(JSON.stringify({ t: new Date().toISOString(), level: 'info', msg: message })),
+  onDrained: async () => {
+    await relay.stop()
+    await closePools()
+  },
+})
+for (const signal of ['SIGTERM', 'SIGINT'] as const) {
+  process.on(signal, () => void shutdown().then(() => process.exit(0)))
+}
+
 // Before the socket opens, not after: a server that has already accepted a
 // request has already acted on whatever is misconfigured. In production this
 // refuses to continue on a development password or a test database; elsewhere
