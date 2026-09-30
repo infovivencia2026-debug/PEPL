@@ -158,7 +158,8 @@ const main = async () => {
   await page.fill('input[name="adminName"]', 'E2E Form Admin')
   await page.fill('input[name="adminEmail"]', uiEmail)
   await typeSelect.selectOption({ label: options.find((o) => /education/i.test(o))! })
-  await page.click('button[type="submit"]')
+  // By name, not `[type=submit]`: the form's button relies on the default type.
+  await page.getByRole('button', { name: /create company/i }).last().click()
   await page.waitForTimeout(3500)
   check(/hand over this password/i.test((await page.textContent('body')) ?? ''), 'choosing Education creates the company from the form')
 
