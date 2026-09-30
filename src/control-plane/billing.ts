@@ -242,57 +242,78 @@ export async function switchPlan(tenantId: string, planCode: string): Promise<Bi
     throw new ControlPlaneError('OVER_PLAN_LIMIT',
       `${plan.name} allows ${plan.limits.employees} employees; you have ${employees}. Exit or choose a larger plan first.`)
   }
-  // Read the old plan and the period BEFORE the switch: afterwards there is no
-  // way to know what they were paying or how much of the period they had used.
-  const { rows: subRows } = await controlDb.query<{
-    plan_code: string; current_period_start: string; current_period_end: string; status: string
-  }>(
-    `SELECT plan_code, current_period_start::text, current_period_end::text, status
-       FROM control_plane.subscriptions WHERE tenant_id = $1`, [tenantId])
-  const sub = subRows[0]
-  const previous = sub
-    ? (await controlDb.query<Plan>(
-      `SELECT code, name, base_price_paise::text, per_employee_price_paise::text, features, limits
-         FROM control_plane.plans WHERE code = $1`, [sub.plan_code])).rows[0]
-    : undefined
+  // ONE transaction. The plan, the entitlements, the top-up invoice and the audit rows were
+  // separate statements on separate connections, so a failure part-way left a customer on a
+  // new plan with nothing invoiced for it. The subscription row is locked first, so two
+  // switches for the same company queue instead of both reading the same period.
+  const client = await controlDb.connect()
+  try {
+    await client.query('BEGIN')
+    const sub = (await client.query<{
+      plan_code: string; current_period_start: string; current_period_end: string; status: string
+      period_plan_code: string | null; period_covered_plan_code: string | null
+    }>(
+      `SELECT plan_code, current_period_start::text, current_period_end::text, status, period_plan_code, period_covered_plan_code
+         FROM control_plane.subscriptions WHERE tenant_id = $1 FOR UPDATE`, [tenantId])).rows[0]
+    // What the customer has already paid for through the end of this period: the plan in
+    // force, or the priciest plan an earlier top-up covered.
+    const coveredCode = sub ? (sub.period_covered_plan_code ?? sub.plan_code) : undefined
+    const covered = coveredCode
+      ? (await client.query<Plan>(
+        `SELECT code, name, base_price_paise::text, per_employee_price_paise::text, features, limits
+           FROM control_plane.plans WHERE code = $1`, [coveredCode])).rows[0]
+      : undefined
 
-  await controlDb.query(
-    `UPDATE control_plane.subscriptions
-        SET plan_code = $2, status = CASE WHEN status = 'trialing' THEN 'active' ELSE status END, trial_ends_on = NULL
-      WHERE tenant_id = $1`, [tenantId, planCode])
-  await projectEntitlements(controlDb, tenantId)
+    // A company still on trial has paid nothing for this period, so there is nothing to top
+    // up; its first period is billed at the plan it chose. Otherwise the period stays billed
+    // at the plan it started on and the new plan starts at the next one.
+    const trialing = !sub || sub.status === 'trialing'
+    const periodPlan = trialing ? null : (sub!.period_plan_code ?? sub!.plan_code)
 
-  // A company still on trial has paid nothing for this period, so there is
-  // nothing to top up; it starts paying from its first full period.
-  if (sub && previous && sub.status !== 'trialing') {
-    const day = 86_400_000
-    const today = Date.parse((await controlDb.query<{ d: string }>('SELECT CURRENT_DATE::text AS d')).rows[0]!.d)
-    const daysRemaining = Math.max(0, Math.round((Date.parse(sub.current_period_end) - today) / day))
-    const daysInPeriod = Math.max(1, Math.round((Date.parse(sub.current_period_end) - Date.parse(sub.current_period_start)) / day))
-    const prorata = prorationFor(previous, plan, employees, daysRemaining, daysInPeriod)
-    if (prorata.totalPaise > 0n) {
-      const client = await controlDb.connect()
-      try {
-        const number = await nextInvoiceNumber(client, tenantId, sub.current_period_end)
-        await client.query(
-          `INSERT INTO control_plane.invoices
-             (tenant_id, number, period_start, period_end, plan_code, employees, base_paise, per_employee_paise,
-              subtotal_paise, gst_rate, gst_paise, total_paise, due_on)
-           VALUES ($1,$2,CURRENT_DATE,$3::date,$4,$5,0,0,$6,$7,$8,$9, CURRENT_DATE + $10::int)`,
-          [tenantId, number, sub.current_period_end, planCode, employees,
-           prorata.subtotalPaise.toString(), effectiveGstRate(), prorata.gstPaise.toString(),
-           prorata.totalPaise.toString(), DUE_DAYS])
-        await client.query(
-          `INSERT INTO control_plane.platform_audit (action, tenant_id, detail) VALUES ('subscription.prorated', $1, $2::jsonb)`,
-          [tenantId, JSON.stringify({ invoice: number, from: previous.code, to: planCode, daysRemaining, daysInPeriod, totalPaise: prorata.totalPaise.toString() })])
-      } finally {
-        client.release()
-      }
+    let prorata: { subtotalPaise: bigint; gstPaise: bigint; totalPaise: bigint } | undefined
+    let daysRemaining = 0
+    let daysInPeriod = 1
+    if (sub && covered && !trialing) {
+      const day = 86_400_000
+      const today = Date.parse((await client.query<{ d: string }>('SELECT CURRENT_DATE::text AS d')).rows[0]!.d)
+      daysRemaining = Math.max(0, Math.round((Date.parse(sub.current_period_end) - today) / day))
+      daysInPeriod = Math.max(1, Math.round((Date.parse(sub.current_period_end) - Date.parse(sub.current_period_start)) / day))
+      prorata = prorationFor(covered, plan, employees, daysRemaining, daysInPeriod)
     }
+    const toppedUp = prorata !== undefined && prorata.totalPaise > 0n
+
+    await client.query(
+      `UPDATE control_plane.subscriptions
+          SET plan_code = $2, status = CASE WHEN status = 'trialing' THEN 'active' ELSE status END, trial_ends_on = NULL,
+              period_plan_code = $3, period_covered_plan_code = $4
+        WHERE tenant_id = $1`,
+      [tenantId, planCode, periodPlan, trialing ? null : (toppedUp ? planCode : (sub!.period_covered_plan_code ?? null))])
+    await projectEntitlements(client, tenantId)
+
+    if (sub && prorata && toppedUp) {
+      const number = await nextInvoiceNumber(client, tenantId, sub.current_period_end)
+      await client.query(
+        `INSERT INTO control_plane.invoices
+           (tenant_id, number, period_start, period_end, plan_code, employees, base_paise, per_employee_paise,
+            subtotal_paise, gst_rate, gst_paise, total_paise, due_on, kind)
+         VALUES ($1,$2,CURRENT_DATE,$3::date,$4,$5,0,0,$6,$7,$8,$9, CURRENT_DATE + $10::int, 'proration')`,
+        [tenantId, number, sub.current_period_end, planCode, employees,
+         prorata.subtotalPaise.toString(), effectiveGstRate(), prorata.gstPaise.toString(),
+         prorata.totalPaise.toString(), DUE_DAYS])
+      await client.query(
+        `INSERT INTO control_plane.platform_audit (action, tenant_id, detail) VALUES ('subscription.prorated', $1, $2::jsonb)`,
+        [tenantId, JSON.stringify({ invoice: number, from: covered!.code, to: planCode, daysRemaining, daysInPeriod, totalPaise: prorata.totalPaise.toString() })])
+    }
+    await client.query(
+      `INSERT INTO control_plane.platform_audit (action, tenant_id, detail) VALUES ('subscription.plan_changed', $1, $2::jsonb)`,
+      [tenantId, JSON.stringify({ planCode, employees })])
+    await client.query('COMMIT')
+  } catch (err) {
+    await client.query('ROLLBACK').catch(() => {})
+    throw err
+  } finally {
+    client.release()
   }
-  await controlDb.query(
-    `INSERT INTO control_plane.platform_audit (action, tenant_id, detail) VALUES ('subscription.plan_changed', $1, $2::jsonb)`,
-    [tenantId, JSON.stringify({ planCode, employees })])
   return billingSummary(tenantId)
 }
 
@@ -318,8 +339,11 @@ export async function listInvoices(tenantId: string): Promise<Invoice[]> {
  */
 export async function closePeriods(now = new Date()): Promise<{ invoiced: number; skipped: number }> {
   const today = now.toISOString().slice(0, 10)
+  // The period is billed at the plan it STARTED on: a mid-period switch either paid a
+  // top-up (upgrade) or waits for the next period (downgrade), so billing the period at the
+  // plan in force at its end counted an upgrade twice and applied a downgrade retroactively.
   const { rows: due } = await controlDb.query<{ tenant_id: string; plan_code: string; current_period_start: string; current_period_end: string; status: string }>(
-    `SELECT tenant_id, plan_code, current_period_start::text, current_period_end::text, status
+    `SELECT tenant_id, coalesce(period_plan_code, plan_code) AS plan_code, current_period_start::text, current_period_end::text, status
        FROM control_plane.subscriptions WHERE current_period_end <= $1 AND status IN ('active','past_due')`, [today])
   let invoiced = 0; let skipped = 0
   for (const s of due) {
@@ -336,16 +360,17 @@ export async function closePeriods(now = new Date()): Promise<{ invoiced: number
       const ins = await client.query(
         `INSERT INTO control_plane.invoices
            (tenant_id, number, period_start, period_end, plan_code, employees, base_paise, per_employee_paise,
-            subtotal_paise, gst_rate, gst_paise, total_paise, status, due_on)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12::bigint, CASE WHEN $12::bigint = 0 THEN 'paid' ELSE 'due' END, $4::date + $13::int)
-         ON CONFLICT (tenant_id, period_start) DO NOTHING`,
+            subtotal_paise, gst_rate, gst_paise, total_paise, status, due_on, kind)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12::bigint, CASE WHEN $12::bigint = 0 THEN 'paid' ELSE 'due' END, $4::date + $13::int, 'period')
+         ON CONFLICT (tenant_id, period_start) WHERE kind = 'period' DO NOTHING`,
         [s.tenant_id, number, s.current_period_start, s.current_period_end, plan.code, employees,
          plan.base_price_paise, plan.per_employee_price_paise, String(p.subtotal), effectiveGstRate(), String(p.gst), String(p.total), DUE_DAYS])
       // Roll the period forward by a month from its end, whatever today is.
       await client.query(
         `UPDATE control_plane.subscriptions
             SET current_period_start = current_period_end,
-                current_period_end = (current_period_end + interval '1 month')::date
+                current_period_end = (current_period_end + interval '1 month')::date,
+                period_plan_code = NULL, period_covered_plan_code = NULL
           WHERE tenant_id = $1`, [s.tenant_id])
       await projectEntitlements(client, s.tenant_id)
       await client.query('COMMIT')
