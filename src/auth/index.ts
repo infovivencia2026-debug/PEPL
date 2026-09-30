@@ -80,6 +80,33 @@ export interface LoginResult {
 }
 
 /**
+ * What a sign-in request is allowed to be, and the ONE spelling of it that every
+ * lockout counter, attempt log and lookup uses.
+ *
+ * The browser's route trimmed and lower-cased the address; the API's did neither, so
+ * `Admin@Acme.test` and `admin@acme.test` had separate lockout budgets (five guesses
+ * per capitalisation, per stray space), any body of any size was written into
+ * login_attempts, and a non-string email surfaced as a 500. The password is NOT
+ * trimmed: whitespace can be part of one, and a login must not quietly sign in as a
+ * different password than the one the person chose.
+ */
+export function normaliseLogin(email: unknown, password: unknown): { email: string; password: string } {
+  if (typeof email !== 'string' || typeof password !== 'string') {
+    throw new AuthError('VALIDATION_FAILED', 'email and password must be text', 422)
+  }
+  const address = email.trim().toLowerCase()
+  if (address.length === 0 || address.length > 254) {
+    throw new AuthError('VALIDATION_FAILED', 'email must be an address of at most 254 characters', 422)
+  }
+  // 1024 is far past any real password and stops a request from making scrypt chew
+  // on a megabyte.
+  if (password.length === 0 || password.length > 1024) {
+    throw new AuthError('VALIDATION_FAILED', 'password must be between 1 and 1024 characters', 422)
+  }
+  return { email: address, password }
+}
+
+/**
  * Login is deliberately tenant-agnostic at the front door: the caller supplies
  * an email, and the tenant is resolved from it. Accepting a tenant id from the
  * client would make it a guessing target.
@@ -90,13 +117,14 @@ export async function login(args: {
   ip?: string
   userAgent?: string
 }): Promise<LoginResult | CompanyChoice> {
+  const { email, password } = normaliseLogin(args.email, args.password)
   const client = await appPool.connect()
   try {
     const recent = await client.query<{ n: number }>(
       `SELECT count(*)::int AS n FROM login_attempts
         WHERE email = $1 AND NOT succeeded
           AND attempted_at > now() - ($2 || ' minutes')::interval`,
-      [args.email, LOCKOUT_MINUTES],
+      [email, LOCKOUT_MINUTES],
     )
     if ((recent.rows[0]?.n ?? 0) >= MAX_FAILED) {
       throw new AuthError('ACCOUNT_LOCKED',
@@ -112,7 +140,7 @@ export async function login(args: {
       status: string; employee_id: string | null
     }>(
       `SELECT * FROM auth_user_by_email($1)`,
-      [args.email],
+      [email],
     )
     await client.query('COMMIT')
 
@@ -123,18 +151,18 @@ export async function login(args: {
     const matches: typeof rows = []
     for (const candidate of rows) {
       if (candidate.status !== 'active' || !candidate.password_hash) continue
-      if (await verifyPassword(args.password, candidate.password_hash)) matches.push(candidate)
+      if (await verifyPassword(password, candidate.password_hash)) matches.push(candidate)
     }
     // Constant-ish work when the address is unknown, so response time does not
     // enumerate accounts.
     if (rows.length === 0) {
-      await verifyPassword(args.password, await hashPassword('dummy-password-value'))
+      await verifyPassword(password, await hashPassword('dummy-password-value'))
     }
 
     if (matches.length === 0) {
       await client.query(
         `INSERT INTO login_attempts (email, ip, succeeded) VALUES ($1, $2, false)`,
-        [args.email, args.ip ?? null],
+        [email, args.ip ?? null],
       )
       // The same refusal whether the address is unknown, wrong-password, or
       // held in five companies. Anything more makes the form a directory.
@@ -155,7 +183,7 @@ export async function login(args: {
       await client.query(
         `INSERT INTO login_choices (token_hash, email, candidates, expires_at)
          VALUES ($1, $2, $3::jsonb, now() + ($4 || ' minutes')::interval)`,
-        [hashToken(choiceToken), args.email,
+        [hashToken(choiceToken), email,
          JSON.stringify(matches.map((m) => ({ tenantId: m.tenant_id, userId: m.id }))),
          CHOICE_MINUTES],
       )
@@ -163,7 +191,7 @@ export async function login(args: {
       // rate limiter must not count it as a failed attempt.
       await client.query(
         `INSERT INTO login_attempts (email, ip, succeeded) VALUES ($1, $2, true)`,
-        [args.email, args.ip ?? null],
+        [email, args.ip ?? null],
       )
       return {
         choose: true,
@@ -199,7 +227,7 @@ export async function login(args: {
 
     await client.query(
       `INSERT INTO login_attempts (email, ip, succeeded) VALUES ($1, $2, true)`,
-      [args.email, args.ip ?? null],
+      [email, args.ip ?? null],
     )
 
     return {

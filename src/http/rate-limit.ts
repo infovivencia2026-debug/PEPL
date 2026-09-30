@@ -19,6 +19,8 @@
  * is fine and buys a Map<string, number> instead of an array per key.
  */
 
+import { createHash } from 'node:crypto'
+
 export interface Limit {
   /** Requests allowed per window. */
   max: number
@@ -44,8 +46,16 @@ export class RateLimiter {
   /** Set on the first call, so the limiter never reads the clock itself. */
   private sweepAt: number | null = null
 
-  constructor(limit: Limit) {
+  /**
+   * `maxKeys` bounds memory. Every distinct key holds a bucket for a full window,
+   * and a stream of junk bearer tokens makes a new key each time, so without a cap
+   * the map grows for as long as the flood lasts.
+   */
+  private readonly maxKeys: number
+
+  constructor(limit: Limit, maxKeys = 100_000) {
     this.limit = limit
+    this.maxKeys = maxKeys
   }
 
   check(key: string, now = Date.now()): Verdict {
@@ -53,6 +63,7 @@ export class RateLimiter {
 
     let bucket = this.buckets.get(key)
     if (!bucket || bucket.resetAt <= now) {
+      if (this.buckets.size >= this.maxKeys) this.makeRoom(now)
       bucket = { count: 0, resetAt: now + this.limit.windowMs }
       this.buckets.set(key, bucket)
     }
@@ -81,6 +92,22 @@ export class RateLimiter {
     this.sweepAt = now + this.limit.windowMs
   }
 
+  /**
+   * At the cap: drop what has expired, and if that is not enough drop the OLDEST
+   * key. Under a flood the oldest bucket is the likeliest to be junk that has
+   * already had its say, and the alternative to losing it is running out of memory.
+   */
+  private makeRoom(now: number): void {
+    for (const [key, bucket] of this.buckets) {
+      if (bucket.resetAt <= now) this.buckets.delete(key)
+    }
+    while (this.buckets.size >= this.maxKeys) {
+      const oldest = this.buckets.keys().next().value
+      if (oldest === undefined) break
+      this.buckets.delete(oldest)
+    }
+  }
+
   /** Test seam. */
   reset(): void {
     this.buckets.clear()
@@ -106,11 +133,9 @@ export const SESSION_LIMIT: Limit = { max: 600, windowMs: 60_000 }    // 10 req/
 
 /** A stable key for a bearer token that never puts the token itself in a Map. */
 export function sessionKey(token: string): string {
-  // FNV-1a: cheap, well distributed, and we need a bucket key, not a secret.
-  let hash = 0x811c9dc5
-  for (let i = 0; i < token.length; i++) {
-    hash ^= token.charCodeAt(i)
-    hash = Math.imul(hash, 0x01000193) >>> 0
-  }
-  return `s:${hash.toString(16)}`
+  // 128 bits of SHA-256, not a 32-bit hash. FNV-1a into 32 bits collides once tens
+  // of thousands of sessions are live: two people then share one allowance and
+  // one spends the other's. This is a bucket key, not a secret, but a collision
+  // is a real bug all the same.
+  return `s:${createHash('sha256').update(token).digest('hex').slice(0, 32)}`
 }

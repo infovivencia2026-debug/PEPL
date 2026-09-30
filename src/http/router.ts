@@ -5,6 +5,7 @@
  * dependency here would be one more thing to audit in a product that holds
  * payroll data.
  */
+import { isIP } from 'node:net'
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { PUBLIC_LIMIT, RateLimiter, SESSION_LIMIT, sessionKey, type Limit, type Verdict } from './rate-limit.ts'
 import { PgRateLimiter } from './rate-limit-pg.ts'
@@ -444,7 +445,10 @@ export const clientIp = (req: { socket: { remoteAddress?: string | undefined }; 
   const raw = req.headers['x-forwarded-for']
   const chain = String(Array.isArray(raw) ? raw[0] ?? '' : raw ?? '')
     .split(',').map((p) => p.trim()).filter(Boolean)
-  return chain.length ? chain[chain.length - 1]! : remote
+  const last = chain.length ? chain[chain.length - 1]! : undefined
+  // Only a real address. The value is stored in an inet column, so a header that is
+  // not one would make the insert throw and read as a 500 on the login page.
+  return last && isIP(last) ? last : remote
 }
 
 export function createHandler(router: Router, options: HandlerOptions = {}) {
@@ -485,11 +489,19 @@ export function createHandler(router: Router, options: HandlerOptions = {}) {
     if (!url.pathname.startsWith('/health') && url.pathname !== '/api/v1/events') {
       const auth = req.headers.authorization
       const token = auth?.startsWith('Bearer ') ? auth.slice(7).trim() : null
-      const verdict = await (token
-        ? sessionLimiter.check(sessionKey(token))
+      // Chosen by the ROUTE, not by whether a header happens to be present. It was
+      // chosen by the header: a junk `Authorization: Bearer x` on the login route
+      // moved the request into a private bucket keyed on that junk, and a fresh value
+      // each time meant the per-IP limit never applied -- login spraying and reset-mail
+      // bombing were unlimited. A public route has no session to be limited by, so it
+      // is limited by address, whatever it carries.
+      const publicRoute = router.match(req.method ?? 'GET', url.pathname)?.route.meta.public === true
+      const bySession = Boolean(token) && !publicRoute
+      const verdict = await (bySession
+        ? sessionLimiter.check(sessionKey(token!))
         : publicLimiter.check(`ip:${clientIp(req)}`))
       if (!verdict.allowed) {
-        rateLimited.inc({ limiter: token ? 'session' : 'public' })
+        rateLimited.inc({ limiter: bySession ? 'session' : 'public' })
         send(429, {
           error: {
             code: 'RATE_LIMITED',
@@ -517,7 +529,7 @@ export function createHandler(router: Router, options: HandlerOptions = {}) {
         query: url.searchParams,
         body,
         headers: req.headers,
-        ip: req.socket.remoteAddress ?? undefined,
+        ip: clientIp(req),
       })
       send(result.status, result.body, result.headers)
     } catch (err) {

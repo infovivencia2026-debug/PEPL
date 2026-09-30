@@ -8,6 +8,7 @@
  * codes (shown once, stored hashed). A code is accepted once: the time step
  * it belonged to is remembered.
  */
+import { appPool } from '../db/pool.ts'
 import { createHmac, randomBytes, createHash, timingSafeEqual } from 'node:crypto'
 import type { PoolClient } from 'pg'
 
@@ -16,6 +17,14 @@ export class MfaError extends Error {
   readonly status: number
   constructor(code: string, message: string, status = 422) { super(message); this.code = code; this.status = status; this.name = 'MfaError' }
 }
+
+// Five wrong codes in fifteen minutes lock a person out of verifying. Six digits with
+// three accepted per window is guessable at network speed from a session that has
+// cleared only the password, and until now nothing counted the misses at all.
+const MFA_MAX_FAILED = 5
+const MFA_LOCKOUT_MINUTES = 15
+/** Failures are stored in login_attempts under this key: a table with no tenant, on purpose. */
+const attemptKey = (userId: string): string => `mfa:${userId}`
 
 const STEP_SECONDS = 30
 const DIGITS = 6
@@ -94,6 +103,19 @@ export async function verify(tx: PoolClient, args: { userId: string; sessionId: 
     `SELECT secret, enabled_at, recovery_hashes, last_used_step::text FROM user_mfa WHERE user_id = $1 FOR UPDATE`, [args.userId])
   const m = rows[0]
   if (!m?.enabled_at) throw new MfaError('MFA_NOT_ENABLED', 'this account has no second factor', 409)
+
+  // AFTER the row lock above, deliberately. Parallel guesses queue on that lock, so each
+  // one reads the count the previous one left; counted before it, a burst of requests
+  // would all see zero failures and every one of them would get its guess.
+  const recent = await tx.query<{ n: number }>(
+    `SELECT count(*)::int AS n FROM login_attempts
+      WHERE email = $1 AND NOT succeeded AND attempted_at > now() - ($2 || ' minutes')::interval`,
+    [attemptKey(args.userId), MFA_LOCKOUT_MINUTES])
+  if ((recent.rows[0]?.n ?? 0) >= MFA_MAX_FAILED) {
+    // Refused before the code is even looked at: a lock that lets the RIGHT code
+    // through only slows the guessing down.
+    throw new MfaError('ACCOUNT_LOCKED', `too many wrong codes; try again in ${MFA_LOCKOUT_MINUTES} minutes`, 429)
+  }
   const code = String(args.code ?? '').trim()
   const step = /^\d{6}$/.test(code) ? matchingStep(m.secret, code, m.last_used_step === null ? null : Number(m.last_used_step)) : null
   if (step !== null) {
@@ -103,7 +125,14 @@ export async function verify(tx: PoolClient, args: { userId: string; sessionId: 
   }
   const h = hashCode(code)
   const idx = m.recovery_hashes.findIndex((x) => x.length === h.length && timingSafeEqual(Buffer.from(x), Buffer.from(h)))
-  if (idx < 0) throw new MfaError('MFA_CODE_INVALID', 'that code is not right')
+  if (idx < 0) {
+    // Recorded on a SEPARATE connection. This runs inside the request's transaction and
+    // the throw below rolls it back, so a counter written on `tx` would vanish with it
+    // and the lock could never engage. Login records its own failures the same way.
+    await appPool.query(
+      `INSERT INTO login_attempts (email, ip, succeeded) VALUES ($1, NULL, false)`, [attemptKey(args.userId)])
+    throw new MfaError('MFA_CODE_INVALID', 'that code is not right')
+  }
   const left = m.recovery_hashes.filter((_, i) => i !== idx)
   await tx.query(`UPDATE user_mfa SET recovery_hashes = $2::text[] WHERE user_id = $1`, [args.userId, left])
   await tx.query(`UPDATE sessions SET mfa_verified_at = now(), mfa_pending = false WHERE id = $1`, [args.sessionId])

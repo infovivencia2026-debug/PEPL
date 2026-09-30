@@ -18,7 +18,7 @@
  */
 import { controlDb } from '../control-plane/index.ts'
 import { platformLogin, type PlatformUser } from '../control-plane/platform-auth.ts'
-import { login, type LoginResult, type CompanyChoice } from './index.ts'
+import { login, normaliseLogin, type LoginResult, type CompanyChoice } from './index.ts'
 
 export type UnifiedLogin =
   | { kind: 'platform'; token: string; expiresAt: Date; user: PlatformUser; mfaPending: boolean }
@@ -40,9 +40,12 @@ async function isOperatorAddress(email: string): Promise<boolean> {
   return rows[0]!.yes
 }
 
-export async function unifiedLogin(args: {
-  email: string; password: string; ip?: string; userAgent?: string
+export async function unifiedLogin(input: {
+  email: unknown; password: unknown; ip?: string; userAgent?: string
 }): Promise<UnifiedLogin> {
+  // Before the operator lookup as well: it runs on the raw address otherwise, so
+  // the routing decision and the lockout counters would disagree about who this is.
+  const args = { ...input, ...normaliseLogin(input.email, input.password) }
   if (await isOperatorAddress(args.email)) {
     const s = await platformLogin(args)
     return { kind: 'platform', token: s.token, expiresAt: s.expiresAt, user: s.user, mfaPending: s.mfaPending }

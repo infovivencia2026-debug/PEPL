@@ -110,9 +110,13 @@ export function buildUiRouter() {
       // `kind` says which -- derived from WHICH IDENTITY STORE held the
       // address, never from anything the caller sent.
       const s = await unifiedLogin({
-        email: textField(b.email, 'Email').toLowerCase(),
-        password: textField(b.password, 'Password', 1024),
+        // Raw, and validated once inside. textField() TRIMMED the password, so a
+        // password with a leading or trailing space could not sign in the browser
+        // but could through the API.
+        email: b.email,
+        password: b.password,
         ip: req.ip,
+        userAgent: String(req.headers['user-agent'] ?? ''),
       })
       // An operator. Deliberately NOT a cookie: the console is a separate
       // bundle that sends the token as a bearer header out of sessionStorage,
