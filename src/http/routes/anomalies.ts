@@ -1,6 +1,6 @@
 /** Anomaly guards: run the payroll guards on a run, list findings, dismiss with a reason. */
 import type { Router } from '../router.ts'
-import { HttpError, authed, ok, requireBody, requireModule, asUuid, emit } from './deps.ts'
+import { HttpError, authed, ok, requireBody, requireModule, asUuid, emit, assertOrgWide } from './deps.ts'
 import { scopeIds } from '../ui-data.ts'
 import { runPayrollGuards, listFindings, dismissFinding } from '../../payroll/guards.ts'
 
@@ -15,8 +15,11 @@ export function register(router: Router): void {
     authed(null, async (ctx) => {
       const area = ctx.req.query.get('area') ?? undefined
       if (area && !['payroll', 'attendance'].includes(area)) throw new HttpError(422, 'VALIDATION_FAILED', 'area is payroll or attendance')
-      const payrollOk = ctx.auth.permissions.has('payroll.read'), attendanceOk = ctx.auth.permissions.has('attendance.read')
+      const payrollOk = ctx.auth.permissions.has('payroll.read') && ctx.auth.scope === 'all', attendanceOk = ctx.auth.permissions.has('attendance.read')
       if (area === 'payroll' && !payrollOk) throw new HttpError(403, 'PERMISSION_DENIED', 'payroll.read')
+      // Payroll findings are about the company's run, not about a person, so scope
+      // does not narrow them -- it has to exclude anyone who is not company-wide.
+      if (area === 'payroll') assertOrgWide(ctx.auth)
       if (area === 'attendance' && !attendanceOk) throw new HttpError(403, 'PERMISSION_DENIED', 'attendance.read')
       const areas = area ? [area] : [payrollOk ? 'payroll' : null, attendanceOk ? 'attendance' : null].filter((a): a is string => Boolean(a))
       if (!areas.length) throw new HttpError(403, 'PERMISSION_DENIED', 'payroll.read or attendance.read')

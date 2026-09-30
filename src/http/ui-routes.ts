@@ -11,6 +11,8 @@ import {
 } from './context.ts'
 import { completeCompanyChoice, revokeSession } from '../auth/index.ts'
 import { unifiedLogin } from '../auth/unified-login.ts'
+import { loadRunOptions } from '../payroll/run-options.ts'
+import { approveWithGuards } from '../payroll/approve-run.ts'
 import { assertPermission, assertScope, can } from '../authz/permissions.ts'
 import { changeAssignment } from '../people/history.ts'
 import { applyCorrection, type CorrectionAction } from '../attendance/index.ts'
@@ -475,7 +477,9 @@ function registerPayroll(r: Router) {
       }
       if (b.action === 'approve') {
         assertPermission(c.auth, 'payroll.approve')
-        await approve(c.tx, id, c.auth.userId, separate)
+        // Runs the anomaly guards first, exactly as the API does. This called
+        // approve() directly, which only refuses findings that already exist.
+        await approveWithGuards(c.tx, c.config, id, c.auth.userId)
       } else if (b.action === 'lock') {
         // the same fresh-code rule as /api/v1/payroll/runs/:id/lock — the browser path must not be the soft one
         await requireRecentMfa(c)
@@ -493,27 +497,10 @@ function registerPayroll(r: Router) {
         return created({ id: newId })
       } else if (b.action === 'calculate' || b.action === 'validate') {
         assertPermission(c.auth, 'payroll.process')
-        const statutory = await loadStatutory(c.tx, run.period_end)
-        if (statutory.id !== run.statutory_config_id)
-          throw new HttpError(
-            409,
-            'STATUTORY_CHANGED',
-            'The reference rates differ from the frozen run. Review this run before calculating.',
-          )
-        const options = {
-          statutory: statutory.config,
-          ptAmountPaise: (state: string, gross: bigint) =>
-            ptFor(
-              statutory.ptSlabs,
-              state,
-              gross,
-              Number(run.period_end.slice(5, 7)),
-            ),
-          pfOnFullWage: Boolean(run.config_snapshot.pf_on_full_wage),
-          lwfRates: statutory.lwfRates,
-          lopBasis: run.config_snapshot.lop_basis as
-            'calendar_days' | 'fixed_30' | 'working_days',
-        }
+        // The same builder the API uses. This block used to be hand-written and
+        // left out computeTds and the component flags, so every payroll run from
+        // the browser deducted no income tax at all.
+        const options = await loadRunOptions(c.tx, id)
         if (b.action === 'calculate') {
           const t = await calculate(c.tx, id, options)
           return ok({

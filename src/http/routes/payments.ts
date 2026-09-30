@@ -12,7 +12,7 @@
  */
 import type { Router } from '../router.ts'
 import {
-  HttpError, authed, ok, requireBody, requireModule, asUuid, asDate, emit, requireRecentMfa,
+  HttpError, authed, ok, requireBody, requireModule, asUuid, asDate, emit, requireRecentMfa, assertOrgWide,
 } from './deps.ts'
 import { generateBankFile, type BankFormat } from '../../payments/bank-file.ts'
 import { listMappings, upsertMapping, buildJournal, journalCsv, journalTallyXml, reconcileBatch, paymentStatus, type ReconLine } from '../../payroll/journal.ts'
@@ -23,7 +23,10 @@ const FORMATS: readonly BankFormat[] = [
 
 export function register(router: Router): void {
   router.get('/api/v1/payroll/ledger-mappings', { summary: 'Which accounting head each payroll component posts to (defaults seeded)', tag: 'payments', permission: 'payroll.read' },
-    authed('payroll.read', async (ctx) => ok({ mappings: await listMappings(ctx.tx) })))
+    authed('payroll.read', async (ctx) => {
+      assertOrgWide(ctx.auth)
+      return ok({ mappings: await listMappings(ctx.tx) })
+    }))
   router.post('/api/v1/payroll/ledger-mappings', { summary: 'Set a component\'s debit/credit heads (Tally ledger names or ERP codes); *:earning etc. are the defaults by type', tag: 'payments', permission: 'payroll.process',
     requestExample: { componentCode: 'HRA', debitAccount: 'House Rent Allowance', creditAccount: 'Salary Payable', costCentreBy: 'department' } },
     authed('payroll.process', async (ctx) => ok(await upsertMapping(ctx.tx, requireBody<{ componentCode: string; componentType?: string; debitAccount: string; creditAccount: string; costCentreBy?: string }>(ctx.req, ['componentCode', 'debitAccount', 'creditAccount'])))))
@@ -31,6 +34,7 @@ export function register(router: Router): void {
   router.get('/api/v1/payroll/runs/:id/journal', { summary: 'Accounting journal for a locked run (?format=json|csv|tally) — balanced, by cost centre', tag: 'payments', permission: 'payroll.read' },
     authed('payroll.read', async (ctx) => {
       requireModule(ctx, 'payroll.enabled')
+      assertOrgWide(ctx.auth)
       const j = await buildJournal(ctx.tx, asUuid(ctx.req.params.id, 'id'))
       const fmt = ctx.req.query.get('format') ?? 'json'
       if (fmt === 'csv') return ok({ fileName: `journal-${j.period}.csv`, contentType: 'text/csv; charset=utf-8', rows: j.lines.length, contentBase64: Buffer.from(journalCsv(j)).toString('base64'), balanced: j.balanced, unmapped: j.unmapped })
@@ -52,7 +56,10 @@ export function register(router: Router): void {
     }))
 
   router.get('/api/v1/payroll/runs/:id/payment-status', { summary: 'Settled / failed / pending instructions for a run, with failures to re-pay', tag: 'payments', permission: 'payroll.read' },
-    authed('payroll.read', async (ctx) => ok(await paymentStatus(ctx.tx, asUuid(ctx.req.params.id, 'id')))))
+    authed('payroll.read', async (ctx) => {
+      assertOrgWide(ctx.auth)
+      return ok(await paymentStatus(ctx.tx, asUuid(ctx.req.params.id, 'id')))
+    }))
 
   router.get('/api/v1/payments/formats',
     { summary: 'Bank file formats this deployment can write', tag: 'payments',

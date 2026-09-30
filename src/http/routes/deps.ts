@@ -10,7 +10,7 @@ export {
   asDate, asInt, asUuid, type Ctx,
 } from '../context.ts'
 export { login, completeCompanyChoice, resolveSession, revokeAllSessions, revokeSession } from '../../auth/index.ts'
-export { assertScope, can, PERMISSIONS, ROLE_PERMISSIONS } from '../../authz/permissions.ts'
+export { assertScope, can, PERMISSIONS, ROLE_PERMISSIONS, assertOrgWide } from '../../authz/permissions.ts'
 export { withTenant } from '../../db/tenant-tx.ts'
 export { setSetting } from '../../config/write.ts'
 export { REGISTRY } from '../../config-registry/index.ts'

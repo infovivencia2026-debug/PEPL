@@ -136,7 +136,9 @@ export function PayrollPage({
     if (!run) return
     setDownloading(run.id); setError(''); setValidation(null)
     try {
-      const result = await domainApi<ValidationResult>(`/payroll/runs/${run.id}/validation`)
+      // POST /validate, the deliberate action: it moves the run to `validated`. The
+      // GET is a read-only look and no longer does, so this button must not use it.
+      const result = await domainApi<ValidationResult>(`/payroll/runs/${run.id}/validate`, {})
       setValidation(result)
       await refresh()
     } catch (caught) { setError(caught instanceof Error ? caught.message : 'Unable to validate payroll') } finally { setDownloading('') }

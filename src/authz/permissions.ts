@@ -260,6 +260,23 @@ export function assertScope(ctx: AuthzContext, targetEmployeeId: string | undefi
   }
 }
 
+/**
+ * The caller must see the WHOLE company, not just themselves or their reports.
+ *
+ * `assertScope(ctx, undefined)` returns silently when there is no target
+ * employee -- so a route about a whole payroll RUN, which has no single employee,
+ * skipped scope entirely and answered to anyone holding the permission. Every
+ * employee holds `payroll.read` so they can see their own pay, which made a run's
+ * totals, its per-person revision delta, its payment status and its ledger
+ * mappings readable by any of them. Anything that is about the company rather than
+ * a person asks THIS.
+ */
+export function assertOrgWide(ctx: AuthzContext): void {
+  if (ctx.scope !== 'all') {
+    throw new AuthzError('PERMISSION_DENIED', 'this needs company-wide access', 403)
+  }
+}
+
 /** SQL fragment restricting a query to the caller's data scope. */
 export function scopeFilter(ctx: AuthzContext, column = 'employee_id'): { sql: string; params: string[] } {
   if (ctx.scope === 'all') return { sql: 'TRUE', params: [] }

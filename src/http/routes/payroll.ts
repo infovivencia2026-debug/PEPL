@@ -11,6 +11,7 @@ import {
   asUuid,
   asInt,
   assertScope,
+  assertOrgWide,
   approve,
   calculate,
   createRun,
@@ -27,47 +28,18 @@ import {
   computeTds, requireRecentMfa,
 } from './deps.ts'
 import { componentFlags } from '../../payroll/structures.ts'
+import { loadRunOptions, periodEndOf } from '../../payroll/run-options.ts'
+import { approveWithGuards } from '../../payroll/approve-run.ts'
 import { distributeRun } from '../../payroll/distribute.ts'
 import { runPayrollGuards } from '../../payroll/guards.ts'
 import { ensurePeriod, listPayrollPeriods, updatePayDate, deletePeriod } from '../../payroll/periods.ts'
-
-/**
- * Binds the run's snapshotted slab data to the engine's TDS hook. Returns
- * undefined when no slabs are configured, so payroll runs without a tax line
- * rather than silently deducting a wrong figure.
- */
-function tdsFor(statutory: Awaited<ReturnType<typeof loadStatutory>>) {
-  return (args: {
-    monthlyTaxableGrossPaise: bigint; regime: 'old' | 'new'; declaredDeductionsPaise: bigint
-    earnedToDatePaise: bigint; deductedToDatePaise: bigint; monthsRemaining: number
-  }) => {
-    const rules = statutory.taxRules[args.regime]
-    const slabs = statutory.taxSlabs[args.regime]
-    if (!rules || slabs.length === 0) {
-      return { monthlyTdsPaise: 0n, trace: { reason: 'no tax slabs configured' } }
-    }
-    const r = computeTds(
-      {
-        monthlyTaxableGrossPaise: args.monthlyTaxableGrossPaise,
-        // All three are frozen VALUES on the run; the wall clock has no say.
-        monthsRemaining: args.monthsRemaining,
-        earnedToDatePaise: args.earnedToDatePaise,
-        deductedToDatePaise: args.deductedToDatePaise,
-        regime: args.regime,
-        declaredDeductionsPaise: args.declaredDeductionsPaise,
-      },
-      slabs,
-      rules,
-    )
-    return { monthlyTdsPaise: r.monthlyTdsPaise, trace: r.trace }
-  }
-}
 
 export function register(router: Router): void {
   router.get('/api/v1/payroll/periods',
     { summary: 'Payroll periods, newest first, with the run in each', tag: 'payroll', permission: 'payroll.read' },
     authed('payroll.read', async (ctx) => {
       requireModule(ctx, 'payroll.enabled')
+      assertOrgWide(ctx.auth)
       return ok({ periods: await listPayrollPeriods(ctx.tx) })
     }))
 
@@ -130,10 +102,13 @@ export function register(router: Router): void {
       tag: 'payroll', permission: 'payroll.process' },
     authed('payroll.process', async (ctx) => {
       const b = requireBody<{ rows: unknown[] }>(ctx.req, ['rows'])
-      const statutory = await loadStatutory(ctx.tx)
+      const runId = asUuid(ctx.req.params.id, 'id')
+      // As of the run's period: a March run frozen in April belongs to the year it
+      // is for, and calculate() will look the same config up by the same date.
+      const statutory = await loadStatutory(ctx.tx, await periodEndOf(ctx.tx, runId))
       const divisor = ctx.config.get<number>('payroll.exit_day_divisor')
       const n = await freezeInputs(
-        ctx.tx, asUuid(ctx.req.params.id, 'id'), b.rows as never,
+        ctx.tx, runId, b.rows as never,
         { lop_basis: ctx.config.get('payroll.lop_basis'),
           pf_on_full_wage: ctx.config.get('payroll.pf_on_full_wage'),
           exit_day_divisor: divisor },
@@ -153,16 +128,11 @@ export function register(router: Router): void {
   router.post('/api/v1/payroll/runs/:id/calculate',
     { summary: 'Calculate the run', tag: 'payroll', permission: 'payroll.process' },
     authed('payroll.process', async (ctx) => {
-      const statutory = await loadStatutory(ctx.tx)
-      const totals = await calculate(ctx.tx, asUuid(ctx.req.params.id, 'id'), {
-        statutory: statutory.config,
-        components: (await componentFlags(ctx.tx)) ?? undefined,
-        ptAmountPaise: (state, gross, gender) => ptFor(statutory.ptSlabs, state, gross, undefined, gender, statutory.ptExemptions),
-        lwfRates: statutory.lwfRates,
-        pfOnFullWage: ctx.config.get<boolean>('payroll.pf_on_full_wage'),
-        lopBasis: ctx.config.get<'calendar_days' | 'fixed_30' | 'working_days'>('payroll.lop_basis'),
-        computeTds: tdsFor(statutory),
-      })
+      // Built from the RUN, like the browser's: its own period, its frozen statutory
+      // config and its config snapshot. This used to read today's rates and today's
+      // live settings, and pass no month at all.
+      const runId = asUuid(ctx.req.params.id, 'id')
+      const totals = await calculate(ctx.tx, runId, await loadRunOptions(ctx.tx, runId))
       return ok({
         grossPaise: String(totals.gross),
         deductionsPaise: String(totals.deductions),
@@ -173,22 +143,26 @@ export function register(router: Router): void {
   router.get('/api/v1/payroll/runs/:id/validation',
     { summary: 'Blockers and warnings for a calculated run', tag: 'payroll', permission: 'payroll.read' },
     authed('payroll.read', async (ctx) => {
+      assertOrgWide(ctx.auth)
       const runId = asUuid(ctx.req.params.id, 'id')
-      // Tables for the PERIOD's fiscal year, not today's: a March run validated in April is FY-1.
-      const period = await ctx.tx.query<{ period_start: string }>(
-        `SELECT pp.period_start::text FROM payroll_runs r JOIN payroll_periods pp ON pp.id = r.period_id WHERE r.id = $1`, [runId])
-      const statutory = await loadStatutory(ctx.tx, period.rows[0]?.period_start)
+      // persist:false. This used to advance the run to `validated` as a side effect
+      // of a GET, so anyone holding payroll.read -- every employee, an auditor --
+      // could move a payroll forward by fetching a URL.
       const result = await validate(ctx.tx, runId, {
-        statutory: statutory.config,
-        taxTables: { fiscalYear: statutory.fiscalYear, regimes: {
-          new: statutory.taxSlabs.new.length > 0 && !!statutory.taxRules.new,
-          old: statutory.taxSlabs.old.length > 0 && !!statutory.taxRules.old,
-        } },
-        components: (await componentFlags(ctx.tx)) ?? undefined,
-        ptAmountPaise: (state, gross, gender) => ptFor(statutory.ptSlabs, state, gross, undefined, gender, statutory.ptExemptions),
-        pfOnFullWage: ctx.config.get<boolean>('payroll.pf_on_full_wage'),
-        lopBasis: ctx.config.get<'calendar_days' | 'fixed_30' | 'working_days'>('payroll.lop_basis'),
-        computeTds: tdsFor(statutory),
+        ...(await loadRunOptions(ctx.tx, runId)),
+        variancePct: ctx.config.get<number>('payroll.variance_warning_pct'),
+        persist: false,
+      })
+      return ok(result)
+    }))
+
+  router.post('/api/v1/payroll/runs/:id/validate',
+    { summary: 'Validate a calculated run. With no blockers it moves to `validated`', tag: 'payroll',
+      permission: 'payroll.process' },
+    authed('payroll.process', async (ctx) => {
+      const runId = asUuid(ctx.req.params.id, 'id')
+      const result = await validate(ctx.tx, runId, {
+        ...(await loadRunOptions(ctx.tx, runId)),
         variancePct: ctx.config.get<number>('payroll.variance_warning_pct'),
       })
       return ok(result)
@@ -198,12 +172,9 @@ export function register(router: Router): void {
     { summary: 'Approve a validated run (never the person who ran it)', tag: 'payroll',
       permission: 'payroll.approve' },
     authed('payroll.approve', async (ctx) => {
-      // The guards run here so an approver always sees the current findings; approve() refuses open blockers.
-      const guard = await runPayrollGuards(ctx.tx, ctx.config, asUuid(ctx.req.params.id, 'id'))
-      if (guard.blocking > 0) throw new HttpError(409, 'ANOMALIES_OPEN', `${guard.blocking} blocking finding(s) open on this run; see GET /anomalies?runId=`)
-      await approve(ctx.tx, asUuid(ctx.req.params.id, 'id'), ctx.auth.userId, {
-        requireSeparateApprover: ctx.config.get<boolean>('payroll.require_separate_approver'),
-      })
+      // The guards run inside approveWithGuards, shared with the browser: they used
+      // to run only here, so a run approved from the UI was never checked.
+      await approveWithGuards(ctx.tx, ctx.config, asUuid(ctx.req.params.id, 'id'), ctx.auth.userId)
       return ok({ approved: true })
     }))
 
@@ -239,13 +210,19 @@ export function register(router: Router): void {
 
   router.get('/api/v1/payroll/runs/:id',
     { summary: 'Run status and totals', tag: 'payroll', permission: 'payroll.read' },
-    authed('payroll.read', async (ctx) => ok({ run: await getRun(ctx.tx, asUuid(ctx.req.params.id, 'id')) })))
+    authed('payroll.read', async (ctx) => {
+      assertOrgWide(ctx.auth)
+      return ok({ run: await getRun(ctx.tx, asUuid(ctx.req.params.id, 'id')) })
+    }))
 
   router.get('/api/v1/payroll/runs/:id/delta',
     { summary: 'What changed against the run this one supersedes', tag: 'payroll',
       permission: 'payroll.read' },
-    authed('payroll.read', async (ctx) =>
-      ok({ delta: await delta(ctx.tx, asUuid(ctx.req.params.id, 'id')) })))
+    authed('payroll.read', async (ctx) => {
+      // Per-person, per-component old and new amounts: everyone's salary.
+      assertOrgWide(ctx.auth)
+      return ok({ delta: await delta(ctx.tx, asUuid(ctx.req.params.id, 'id')) })
+    }))
 
   router.post('/api/v1/payroll/runs/:id/distribute',
     { summary: 'Email the payslips of a locked run now (the job does this within 15 minutes anyway)',

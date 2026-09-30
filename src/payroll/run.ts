@@ -328,11 +328,18 @@ export async function validate(
     statutory: StatutoryConfig; variancePct: number
     /** Which regimes have tables for the run's fiscal year; omitted = not checked (unit tests). */
     taxTables?: { fiscalYear: string; regimes: Record<'old' | 'new', boolean> }
+    /**
+     * false = look, don't touch: report the findings without moving the run to
+     * `validated`, and allow it on a run that already is. The default persists, and
+     * only the route that requires the right to PROCESS payroll asks for that.
+     */
+    persist?: boolean
   },
 ): Promise<ReturnType<typeof validateRun>> {
   const tid = await tenantId(tx)
   const run = await getRun(tx, runId)
-  if (run.status !== 'calculated') {
+  const persist = opts.persist !== false
+  if (persist ? run.status !== 'calculated' : !['calculated', 'validated'].includes(run.status)) {
     throw new PayrollError('NOT_CALCULATED', `validate requires calculated, not ${run.status}`)
   }
 
@@ -340,7 +347,7 @@ export async function validate(
   const rows = inputs.map((input) => ({ input, computed: computePayroll(input, opts) }))
   const result = validateRun(rows, { variancePct: opts.variancePct, taxTables: opts.taxTables })
 
-  if (result.blockers.length === 0) {
+  if (persist && result.blockers.length === 0) {
     await tx.query(`UPDATE payroll_runs SET status = 'validated' WHERE tenant_id = $1 AND id = $2`, [tid, runId])
   }
   return result
