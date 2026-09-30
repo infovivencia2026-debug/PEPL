@@ -4,7 +4,7 @@
  * geofence is not enforced and the day carries the mode. Field visits are
  * logged start → end with outcome; one open visit at a time.
  */
-import { describe, it, expect, beforeAll, afterAll } from 'vitest'
+import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest'
 import { createServer, type Server } from 'node:http'
 import { resetAndSeed, controlPool, type Tenant } from './fixtures.ts'
 import { withTenant } from '../src/db/tenant-tx.ts'
@@ -24,6 +24,16 @@ const FAR = { lat: 17.3850, lng: 78.4867 }
 let server: Server; let base: string; let token: string
 let mgrUser: string; let manager: string; let empUser: string
 const cfg = (tx: Parameters<typeof resolveConfig>[0]) => resolveConfig(tx, A.id)
+/**
+ * The server now decides which day a punch belongs to (it is the company's today), so a test that
+ * punches on a particular calendar day sets the clock to that day. Only Date is faked: sockets and
+ * timers run normally. 06:00 UTC is 11:30 in India, safely inside the day in either zone.
+ */
+const onDay = async <T>(day: string, fn: () => Promise<T>): Promise<T> => {
+  vi.useFakeTimers({ toFake: ['Date'] })
+  vi.setSystemTime(new Date(`${day}T06:00:00Z`))
+  try { return await fn() } finally { vi.useRealTimers() }
+}
 
 beforeAll(async () => {
   A = (await resetAndSeed()).a
@@ -96,11 +106,11 @@ describe('remote requests', () => {
 
 describe('over HTTP', () => {
   it('an approved WFH day is not fenced and the punch marks the day remote; an ordinary day still is', async () => {
-    const ordinary = await api('POST', '/api/v1/attendance/punch', { direction: 'in', localDate: '2026-10-05', clientPunchId: 'r0', geo: FAR })
+    const ordinary = await onDay('2026-10-05', () => api('POST', '/api/v1/attendance/punch', { direction: 'in', localDate: '2026-10-05', clientPunchId: 'r0', geo: FAR }))
     expect(ordinary.status).toBe(422)
     expect(ordinary.body.error.code).toBe('OUTSIDE_GEOFENCE')
 
-    const home = await api('POST', '/api/v1/attendance/punch', { direction: 'in', localDate: '2026-10-06', clientPunchId: 'r1', geo: FAR })
+    const home = await onDay('2026-10-06', () => api('POST', '/api/v1/attendance/punch', { direction: 'in', localDate: '2026-10-06', clientPunchId: 'r1', geo: FAR }))
     expect(home.status).toBe(200)
     expect(home.body.mode).toBe('wfh')
     const day = await withTenant(A.id, (tx) => tx.query<{ is_remote: boolean; status: string }>(
@@ -121,9 +131,9 @@ describe('over HTTP', () => {
       expect(Number(pend)).toBe(1)
     })
 
-    const v = await api('POST', '/api/v1/attendance/visits', { place: 'DAV School, Kondapur', contact: 'Principal', purpose: 'LMS demo', geo: HQ, localDate: '2026-10-13' })
+    const v = await onDay('2026-10-13', () => api('POST', '/api/v1/attendance/visits', { place: 'DAV School, Kondapur', contact: 'Principal', purpose: 'LMS demo', geo: HQ, localDate: '2026-10-13' }))
     expect(v.status).toBe(201)
-    const again = await api('POST', '/api/v1/attendance/visits', { place: 'Elsewhere', purpose: 'x', localDate: '2026-10-13' })
+    const again = await onDay('2026-10-13', () => api('POST', '/api/v1/attendance/visits', { place: 'Elsewhere', purpose: 'x', localDate: '2026-10-13' }))
     expect(again.status).toBe(409)
     expect(again.body.error.code).toBe('VISIT_OPEN')
     const ended = await api('POST', `/api/v1/attendance/visits/${v.body.id}/end`, { outcome: 'Pilot agreed', nextStep: 'Proposal by Friday', geo: FAR })
