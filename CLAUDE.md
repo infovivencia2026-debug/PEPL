@@ -638,3 +638,42 @@ removing a company means deleting from each referencing table first. That is
 right for production — a customer who leaves is SUSPENDED, because payroll is
 a statutory record — but it means test companies cannot be tidied with a single
 DELETE. Loop over every table with a `tenant_id` if you truly need one gone.
+
+## An operator's second factor: pending, then proved, then shell-only
+
+`control_plane.platform_users.mfa_secret` is the enrolled factor;
+`mfa_pending_secret` is a QR code that has been SHOWN but not yet PROVED. A valid
+code promotes pending to enrolled, and nothing else ever writes `mfa_secret`.
+
+Three bugs shared one cause — the secret went live the moment the QR appeared:
+
+- **A wrong code answered 401**, the console read every 401 as "signed out",
+  wiped the token and showed the login page, and signing in again minted a NEW
+  secret — so the QR on the person's phone was stale and every retry failed.
+  Reported as "the login page keeps repeating after I verify". The tell was in
+  `platform_audit`: `login → enrolled → mfa.failed`, over and over.
+- **`/mfa/enrol` overwrote an enrolled secret.** It is reachable from a session
+  that has cleared only the PASSWORD (enrolling is what that session is for), so
+  a password alone was enough to enrol your own authenticator and "verify" with
+  it — the second factor bypassed by asking to set up a new one.
+- **Guessing was unlimited.** Five misses in 15 minutes now lock, and the lock
+  holds for the right code too.
+
+Rules that follow: a wrong code is **422, never 401** (401 means the SESSION is
+bad, and the client wipes it); `enrol` is idempotent while pending and 409 once a
+factor exists; replacing an enrolled factor is `npm run ops staff-reset-mfa
+<email>` **from the shell only** — there is deliberately no route, because a
+route that can clear a factor is a route that can bypass it. Never `UPDATE
+mfa_secret` by hand; the command also ends the operator's sessions.
+
+Until an operator scans, whoever knows the password can enrol first. `staff-add`
+and `staff-reset-mfa` both say so; do it while the operator is watching.
+
+## A process query that matches itself
+
+`powershell.exe -Command "Get-CimInstance Win32_Process | Where-Object
+{ $_.CommandLine -match 'vitest|npm run verify' } | Measure-Object"` counts
+ITSELF: its own command line contains the pattern. It reported 4 to 18 "running"
+test processes for hours when nothing was running. Use the PowerShell tool (no
+wrapper process), or add `-and $_.ProcessId -ne $PID`, before deciding a verify
+is still in flight — and before killing anything.
