@@ -276,6 +276,18 @@ async function runToLocked(tenant: Tenant, rows?: FreezeRow[]): Promise<string> 
   })
 }
 
+/** An open run in a DIFFERENT period (a second run in the same period collides on revision). */
+async function openRunElsewhere(withInputs: boolean): Promise<string> {
+  return withTenant(A.id, async (tx) => {
+    const p = await tx.query<{ id: string }>(
+      `INSERT INTO payroll_periods (tenant_id, label, period_start, period_end, pay_date)
+       VALUES ($1, '2026-10', DATE '2026-10-01', DATE '2026-10-31', DATE '2026-11-01') RETURNING id`, [A.id])
+    const id = await createRun(tx, { periodId: p.rows[0]!.id, processedByUserId: PROCESSOR })
+    if (withInputs) await freezeInputs(tx, id, [freezeRow(A.employeeId)], { lop_basis: 'calendar_days' }, statutoryId)
+    return id
+  })
+}
+
 describe('the run lifecycle', () => {
   it('walks draft -> frozen -> calculated -> validated -> approved -> locked', async () => {
     const runId = await runToLocked(A)
@@ -399,6 +411,34 @@ describe('a locked run is immutable in the DATABASE, not just the service', () =
         ),
       ),
     ).rejects.toThrow(/is locked; create a revision/)
+  })
+
+  // The trigger looked up the run from NEW.run_id, so an UPDATE that changed run_id was
+  // judged by where the row was GOING, not where it lived. Moving a line, input or
+  // payslip out of a locked run into an open one passed, and rewrote a locked run.
+  for (const table of ['payroll_lines', 'payroll_inputs', 'payslips']) {
+    it(`rejects moving a ${table} row OUT of a locked run into an open one`, async () => {
+      const lockedId = await runToLocked(A)
+      const openId = await openRunElsewhere(false)
+      await expect(
+        withTenant(A.id, async (tx) =>
+          tx.query(`UPDATE ${table} SET run_id = $2 WHERE run_id = $1`, [lockedId, openId]),
+        ),
+      ).rejects.toThrow(/is locked/)
+      const left = await withTenant(A.id, (tx) =>
+        tx.query(`SELECT count(*)::int AS n FROM ${table} WHERE run_id = $1`, [lockedId]))
+      expect(left.rows[0].n).toBeGreaterThan(0)
+    })
+  }
+
+  it('rejects moving a row INTO a locked run from an open one', async () => {
+    const lockedId = await runToLocked(A)
+    const openId = await openRunElsewhere(true)
+    await expect(
+      withTenant(A.id, async (tx) =>
+        tx.query(`UPDATE payroll_inputs SET run_id = $2 WHERE run_id = $1`, [openId, lockedId]),
+      ),
+    ).rejects.toThrow(/is locked/)
   })
 
   it('rejects a status change on the run itself', async () => {
