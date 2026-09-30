@@ -9,6 +9,7 @@ import {
   deleteDocument, getDocument, listDocuments, putDocument, readDocument,
   MAX_BYTES, type OwnerType,
 } from '../../documents/index.ts'
+import { assertCanDelete, assertCanRead, assertOwnerVisible, readable } from '../../documents/access.ts'
 
 const OWNER_TYPES: readonly OwnerType[] = ['employee', 'ticket', 'conversation', 'tenant']
 
@@ -27,14 +28,29 @@ export function register(router: Router): void {
     authed('document.read', async (ctx) => {
       const type = ctx.req.query.get('ownerType')
       const owner = ctx.req.query.get('ownerId')
-      // An employee folder is the employee's record: the same scope rule that
-      // governs the profile governs the paperwork stapled to it.
-      if (type === 'employee' && owner) assertScope(ctx.auth, owner)
-      const documents = await listDocuments(ctx.tx, {
-        ownerType: type ? ownerType(type) : undefined,
-        ownerId: owner ?? undefined,
+      const kind = type ? ownerType(type) : undefined
+      // Omitting the filter used to list the newest hundred documents in the company for anyone.
+      // A listing names WHOSE documents it is, unless the caller is company-wide -- and even then
+      // a ticket's or a conversation's files are read through that ticket or conversation.
+      const companyWide = ctx.auth.scope === 'all'
+      if (!kind && !companyWide) {
+        throw new HttpError(422, 'VALIDATION_FAILED', 'ownerType is required')
+      }
+      if ((kind === 'ticket' || kind === 'conversation') && !owner) {
+        throw new HttpError(422, 'VALIDATION_FAILED', `ownerId is required for ${kind} documents`)
+      }
+      if (kind === 'employee' && !owner && !companyWide) {
+        throw new HttpError(422, 'VALIDATION_FAILED', 'ownerId is required for employee documents')
+      }
+      if (kind) await assertOwnerVisible(ctx.tx, ctx.auth, { type: kind, id: owner ? asUuid(owner, 'ownerId') : null })
+      const found = await listDocuments(ctx.tx, {
+        ownerType: kind,
+        ownerId: owner ? asUuid(owner, 'ownerId') : undefined,
         category: ctx.req.query.get('category') ?? undefined,
+        ownerTypes: kind ? undefined : ['employee', 'tenant'],
       })
+      // Confidential personnel and company files are for company-wide roles and their subject.
+      const documents = readable(ctx.auth, found)
       // Counts per category so the UI can draw the folder rail without a second call.
       const counts: Record<string, number> = {}
       for (const d of documents) counts[d.category ?? 'other'] = (counts[d.category ?? 'other'] ?? 0) + 1
@@ -64,6 +80,10 @@ export function register(router: Router): void {
       const type = ownerType(b.ownerType)
       const owner = b.ownerId ? asUuid(b.ownerId, 'ownerId') : null
       const category = resolveCategory(type, b.category)
+      // Attaching to a ticket or a conversation needs the same standing as reading it.
+      if (type === 'ticket' || type === 'conversation') {
+        await assertOwnerVisible(ctx.tx, ctx.auth, { type, id: owner })
+      }
       if (type === 'employee') {
         if (!owner) throw new HttpError(422, 'VALIDATION_FAILED', 'ownerId is required for an employee document')
         assertScope(ctx.auth, owner)
@@ -120,7 +140,7 @@ export function register(router: Router): void {
     authed('document.read', async (ctx) => {
       const meta = await getDocument(ctx.tx, asUuid(ctx.req.params.id, 'id'))
       if (!meta || meta.owner_type === 'mail') throw new HttpError(404, 'NOT_FOUND', 'no such document')
-      if (meta.owner_type === 'employee' && meta.owner_id) assertScope(ctx.auth, meta.owner_id)
+      await assertCanRead(ctx.tx, ctx.auth, meta)
       return ok(meta)
     }))
 
@@ -130,9 +150,7 @@ export function register(router: Router): void {
       const found = await readDocument(ctx.tx, asUuid(ctx.req.params.id, 'id'))
       // Mail attachments are read through the message that carries them, never here.
       if (!found || found.meta.owner_type === 'mail') throw new HttpError(404, 'NOT_FOUND', 'no such document')
-      if (found.meta.owner_type === 'employee' && found.meta.owner_id) {
-        assertScope(ctx.auth, found.meta.owner_id)
-      }
+      await assertCanRead(ctx.tx, ctx.auth, found.meta)
       // Reading a personnel file is itself an event a subject may ask about.
       await emit(ctx.tx, {
         action: 'data.document.downloaded', entityType: 'document', entityId: found.meta.id,
@@ -148,7 +166,7 @@ export function register(router: Router): void {
       const id = asUuid(ctx.req.params.id, 'id')
       const meta = await getDocument(ctx.tx, id)
       if (!meta || meta.owner_type === 'mail') throw new HttpError(404, 'NOT_FOUND', 'no such document')
-      if (meta.owner_type === 'employee' && meta.owner_id) assertScope(ctx.auth, meta.owner_id)
+      await assertCanDelete(ctx.tx, ctx.auth, meta)
       const b = requireBody<{ reason: string }>(ctx.req, ['reason'])
       await deleteDocument(ctx.tx, id, b.reason)
       await emit(ctx.tx, {

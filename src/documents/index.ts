@@ -169,7 +169,7 @@ export async function getDocument(tx: PoolClient, id: string): Promise<DocumentM
 
 export async function listDocuments(
   tx: PoolClient,
-  args: { ownerType?: OwnerType; ownerId?: string | null; category?: string | null; limit?: number },
+  args: { ownerType?: OwnerType; ownerId?: string | null; category?: string | null; limit?: number; ownerTypes?: readonly OwnerType[] },
 ): Promise<DocumentMeta[]> {
   const { rows } = await tx.query<DocumentMeta>(
     `SELECT ${META_COLUMNS} FROM documents
@@ -177,9 +177,10 @@ export async function listDocuments(
         AND ($1::text IS NULL OR owner_type = $1)
         AND ($2::uuid IS NULL OR owner_id = $2)
         AND ($4::text IS NULL OR category = $4)
+        AND ($5::text[] IS NULL OR owner_type = ANY($5))
       ORDER BY category, created_at DESC
       LIMIT $3`,
-    [args.ownerType ?? null, args.ownerId ?? null, Math.min(args.limit ?? 100, 500), args.category ?? null],
+    [args.ownerType ?? null, args.ownerId ?? null, Math.min(args.limit ?? 100, 500), args.category ?? null, args.ownerTypes ? [...args.ownerTypes] : null],
   )
   return rows
 }
