@@ -114,12 +114,20 @@ const main = async () => {
   // to 18px and pinning it to the bottom -- a target far under 44px, with the
   // icon sitting low. Measured against the input, because "a toggle exists" and
   // "a toggle you can hit" are different claims.
+  // Let the page's entry animation finish, then read BOTH boxes in one synchronous
+  // pass. Two separate reads straddled the animation and reported a 1px difference
+  // that was the page moving, not the layout.
+  await page.waitForTimeout(1200)
   for (const which of ['currentPassword', 'newPassword']) {
-    const input = await page.locator(`input[name="${which}"]`).boundingBox()
-    const button = await page.locator(`input[name="${which}"] ~ button.password-toggle`).boundingBox()
-    check(!!input && !!button && Math.abs(button.y - input.y) <= 1 && Math.round(button.height) >= 44 && Math.abs(button.height - input.height) <= 2,
+    const m = await page.evaluate((name) => {
+      const input = document.querySelector(`input[name="${name}"]`) as HTMLElement
+      const button = input.parentElement!.querySelector('button.password-toggle') as HTMLElement
+      const i = input.getBoundingClientRect(), b = button.getBoundingClientRect()
+      return { inputY: i.y, inputH: i.height, buttonY: b.y, buttonH: b.height }
+    }, which)
+    check(Math.abs(m.buttonY - m.inputY) <= 1 && Math.round(m.buttonH) >= 44 && Math.abs(m.buttonH - m.inputH) <= 2,
       `${which}: the toggle spans the whole box and is at least 44px tall`,
-      input && button ? `input ${Math.round(input.height)}px at y=${Math.round(input.y)}, toggle ${Math.round(button.height)}px at y=${Math.round(button.y)}` : 'missing')
+      `input ${m.inputH.toFixed(1)}px at y=${m.inputY.toFixed(1)}, toggle ${m.buttonH.toFixed(1)}px at y=${m.buttonY.toFixed(1)}`)
   }
 
   const current = 'input[name="currentPassword"]'
