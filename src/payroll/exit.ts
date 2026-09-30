@@ -12,6 +12,7 @@
  * correction is a revision of the run, like any other.
  */
 import type { PoolClient } from 'pg'
+import { endAccessForEmployee } from '../people/access.ts'
 import { balance } from '../leave/ledger.ts'
 import { listLeaveTypes } from '../leave/policy.ts'
 import {
@@ -215,6 +216,8 @@ export async function finalizeSettlements(tx: PoolClient, runId: string): Promis
     await tx.query(
       `UPDATE employees SET status = 'exited', date_of_exit = $2 WHERE id = $1`,
       [r.employee_id, r.last_working_day])
+    // The person has left the payroll; they must also leave the product.
+    await endAccessForEmployee(tx, r.employee_id)
   }
   return rows.length
 }

@@ -234,7 +234,20 @@ describe('the separation record', () => {
       expect(Number(by.BASIC!.amount_paise)).toBe(Math.round(L(30_000) * 20 / 31 / 100) * 100)
 
       expect((await tx.query<{ status: string }>(`SELECT status FROM employees WHERE id = $1`, [A.employeeId])).rows[0]!.status).toBe('active')
+      // The leaver has a login with a live session and an API key. Leaving payroll must
+      // also mean leaving the product -- these used to survive the exit untouched.
+      const leaverId = (await tx.query<{ id: string }>(
+        `INSERT INTO app_users (tenant_id, email, full_name, employee_id, password_hash)
+         VALUES ($1, 'leaver@example.test', 'Leaver', $2, 'x') RETURNING id`, [A.id, A.employeeId])).rows[0]!.id
+      await tx.query(`INSERT INTO sessions (tenant_id, user_id, token_hash, expires_at) VALUES ($1,$2,'exit-test-hash', now() + interval '1 day')`, [A.id, leaverId])
+      await tx.query(`INSERT INTO api_keys (tenant_id, user_id, name, prefix, key_hash) VALUES ($1,$2,'k','pk_x','exit-test-key')`, [A.id, leaverId])
       await lock(tx, runId, APPROVER, { requireSeparateApprover: true })
+      const after = await tx.query<{ status: string; live_sessions: number; live_keys: number }>(
+        `SELECT u.status,
+                (SELECT count(*)::int FROM sessions s WHERE s.user_id = u.id AND s.revoked_at IS NULL) AS live_sessions,
+                (SELECT count(*)::int FROM api_keys k WHERE k.user_id = u.id AND k.revoked_at IS NULL) AS live_keys
+           FROM app_users u WHERE u.id = $1`, [leaverId])
+      expect(after.rows[0]).toEqual({ status: 'disabled', live_sessions: 0, live_keys: 0 })
       expect((await getRun(tx, runId)).status).toBe('locked')
 
       const s = (await getSeparation(tx, A.employeeId))!
