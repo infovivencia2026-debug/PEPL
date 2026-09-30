@@ -2,6 +2,9 @@
 
 The architecture of record. Read this before any other document; the rest are depth on individual subsystems.
 
+> **The stack table in section 3 is the design.** Redis, BullMQ, presigned reads and Razorpay were not
+> adopted; [as-built.md](as-built.md) lists what runs instead.
+
 ---
 
 ## 1. Shape

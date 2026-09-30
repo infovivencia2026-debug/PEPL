@@ -3,7 +3,9 @@
 A configurable, India-focused HR and employee-operations platform, launching publicly.
 Every tenant administrator has full control over how PEPL behaves **for their own company**, and no control over any other company.
 
-**Architecture first. Nothing is built until this set is agreed.**
+**The set below is the design of record; the system has since been built.** Where a document names a
+component that was never adopted (Redis, BullMQ, argon2id, presigned URLs, a payment gateway), read
+**[architecture/as-built.md](architecture/as-built.md)** first: it says what is actually running.
 
 > ### Design principle
 > PEPL is built to the **standard company model** — the org structure, calendars, leave types, salary

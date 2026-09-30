@@ -2,6 +2,11 @@
 
 A cross-tenant leak in PEPL is a payroll and bank-details breach. This is treated as the highest-severity class of defect in the product, above any feature.
 
+> **Read [as-built.md](as-built.md) alongside this.** The isolation model below is built and gated, but
+> the role names (`app_user`, `pepl_migrator`), password hashing (argon2id), refresh-token rotation,
+> presigned URLs and tier-3 column encryption described here are the *design*; the running system uses
+> `pepl_owner`/`pepl_app`, scrypt, opaque revocable sessions, API-streamed downloads and masking.
+
 ---
 
 ## 1. Roles in Postgres
@@ -156,4 +161,4 @@ The purge job is a scheduled worker that runs per tenant with tenant context set
 | Backups | daily + PITR; **restore rehearsed and documented before launch** |
 | Mobile | certificate pinning, no tier-3 data cached on device beyond the current session |
 
-An untested backup is not a backup. The restore rehearsal is a launch gate in `../V1-PRD.md` §5, not a post-launch task.
+An untested backup is not a backup. The restore rehearsal is a launch gate in `../PRD.md` §5, not a post-launch task.
