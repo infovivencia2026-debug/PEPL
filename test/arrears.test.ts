@@ -10,7 +10,7 @@ import { closePools } from '../src/db/pool.ts'
 import type { EngineOptions } from '../src/payroll/engine.ts'
 import { approve, calculate, createRun, freezeInputs, lock, unfreezeInputs, validate } from '../src/payroll/run.ts'
 import { arrearsOwed } from '../src/payroll/arrears.ts'
-import { changeCompensation } from '../src/people/history.ts'
+import { changeCompensation, correctCompensation } from '../src/people/history.ts'
 
 const L = (r: number): number => r * 100
 const PROCESSOR = '50000000-0000-0000-0000-000000000005'
@@ -110,5 +110,28 @@ describe('arrears', () => {
       const adhoc = (await tx.query<{ adhoc: unknown[] }>(`SELECT adhoc FROM payroll_inputs WHERE run_id = $1`, [id])).rows[0]!.adhoc
       expect(adhoc).toEqual([{ code: 'ARREARS_RECOVERY', amountPaise: L(5_000), type: 'deduction' }])
     })
+  })
+  it('correcting a backdated hike that was already paid owes only the difference', async () => {
+    // The corrected record has a new id, so "already paid for this record" never matched and the
+    // whole retro amount was paid a second time on top of what the first record had paid.
+    const dec = await period('2026-12', '2026-12-01', '2026-12-31')
+    const jan = await period('2027-01', '2027-01-01', '2027-01-31')
+    const base = { basic: L(25_000), hra: L(10_000), special: L(10_000) }
+    await lockRun(dec, row(base, { calendar: 31, payable: 31, lop: 0 }))
+    await withTenant(A.id, (tx) => changeCompensation(tx, { employeeId: A.employeeId, annualCtcPaise: L(660_000),
+      components: { ...base, special: L(20_000) }, effectiveFrom: '2026-12-01', reason: 'promotion, backdated' }))
+    await withTenant(A.id, async (tx) => {
+      const id = await createRun(tx, { periodId: jan, processedByUserId: PROCESSOR })
+      await freezeInputs(tx, id, [row({ ...base, special: L(20_000) }, { calendar: 31, payable: 31, lop: 0 })], {}, statutoryId)
+      const paid = (await tx.query<{ adhoc: { code: string; amountPaise: number }[] }>(`SELECT adhoc FROM payroll_inputs WHERE run_id = $1`, [id])).rows[0]!.adhoc
+      expect(paid).toEqual([{ code: 'ARREARS', amountPaise: L(10_000) }])
+    })
+    // HR corrects the same retro hike: it should have been 12,000 more, not 10,000.
+    await withTenant(A.id, async (tx) => {
+      const rec = (await tx.query<{ id: string }>(`SELECT id FROM compensation_records WHERE employee_id = $1 AND superseded_at IS NULL AND effective_from = DATE '2026-12-01'`, [A.employeeId])).rows[0]!.id
+      await correctCompensation(tx, rec, { annualCtcPaise: L(684_000), components: { ...base, special: L(22_000) }, reason: 'correction' })
+    })
+    const owed = await withTenant(A.id, (tx) => arrearsOwed(tx, A.employeeId, '2027-02-01'))
+    expect(owed.map((o) => [o.periodLabel, o.amountPaise])).toEqual([['2026-12', L(2_000)]])   // not 12,000
   })
 })

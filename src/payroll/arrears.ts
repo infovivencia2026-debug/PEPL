@@ -60,7 +60,14 @@ export async function arrearsOwed(tx: PoolClient, employeeId: string, beforePeri
     // The run paid (payable + lop) / calendar of the month before LOP, and
     // LOP took lop/calendar of that; net factor is payable/calendar.
     const factor = Number(r.payable_days) / Math.max(1, Number(r.calendar_days))
-    const amount = Math.round((newGross - oldGross) * factor / 100) * 100
+    // What the run paid is compared with the CURRENT record, so anything already paid out for this
+    // month under an earlier version of the record must come off. A correction creates a new record
+    // id, which the per-record "already paid" test above cannot see: the whole retro amount was paid
+    // again on top of what the first record had paid.
+    const prior = await tx.query<{ n: string }>(
+      `SELECT coalesce(sum(amount_paise), 0)::text AS n FROM arrears_paid WHERE employee_id = $1 AND source_run_id = $2`,
+      [employeeId, r.run_id])
+    const amount = Math.round((newGross - oldGross) * factor / 100) * 100 - Number(prior.rows[0]!.n)
     if (amount === 0) continue
     out.push({ sourceRunId: r.run_id, periodLabel: r.label, compensationRecordId: r.record_id!,
       oldGrossPaise: oldGross, newGrossPaise: newGross, amountPaise: amount })
