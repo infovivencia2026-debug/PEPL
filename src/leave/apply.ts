@@ -146,10 +146,15 @@ export async function settleLeaveDecision(
     })
     // Only the days that were charged — never a weekend or holiday in the range.
     const charged: [string, string][] = Object.keys(leave.day_parts ?? {}).length ? Object.entries(leave.day_parts) : [[leave.start_date, 'full']]
+    // `dayFraction` is the PAID share of the day. A leave type that is not paid (leave without pay)
+    // used to be marked 1 like any other, so unpaid leave came out of the freeze as a paid day:
+    // is_paid was read by nothing downstream. Unpaid, a full day pays nothing and half a day pays
+    // the half that was worked.
+    const paid = (await tx.query<{ is_paid: boolean }>(`SELECT is_paid FROM leave_types WHERE id = $1`, [leave.leave_type_id])).rows[0]?.is_paid !== false
     for (const [workDate, part] of charged) {
       await applyCorrection(tx, {
         employeeId: leave.employee_id, workDate, action: 'mark_leave',
-        after: { dayFraction: part === 'full' ? 1 : 0.5, leaveRequestId: args.leaveRequestId },
+        after: { dayFraction: part === 'full' ? (paid ? 1 : 0) : 0.5, leaveRequestId: args.leaveRequestId },
         reason: 'approved leave request', actorUserId: args.actorUserId,
       })
     }

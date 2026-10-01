@@ -227,7 +227,9 @@ export async function recomputeDay(
         break
       case 'mark_leave':
         status = 'on_leave'
-        dayFraction = c.after.dayFraction === 0.5 ? 0.5 : 1
+        // The PAID share of the day: 0 for unpaid leave, 0.5 for half, otherwise the whole day.
+        // (0 used to be coerced to 1 here, which is what made unpaid leave a paid day.)
+        dayFraction = c.after.dayFraction === 0 ? 0 : c.after.dayFraction === 0.5 ? 0.5 : 1
         fractionSource = 'leave'
         break
       case 'clear_leave':
