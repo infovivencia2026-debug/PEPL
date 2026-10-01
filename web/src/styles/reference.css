@@ -1,5 +1,5 @@
 /* Reference composition. Scoped dashboard sizing preserves editable widget layouts. */
-:root { --foreground: #173947; --primary: #28695c; --primary-dark:#1d5149; --muted:#7b8c98; --background:#eef4f4; --border:#dfE9e980; --radius-lg:17px; --chart-0:#2e6b61; --chart-1:#91c8b9; --chart-2:#f2af91; --chart-3:#ffcc8a; --chart-4:#63b6a4; --chart-5:#b8d9d3; }
+:root { --foreground: #173947; --primary: #28695c; --primary-dark:#1d5149; --background:#eef4f4; --border:#dfE9e980; --radius-lg:17px; --chart-0:#2e6b61; --chart-1:#91c8b9; --chart-2:#f2af91; --chart-3:#ffcc8a; --chart-4:#63b6a4; --chart-5:#b8d9d3; }
 body { padding:46px 44px 40px; background: repeating-linear-gradient(132deg,transparent 0 280px,#87b4a20a 281px 283px,transparent 284px 590px),radial-gradient(ellipse at 15% 0,#5b9a86,transparent 58%),#285e55; }
 .app-shell { max-width:1440px; border-radius:26px; background:linear-gradient(115deg,#edf5f4,#f5f8f8 65%,#edf4f3); border:1px solid #ffffffbd; box-shadow:0 22px 50px #0c372c45; }
 .topbar { min-height:78px; padding:14px 24px; gap:22px; background:linear-gradient(105deg,#fff,#f7fbfc); border-radius:26px 26px 15px 15px; border-bottom:1px solid #dce8e966; }
