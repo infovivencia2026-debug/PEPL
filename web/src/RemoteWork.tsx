@@ -4,11 +4,11 @@ import { dateLabel, fullName, pretty } from './api'
 import { domainApi } from './domainApi'
 import type { Workspace } from './types'
 import { Badge, Button, Card, Empty, ErrorBox, Modal, Tabs } from './ui'
+import { locate } from './geo'
 
 export type RemoteRequest = { id: string; employee_id: string; kind: 'wfh' | 'field'; starts_on: string; ends_on: string; place: string | null; reason: string | null; status: string; created_at: string }
 type Visit = { id: string; employee_id: string; work_date: string; place: string; contact: string | null; purpose: string; started_at: string; ended_at: string | null; outcome: string | null; next_step: string | null }
 const fileBase64 = (file: File) => new Promise<string>((resolve, reject) => { const reader = new FileReader(); reader.onload = () => resolve(String(reader.result).split(',')[1] ?? ''); reader.onerror = reject; reader.readAsDataURL(file) })
-const locate = () => new Promise<{ lat: number; lng: number } | undefined>(resolve => navigator.geolocation?.getCurrentPosition(position => resolve({ lat: position.coords.latitude, lng: position.coords.longitude }), () => resolve(undefined), { enableHighAccuracy: true, timeout: 8000 }) ?? resolve(undefined))
 
 export function RemoteWorkPanel({ data }: { data: Workspace }) {
   const [requests, setRequests] = useState<RemoteRequest[]>([]); const [visits, setVisits] = useState<Visit[]>([]); const [tab, setTab] = useState('My requests'); const [dialog, setDialog] = useState<'request' | 'start' | 'end' | null>(null); const [kind, setKind] = useState<'wfh' | 'field'>('wfh'); const [busy, setBusy] = useState(false); const [error, setError] = useState(''); const [now, setNow] = useState(Date.now()); const [photos, setPhotos] = useState<File[]>([])
