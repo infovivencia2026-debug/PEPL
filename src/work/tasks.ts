@@ -75,16 +75,22 @@ export async function completeTask(
   tx: PoolClient,
   taskId: string,
   userId: string,
+  opts: { mayCompleteOthers?: boolean } = {},
 ): Promise<void> {
   const tid = await tenantId(tx)
+  // Any task.write holder used to complete ANY task, which let an employee tick off the offboarding
+  // items that block someone's exit. Only the assignee -- or someone who manages tasks -- may.
+  const mayAny = opts.mayCompleteOthers !== false
   const { rowCount } = await tx.query(
     `UPDATE tasks SET status = 'done', completed_by_user_id = $3, completed_at = now()
-      WHERE tenant_id = $1 AND id = $2 AND status <> 'done'`,
-    [tid, taskId, userId],
+      WHERE tenant_id = $1 AND id = $2 AND status <> 'done'
+        AND ($4::boolean OR assignee_user_id IS NULL OR assignee_user_id = $3)`,
+    [tid, taskId, userId, mayAny],
   )
   if (rowCount === 0) {
-    // Already done, or not ours. Idempotent, not an error.
-    return
+    const t = await tx.query<{ status: string }>(`SELECT status FROM tasks WHERE tenant_id = $1 AND id = $2`, [tid, taskId])
+    // Not there, or already done: idempotent. There but not ours: say so.
+    if (t.rows[0] && t.rows[0].status !== 'done') throw new TaskError('NOT_ASSIGNEE', 'this task is assigned to someone else')
   }
 }
 

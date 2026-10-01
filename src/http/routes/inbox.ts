@@ -13,7 +13,7 @@ import {
   requireBody,
   asDate,
   asUuid,
-  can,
+  can, assertScope,
   act,
   inbox,
   approve,
@@ -103,7 +103,7 @@ export function register(router: Router): void {
   router.post('/api/v1/tasks/:id/complete',
     { summary: 'Complete a task', tag: 'inbox', permission: 'task.write' },
     authed('task.write', async (ctx) => {
-      await completeTask(ctx.tx, asUuid(ctx.req.params.id, 'id'), ctx.auth.userId)
+      await completeTask(ctx.tx, asUuid(ctx.req.params.id, 'id'), ctx.auth.userId, { mayCompleteOthers: can(ctx.auth, 'task.assign') })
       return ok({ completed: true })
     }))
 
@@ -175,6 +175,10 @@ export function register(router: Router): void {
 
   router.get('/api/v1/employees/:id/offboarding-blockers',
     { summary: 'Open blocking tasks preventing exit sign-off', tag: 'inbox', permission: 'task.read' },
-    authed('task.read', async (ctx) =>
-      ok({ blockers: await blockingTasksOpen(ctx.tx, asUuid(ctx.req.params.id, 'id'), 'offboarding') })))
+    authed('task.read', async (ctx) => {
+      // Who is leaving is not for everyone to learn: the same scope rule as the profile.
+      const id = asUuid(ctx.req.params.id, 'id')
+      assertScope(ctx.auth, id)
+      return ok({ blockers: await blockingTasksOpen(ctx.tx, id, 'offboarding') })
+    }))
 }

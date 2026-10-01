@@ -110,6 +110,9 @@ describe('tasks: onboarding is a template plus an event', () => {
     await withTenant(A.id, async (tx) => {
       await completeTask(tx, first!, HR)
       await completeTask(tx, first!, IT)
+      // A user the task is not assigned to cannot complete it when they have no right to others'.
+      const other = (await tx.query<{ id: string }>(`SELECT id FROM tasks WHERE status <> 'done' AND assignee_user_id IS NOT NULL LIMIT 1`)).rows[0]
+      if (other) await expect(completeTask(tx, other.id, '99999999-9999-9999-9999-999999999999', { mayCompleteOthers: false })).rejects.toMatchObject({ code: 'NOT_ASSIGNEE' })
     })
     const row = await withTenant(A.id, async (tx) =>
       (await tx.query('SELECT completed_by_user_id FROM tasks WHERE id = $1', [first])).rows[0],
