@@ -241,6 +241,17 @@ export async function act(
 
   if (args.action === 'delegate') {
     if (!args.comment) throw new ApprovalError('DELEGATE_TARGET_REQUIRED', 'delegate needs a target user id in comment')
+    // The target is a user id taken from free text. It must BE a user, of this company (RLS hides
+    // another's), still active -- and not the person who asked, who would otherwise approve their
+    // own request.
+    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(args.comment)) {
+      throw new ApprovalError('DELEGATE_TARGET_INVALID', 'the delegate must be a user of this company')
+    }
+    const target = await tx.query(`SELECT 1 FROM app_users WHERE id = $1 AND status = 'active'`, [args.comment])
+    if (!target.rowCount) throw new ApprovalError('DELEGATE_TARGET_INVALID', 'the delegate must be an active user of this company')
+    if (args.comment === req.requested_by_user_id) {
+      throw new ApprovalError('DELEGATE_TO_REQUESTER', 'a request cannot be delegated to the person who made it')
+    }
     await tx.query(
       `UPDATE approval_steps SET approver_user_id = $4, delegated_from_user_id = $5
         WHERE tenant_id = $1 AND approval_request_id = $2 AND step_no = $3`,

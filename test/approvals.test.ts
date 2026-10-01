@@ -103,7 +103,34 @@ describe('the actions people actually use', () => {
     expect((await status(A, id)).current_step).toBe(1)
   })
 
+  // Delegation used to take ANY string from `comment` as the new approver: no check that it was a
+  // user, in this company, active, or not the person who asked -- so a requester could hand their
+  // own leave to themselves, or to a nonexistent id that orphaned the request.
+  const makeUser = (id: string, status = 'active', tenant = A) => withTenant(tenant.id, (tx) => tx.query(
+    `INSERT INTO app_users (tenant_id, id, email, full_name, status) VALUES ($1,$2,$3,'x',$4)`,
+    [tenant.id, id, `${id}@appr.test`, status]))
+  const delegateTo = async (target: string) => {
+    const id = await withTenant(A.id, (tx) => raise(tx, leaveRequest()))
+    return withTenant(A.id, (tx) => act(tx, { requestId: id, actorUserId: MANAGER, action: 'delegate', comment: target }))
+  }
+
+  it('refuses a delegate target that is not a user of this company', async () => {
+    await makeUser(HR, 'active', B)                                   // exists, but in ANOTHER company
+    for (const target of ['not-a-uuid', crypto.randomUUID(), HR]) {
+      await expect(delegateTo(target), target).rejects.toMatchObject({ code: 'DELEGATE_TARGET_INVALID' })
+    }
+  })
+
+  it('refuses an inactive user, and the person who asked', async () => {
+    const gone = crypto.randomUUID()
+    await makeUser(gone, 'disabled')
+    await expect(delegateTo(gone)).rejects.toMatchObject({ code: 'DELEGATE_TARGET_INVALID' })
+    await makeUser(EMPLOYEE)
+    await expect(delegateTo(EMPLOYEE)).rejects.toMatchObject({ code: 'DELEGATE_TO_REQUESTER' })
+  })
+
   it('delegation moves the step to someone else', async () => {
+    await makeUser(HR)
     const id = await withTenant(A.id, (tx) => raise(tx, leaveRequest()))
     await withTenant(A.id, (tx) =>
       act(tx, { requestId: id, actorUserId: MANAGER, action: 'delegate', comment: HR }),
