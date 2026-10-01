@@ -35,3 +35,4 @@
  .bank-file-controls { align-items:stretch; flex-direction:column; }.bank-file-controls label { width:100%; }
  .setting-editor { grid-template-columns:1fr; }.setting-editor label:last-of-type,.setting-editor>div { grid-column:auto; }
 }
+.stage-move { margin-top: 8px; width: 100%; min-height: 44px; font: inherit; }
