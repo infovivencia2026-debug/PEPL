@@ -167,7 +167,17 @@ export function register(router: Router): void {
     { summary: 'The kiosk code for a site right now (?siteId=); changes every minute, valid for two', tag: 'attendance', permission: 'attendance.kiosk' },
     authed('attendance.kiosk', async (ctx) => {
       if (!ctx.config.get<boolean>('attendance.qr_punch_enabled')) throw new HttpError(422, 'QR_INVALID', 'QR punch is switched off for this company')
-      return ok(await qrCode(ctx.tx, asUuid(ctx.req.query.get('siteId'), 'siteId')))
+      const siteId = asUuid(ctx.req.query.get('siteId'), 'siteId')
+      const code = await qrCode(ctx.tx, siteId)
+      // Who displayed a live code is what a relayed screenshot is traced back to. A kiosk polls every
+      // minute, so one record per person and site per ten minutes, not one per fetch.
+      const recent = await ctx.tx.query(
+        `SELECT 1 FROM audit_events WHERE action = 'attendance.qr.issued' AND actor_user_id = $1 AND entity_id = $2
+            AND occurred_at > now() - interval '10 minutes' LIMIT 1`, [ctx.session.userId, siteId])
+      if (!recent.rowCount) {
+        await emit(ctx.tx, { action: 'attendance.qr.issued', entityType: 'geofence_site', entityId: siteId, actorUserId: ctx.session.userId })
+      }
+      return ok(code)
     }))
 
   router.post('/api/v1/attendance/qr/rotate',

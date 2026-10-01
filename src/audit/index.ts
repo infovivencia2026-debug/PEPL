@@ -46,6 +46,7 @@ export const ACTIONS: Readonly<Record<string, ActionDef>> = Object.freeze({
   'attendance.remote.cancelled': { category: 'attendance', severity: 'info' },
   'attendance.visit.logged': { category: 'attendance', severity: 'info' },
   'attendance.qr.rotated': { category: 'security', severity: 'notice' },
+  'attendance.qr.issued': { category: 'security', severity: 'info' },
   'roster.planned': { category: 'attendance', severity: 'info' },
   'asset.changed': { category: 'data', severity: 'info' },
   'policy.published': { category: 'config', severity: 'notice' },

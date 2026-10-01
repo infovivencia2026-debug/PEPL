@@ -132,6 +132,11 @@ describe('QR punch', () => {
     })
     const kiosk = await api(mgrToken, 'GET', `/api/v1/attendance/qr?siteId=${siteId}`)
     expect(kiosk.status).toBe(200)
+    // Showing a live code is traced to the person who showed it, once per ten minutes, not per poll.
+    await api(mgrToken, 'GET', `/api/v1/attendance/qr?siteId=${siteId}`)
+    const issued = await withTenant(A.id, async (tx) => Number((await tx.query<{ n: string }>(
+      `SELECT count(*)::text AS n FROM audit_events WHERE action = 'attendance.qr.issued' AND entity_id = $1`, [siteId])).rows[0]!.n))
+    expect(issued).toBe(1)
     const denied = await api(token, 'GET', `/api/v1/attendance/qr?siteId=${siteId}`)
     expect(denied.status).toBe(403)                                      // an employee cannot show codes
     const punch = await api(token, 'POST', '/api/v1/attendance/punch', { direction: 'in', localDate: TODAY, clientPunchId: 'qr1', qr: kiosk.body.payload })
