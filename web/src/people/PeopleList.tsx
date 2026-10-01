@@ -96,6 +96,7 @@ export function People({
       >
         <Button
           variant="secondary"
+          className="people-action"
           disabled={!rows.length}
           onClick={() =>
             exportCsv(
@@ -116,7 +117,7 @@ export function People({
         </Button>
         {data.permissions.includes('employee.write') &&
           data.user.scope === 'all' && (
-            <Button onClick={add}>
+            <Button className="people-action" onClick={add}>
               <Plus size={18} />
               Add employee
             </Button>

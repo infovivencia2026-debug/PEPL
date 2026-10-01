@@ -1,0 +1,28 @@
+/*
+ * One page-title style for every screen.
+ *
+ * The Dashboard heading had its own rules (weight 600 and a different size, set in refinements.css
+ * after the shared 650), so it read differently from every other page. The values below are what
+ * `.page-header h1` already renders on the other pages; the Dashboard and the chat/mail heading now
+ * use the same ones. Colour, layout and the accent full stop are untouched.
+ */
+:root {
+  --page-title-size: clamp(23px, 2.3vw, 32px);
+  --page-title-weight: 650;
+  --page-title-line-height: 1.2;
+  --page-title-tracking: -1.35px;
+}
+.page-header h1,
+.dashboard-heading h1,
+.comms-heading h1 {
+  font-size: var(--page-title-size);
+  font-weight: var(--page-title-weight);
+  line-height: var(--page-title-line-height);
+  letter-spacing: var(--page-title-tracking);
+  font-style: normal;
+}
+
+/* People page actions: 12px / 20px, equal left and right, at every width. */
+.page-header .btn.people-action {
+  padding: 12px 20px;
+}
