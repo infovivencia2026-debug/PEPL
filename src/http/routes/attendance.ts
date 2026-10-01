@@ -61,8 +61,14 @@ export function register(router: Router): void {
       // `withinGeofence` from the client is ignored on purpose: the server decides.
       const b = requireBody<{ direction: 'in' | 'out'; localDate?: string; clientPunchId?: string; geo?: { lat: number; lng: number }; employeeId?: string; qr?: string }>(
         ctx.req, ['direction'])
-      if (b.geo && (typeof b.geo.lat !== 'number' || typeof b.geo.lng !== 'number')) {
-        throw new HttpError(422, 'VALIDATION_FAILED', 'geo needs numeric lat and lng')
+      if (b.direction !== 'in' && b.direction !== 'out') throw new HttpError(422, 'VALIDATION_FAILED', "direction must be 'in' or 'out'")
+      if (b.clientPunchId !== undefined && (typeof b.clientPunchId !== 'string' || b.clientPunchId.length === 0 || b.clientPunchId.length > 100)) {
+        throw new HttpError(422, 'VALIDATION_FAILED', 'clientPunchId must be a string of 1-100 characters')
+      }
+      // A latitude outside +-90 or longitude outside +-180 used to reach the database as a numeric
+      // overflow and answer 500; NaN and Infinity are not numbers a device can have measured.
+      if (b.geo && (!Number.isFinite(b.geo.lat) || !Number.isFinite(b.geo.lng) || Math.abs(b.geo.lat) > 90 || Math.abs(b.geo.lng) > 180)) {
+        throw new HttpError(422, 'VALIDATION_FAILED', 'geo needs a latitude within 90 and a longitude within 180')
       }
       const employeeId = b.employeeId ?? ctx.auth.employeeId
       if (!employeeId) throw new HttpError(422, 'NO_EMPLOYEE_RECORD', 'this user has no employee record')

@@ -174,6 +174,16 @@ describe('field visits', () => {
   })
 })
 
+describe('malformed punch input is a 422, not a 500', () => {
+  const bad = (o: Record<string, unknown>) => call('emp', '/api/v1/attendance/punch', { direction: 'in', clientPunchId: `bad-${Math.random()}`, geo: { lat: 17.4, lng: 78.4 }, ...o })
+  it('direction, client id and coordinates are validated', async () => {
+    for (const o of [{ direction: 'sideways' }, { clientPunchId: '' }, { clientPunchId: 'x'.repeat(200) }, { geo: { lat: 999, lng: 78 } }, { geo: { lat: 17, lng: -400 } }, { geo: { lat: 'a', lng: 1 } }]) {
+      const r = await bad(o)
+      expect(r.status, JSON.stringify(o)).toBe(422)
+    }
+  })
+})
+
 describe('a client that does not know the date', () => {
   it('may omit it: the server uses the company\'s today', async () => {
     const r = await call('emp', '/api/v1/attendance/punch', { direction: 'in', clientPunchId: 'no-date', geo: { lat: 17.4, lng: 78.4 } })
