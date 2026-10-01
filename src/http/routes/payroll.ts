@@ -30,6 +30,7 @@ import {
 import { componentFlags } from '../../payroll/structures.ts'
 import { loadRunOptions, periodEndOf } from '../../payroll/run-options.ts'
 import { approveWithGuards } from '../../payroll/approve-run.ts'
+import { freezeRowProblems } from '../../payroll/freeze-rows.ts'
 import { distributeRun } from '../../payroll/distribute.ts'
 import { runPayrollGuards } from '../../payroll/guards.ts'
 import { ensurePeriod, listPayrollPeriods, updatePayDate, deletePeriod } from '../../payroll/periods.ts'
@@ -103,6 +104,8 @@ export function register(router: Router): void {
     authed('payroll.process', async (ctx) => {
       const b = requireBody<{ rows: unknown[] }>(ctx.req, ['rows'])
       const runId = asUuid(ctx.req.params.id, 'id')
+      const problems = freezeRowProblems(b.rows)
+      if (problems.length) throw new HttpError(422, 'VALIDATION_FAILED', 'the rows are not valid', { problems })
       // As of the run's period: a March run frozen in April belongs to the year it
       // is for, and calculate() will look the same config up by the same date.
       const statutory = await loadStatutory(ctx.tx, await periodEndOf(ctx.tx, runId))
