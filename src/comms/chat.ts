@@ -88,6 +88,26 @@ export async function markRead(
   )
 }
 
+/**
+ * SQL: a message this reader may see (`m` is the messages alias, `u` the reader's user id).
+ *
+ * Announcements are delivered as a message in ONE conversation that every active person belongs
+ * to. A targeted announcement -- a performance plan, a layoff list -- therefore sat in the
+ * channel's history for everybody, in the message list, in the preview line on the conversation
+ * list, and behind the unread badge. An announcement message is visible to its author, to
+ * everyone when it was addressed to all, and otherwise only to people with a receipt for it;
+ * every other message is visible to the conversation's participants as before.
+ *
+ * Text comparison, not a uuid cast: hrms_ref is free-form JSON and SQL does not promise to
+ * evaluate an OR left to right.
+ */
+const visibleTo = (m: string, u: string): string =>
+  `(${m}.hrms_ref->>'announcementId' IS NULL
+     OR ${m}.hrms_ref->>'audience' = 'all'
+     OR ${m}.sender_user_id = ${u}
+     OR EXISTS (SELECT 1 FROM announcement_receipts r
+                 WHERE r.announcement_id::text = ${m}.hrms_ref->>'announcementId' AND r.user_id = ${u}))`
+
 export async function unreadInConversation(
   tx: PoolClient,
   conversationId: string,
@@ -102,7 +122,8 @@ export async function unreadInConversation(
       WHERE m.conversation_id = $1
         AND m.id > COALESCE(p.last_read_message_id, 0)
         AND m.sender_user_id <> $2
-        AND m.deleted_at IS NULL`,
+        AND m.deleted_at IS NULL
+        AND ${visibleTo('m', '$2')}`,
     [conversationId, userId],
   )
   return rows[0]!.n
@@ -154,12 +175,14 @@ export async function listConversations(
               WHERE m.conversation_id = c.id
                 AND m.id > COALESCE(me.last_read_message_id, 0)
                 AND m.sender_user_id <> $1
-                AND m.deleted_at IS NULL) AS unread,
+                AND m.deleted_at IS NULL
+                AND ${visibleTo('m', '$1')}) AS unread,
             (SELECT coalesce(array_agg(p.user_id), '{}')
                FROM conversation_participants p
               WHERE p.conversation_id = c.id AND p.left_at IS NULL) AS participant_ids,
             (SELECT m.body FROM messages m
               WHERE m.conversation_id = c.id AND m.deleted_at IS NULL
+                AND ${visibleTo('m', '$1')}
               ORDER BY m.id DESC LIMIT 1) AS last_message_body
        FROM conversations c
        JOIN conversation_participants me
@@ -218,12 +241,13 @@ export async function listMessages(
             CASE WHEN deleted_at IS NULL THEN body END AS body,
             content_type, reply_to_message_id, attachment_document_ids, hrms_ref,
             edited_at, deleted_at, sent_at
-       FROM messages
-      WHERE conversation_id = $1
-        AND ($2::bigint IS NULL OR id < $2)
-      ORDER BY id DESC
+       FROM messages m
+      WHERE m.conversation_id = $1
+        AND ($2::bigint IS NULL OR m.id < $2)
+        AND ${visibleTo('m', '$4')}
+      ORDER BY m.id DESC
       LIMIT $3`,
-    [args.conversationId, args.beforeId ?? null, limit + 1],
+    [args.conversationId, args.beforeId ?? null, limit + 1, args.userId],
   )
   const hasMore = rows.length > limit
   return { messages: rows.slice(0, limit).reverse(), hasMore }
