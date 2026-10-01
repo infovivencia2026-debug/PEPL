@@ -8,6 +8,7 @@ import { closePools } from '../src/db/pool.ts'
 import { createUser, login } from '../src/auth/index.ts'
 import { appendEntry, balance } from '../src/leave/ledger.ts'
 import { setSetting } from '../src/config/write.ts'
+import { seedTaxTables } from '../scripts/seed-statutory.ts'
 import { today as todayIn } from '../src/lib/timezone.ts'
 import type { Workspace, Profile } from '../web/src/types.ts'
 
@@ -47,6 +48,7 @@ async function request(path: string, role?: string, body?: unknown) {
 }
 beforeAll(async () => {
   ;({ a: A, b: B } = await resetAndSeed())
+  await seedTaxTables()   // payroll validation needs the tax tables; do not depend on file order
   await controlPool.query(
     `INSERT INTO tenant_entitlements(tenant_id,plan_code,features,limits) VALUES($1,'test','{"payroll":true}','{"employees":100}') ON CONFLICT (tenant_id) DO UPDATE SET features = EXCLUDED.features, limits = EXCLUDED.limits`,
     [A.id],
@@ -378,7 +380,11 @@ describe('browser workspace boundary', () => {
       (await request(path, 'org_admin', { action: 'unfreeze' })).status,
     ).toBeGreaterThanOrEqual(400)
     expect((await request('/workspace', 'hr_admin')).body.payroll).toEqual([])
-    expect((await request('/workspace', 'employee')).body.payslips).toEqual([])
+    // The run is locked and pays THIS employee, so they see their own payslip -- and only theirs.
+    // (This used to assert []: the query required payslips.published_at, which nothing ever writes.)
+    const mine = (await request('/workspace', 'employee')).body.payslips
+    expect(mine).toHaveLength(1)
+    expect(mine[0]!.employee_id).toBe(A.employeeId)
     const revision = await request(path, 'org_admin', {
       action: 'revise',
       reason: 'Approved correction',

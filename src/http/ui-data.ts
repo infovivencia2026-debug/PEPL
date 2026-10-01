@@ -106,7 +106,7 @@ export async function workspaceData(c: Ctx, date?: string) {
       ? await read(
           `SELECT s.id,s.run_id,s.employee_id,s.gross_paise::text,s.deductions_paise::text,s.net_paise::text,s.distributed_at,p.label,p.period_start::text AS period_start,e.first_name,e.last_name
  FROM payslips s JOIN payroll_runs r ON r.id=s.run_id AND r.tenant_id=s.tenant_id JOIN payroll_periods p ON p.id=r.period_id AND p.tenant_id=r.tenant_id JOIN employees e ON e.id=s.employee_id AND e.tenant_id=s.tenant_id
- WHERE ($1::uuid[] IS NULL OR s.employee_id=ANY($1)) AND ($1::uuid[] IS NULL OR (s.published_at IS NOT NULL AND r.status='locked'))
+ WHERE ($1::uuid[] IS NULL OR s.employee_id=ANY($1)) AND ($1::uuid[] IS NULL OR r.status='locked')
    AND p.period_start > CURRENT_DATE - interval '13 months'
  ORDER BY p.period_start DESC LIMIT 2000`,
           [ids],
