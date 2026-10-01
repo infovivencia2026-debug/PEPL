@@ -173,6 +173,13 @@ export async function computeSettlement(
  * real, written to the separation, and returned so the row carries the lines
  * and the proration.
  */
+/*
+ * The run that settles a separation is the FIRST one whose period has reached the last working day,
+ * not only the one that contains it. This used to be `BETWEEN periodStart AND periodEnd`, so when a
+ * clearance was still pending in the run that did contain it -- "the settlement waits for the next
+ * run" -- the next run's period no longer contained the day and the leaver was never settled and
+ * never marked exited.
+ */
 export async function settlementForFreeze(
   tx: PoolClient,
   args: { employeeId: string; runId: string; periodStart: string; periodEnd: string; opts: SettlementOptions },
@@ -180,8 +187,8 @@ export async function settlementForFreeze(
   const { rows } = await tx.query<Separation>(
     `SELECT ${COLUMNS} FROM employee_separations
       WHERE employee_id = $1 AND status = 'initiated'
-        AND last_working_day BETWEEN $2::date AND $3::date`,
-    [args.employeeId, args.periodStart, args.periodEnd])
+        AND last_working_day <= $2::date`,
+    [args.employeeId, args.periodEnd])
   const sep = rows[0]
   if (!sep) return null
   // Clearance gates the money: while any area is pending, the person is paid

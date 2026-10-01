@@ -105,8 +105,15 @@ export async function summarisePeriod(
     date_of_joining: string; date_of_exit: string | null; status: string
     pf_applicable: boolean; esi_applicable: boolean
   }>(
-    `SELECT id, employee_number, first_name, last_name, date_of_joining::text, date_of_exit::text, status,
-            pf_applicable, esi_applicable
+    // date_of_exit is written when the final settlement LOCKS, so until then a leaver has none and
+    // every later day was counted as employed (a full month's pay for days not worked). An open
+    // separation's last working day stands in for it.
+    `SELECT id, employee_number, first_name, last_name, date_of_joining::text,
+            coalesce(date_of_exit::text,
+                     (SELECT s.last_working_day::text FROM employee_separations s
+                       WHERE s.employee_id = employees.id AND s.status IN ('initiated','in_payroll')
+                       ORDER BY s.last_working_day DESC LIMIT 1)) AS date_of_exit,
+            status, pf_applicable, esi_applicable
        FROM employees
       WHERE date_of_joining <= $2::date
         AND (date_of_exit IS NULL OR date_of_exit >= $1::date)
