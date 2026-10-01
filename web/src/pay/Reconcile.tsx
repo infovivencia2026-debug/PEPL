@@ -8,35 +8,17 @@ import { Upload } from 'lucide-react'
 import { domainApi } from '../domainApi'
 import { money } from '../api'
 import { Button, Card, Empty, ErrorBox, Modal } from '../ui'
+import { parseReturnDetailed, type ReconLine } from './parseReturn'
 
 interface Status { settled: number; failed: number; pending: number; failures: Array<{ employeeId: string; name?: string; amountPaise: string; reason: string | null }> }
-interface ReconLine { reference?: string; accountNumber?: string; amountPaise?: number; status: 'settled' | 'failed' | 'returned'; utr?: string; reason?: string }
-
-/** Parses the common Indian bank-return shape: reference, account, amount, status, UTR, reason. */
-export function parseReturn(csv: string): ReconLine[] {
-  const rows = csv.trim().split(/\r?\n/).map((l) => l.split(',').map((c) => c.trim().replace(/^"|"$/g, '')))
-  if (!rows.length) return []
-  const head = rows[0]!.map((h) => h.toLowerCase())
-  const col = (...names: string[]): number => head.findIndex((h) => names.some((n) => h.includes(n)))
-  const iRef = col('reference', 'ref no', 'txn'), iAcc = col('account'), iAmt = col('amount'), iStat = col('status'), iUtr = col('utr', 'rrn'), iWhy = col('reason', 'remark', 'error')
-  const body = iStat === -1 && iRef === -1 ? rows : rows.slice(1)
-  return body.filter((r) => r.length > 1).map((r) => {
-    const raw = (iStat === -1 ? '' : r[iStat] ?? '').toLowerCase()
-    const status: ReconLine['status'] = /fail|reject|rtn|return/.test(raw) ? (/return|rtn/.test(raw) ? 'returned' : 'failed') : 'settled'
-    return {
-      reference: iRef === -1 ? undefined : r[iRef],
-      accountNumber: iAcc === -1 ? undefined : r[iAcc],
-      amountPaise: iAmt === -1 ? undefined : Math.round(Number((r[iAmt] ?? '0').replace(/[^\d.]/g, '')) * 100),
-      status, utr: iUtr === -1 ? undefined : r[iUtr], reason: iWhy === -1 ? undefined : r[iWhy] || undefined,
-    }
-  })
-}
+export { parseReturn } from './parseReturn'
 
 export function PaymentStatusStrip({ runId, batchId, canReconcile }: { runId: string; batchId?: string; canReconcile: boolean }) {
   const [status, setStatus] = useState<Status | null>(null)
   const [error, setError] = useState('')
   const [uploading, setUploading] = useState(false)
   const [preview, setPreview] = useState<ReconLine[] | null>(null)
+  const [skipped, setSkipped] = useState<{ rows: number; noStatus: boolean }>({ rows: 0, noStatus: false })
   const [busy, setBusy] = useState(false)
   const load = useCallback(async () => { try { setStatus(await domainApi<Status>(`/payroll/runs/${runId}/payment-status`)); setError('') } catch (e) { setError((e as Error).message) } }, [runId])
   useEffect(() => { void load() }, [load])
@@ -70,9 +52,11 @@ export function PaymentStatusStrip({ runId, batchId, canReconcile }: { runId: st
       {uploading && (
         <Modal title="Upload the bank return" wide onClose={() => { setUploading(false); setPreview(null) }}>
           <p className="subtle">The CSV your bank sends back. Columns are matched by name — reference, account, amount, status, UTR, reason — in any order.</p>
-          <input type="file" accept=".csv,text/csv" aria-label="Bank return CSV" onChange={async (e) => { const f = e.target.files?.[0]; if (f) setPreview(parseReturn(await f.text())) }} />
+          <input type="file" accept=".csv,text/csv" aria-label="Bank return CSV" onChange={async (e) => { const f = e.target.files?.[0]; if (f) { const p = parseReturnDetailed(await f.text()); setPreview(p.lines); setSkipped({ rows: p.unrecognised.length, noStatus: p.noStatusColumn }) } }} />
           {preview && (
             <>
+              {skipped.noStatus && <p role="alert" className="form-error">This file has no status column, so nothing in it can be applied. Nobody is marked paid on the strength of silence.</p>}
+              {skipped.rows > 0 && <p role="alert" className="form-error">{skipped.rows} row(s) have a blank or unrecognised status and were left out. They stay pending.</p>}
               <p><strong>{preview.filter((l) => l.status === 'settled').length}</strong> settled, <strong>{preview.filter((l) => l.status !== 'settled').length}</strong> failed or returned.</p>
               <div className="table-scroll" style={{ maxHeight: 260 }}>
                 <table>
