@@ -62,7 +62,13 @@ export async function assertMailEndpoint(kind: 'imap' | 'smtp', host: string, po
  * server said. The raw text can carry a banner, a version string or an internal host name.
  */
 export function publicMailError(raw: string): string {
-  const s = String(raw ?? '')
+  const message = categorise(String(raw ?? ''))
+  // A three-digit SMTP reply code is safe to keep and useful: 4xx is "try later", 5xx is "never".
+  const code = /(?<![0-9])([245][0-9][0-9])(?![0-9])/.exec(String(raw ?? ''))?.[1]
+  return code ? `${message} (${code})` : message
+}
+
+function categorise(s: string): string {
   if (/INSECURE_AUTH|without TLS|offered no TLS/i.test(s)) {
     return 'the server offers no TLS, so the password was not sent; use the TLS port'
   }

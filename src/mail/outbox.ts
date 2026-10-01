@@ -101,7 +101,7 @@ export async function runOutbox(
         : err instanceof MailError
       const attempts = row.attempts + 1
       const abandon = permanent || attempts >= MAX_ATTEMPTS
-      const message = (err as Error).message
+      const message = err instanceof SmtpError && err.replyCode ? `${err.message} ${err.replyCode}` : (err as Error).message
 
       await withTenant(tenantId, (tx) => markFailed(tx, row.id, message, abandon))
       result.errors.push(message)
