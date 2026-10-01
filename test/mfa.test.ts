@@ -134,4 +134,13 @@ describe('masking', () => {
     const audited = await withTenant(A.id, (tx) => tx.query<{ n: string }>(`SELECT count(*)::text AS n FROM audit_events WHERE action = 'access.tier3.revealed' AND metadata->>'document' = 'statutory_ids'`))
     expect(Number(audited.rows[0]!.n)).toBe(1)
   })
+
+  it('a masked value posted back is refused, and the real identifier survives', async () => {
+    // The form was pre-filled with the masked text; saving it overwrote the real UAN/PAN with bullets.
+    const hrT = (await login('mpay@acme.test')).body.token as string
+    const r = await call(hrT, 'PATCH', `/api/v1/employees/${A.employeeId}/statutory-ids`, { uan: '••••••••6789', pan: 'AB******4F' })
+    expect(r.status).toBe(422)
+    const own = await call((await login('memp@acme.test')).body.token, 'GET', `/api/v1/employees/${A.employeeId}/statutory-ids`)
+    expect(own.body).toMatchObject({ statutoryIds: { uan: '100123456789', pan: 'ABCDE1234F' } })
+  })
 })

@@ -97,6 +97,13 @@ export function register(router: Router): void {
       assertScope(ctx.auth, id)
       const b = requireBody<{ uan?: string | null; pfMemberId?: string | null; esiNumber?: string | null; pan?: string | null }>(ctx.req, [])
       const norm = (v: unknown): string | null => (typeof v === 'string' && v.trim() ? v.trim().toUpperCase() : null)
+      // A masked display value (bullets, asterisks) is not an identifier. The form used to be filled
+      // with the masked text and posting it back overwrote the real UAN / PAN with it.
+      for (const v of Object.values(b)) {
+        if (typeof v === 'string' && /[•*]/.test(v)) {
+          throw new HttpError(422, 'VALIDATION_FAILED', 'that value is masked; type the full identifier or leave the field empty')
+        }
+      }
       const tid = (await ctx.tx.query<{ t: string }>('SELECT current_tenant()::text AS t')).rows[0]!.t
       try {
         const { rows } = await ctx.tx.query(
