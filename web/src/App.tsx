@@ -165,6 +165,12 @@ export function App() {
   useEffect(() => {
     void load()
   }, [load])
+  // A request answered "your session is gone": show the sign-in instead of leaving dead screens up.
+  useEffect(() => {
+    const expired = () => { setMfa(null); setLoggedOut(true); setData(null) }
+    window.addEventListener('pepl:session-expired', expired)
+    return () => window.removeEventListener('pepl:session-expired', expired)
+  }, [])
   useEffect(() => {
     if (!data) return
     if (!data.permissions.includes('settings.write')) { setSandbox(false); return }

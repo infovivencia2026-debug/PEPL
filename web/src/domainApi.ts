@@ -1,4 +1,5 @@
 import { ApiError } from './api'
+import { announceSessionExpired, isSessionExpired } from './session'
 
 /**
  * Installed by the shell: opens the authenticator prompt and resolves true once
@@ -20,6 +21,7 @@ export async function domainApi<T>(path: string, body?: unknown, method?: 'GET' 
   if (!response.ok && response.status === 403 && result.error?.code === 'MFA_RECHECK_REQUIRED' && !retried && requestRecheck) {
     if (await requestRecheck()) return domainApi<T>(path, body, method, true)
   }
+  if (isSessionExpired(response.status, result.error?.code)) announceSessionExpired()
   if (!response.ok) throw new ApiError(result.error?.message ?? 'Unable to complete this request', response.status, result.error?.code, result.error?.requestId, { ...result.error?.details, ...(response.headers.get('retry-after') ? { retryAfter: response.headers.get('retry-after') } : {}) })
   return result as T
 }

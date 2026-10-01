@@ -1,3 +1,4 @@
+import { announceSessionExpired, isSessionExpired } from './session'
 /**
  * The API client.
  *
@@ -83,6 +84,7 @@ export async function api<T>(path: string, body?: unknown): Promise<T> {
           'The server returned an unexpected response. Please try again.',
       },
     }))
+  if (isSessionExpired(response.status, result.error?.code)) announceSessionExpired()
   if (!response.ok)
     throw new ApiError(
       result.error?.message ?? 'Unable to complete this request',
