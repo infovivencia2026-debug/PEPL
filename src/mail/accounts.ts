@@ -128,10 +128,11 @@ export async function removeAccount(tx: PoolClient, userId: string, accountId: s
  * the company, or internal delivery would have to guess.
  */
 export async function addInternalAddress(
-  tx: PoolClient, args: { userId: string; email: string; label?: string | null; displayName?: string | null },
+  tx: PoolClient, args: { userId: string; email: string; label?: string | null; displayName?: string | null; allowAnyAddress?: boolean },
 ): Promise<MailAccount> {
   const email = args.email.trim().toLowerCase()
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) throw new MailError('VALIDATION_FAILED', 'email must be an address')
+  await assertMayClaim(tx, args.userId, email, args.allowAnyAddress === true)
   const taken = await findAccountByEmail(tx, email)
   if (taken) throw new MailError('EMAIL_TAKEN', `${email} already belongs to a mailbox in this company`)
   const tid = await tenantId(tx)
@@ -142,6 +143,29 @@ export async function addInternalAddress(
     [tid, id, args.userId, email, args.displayName ?? null, args.label ?? null])
   await provisionFolders(tx, tid, id)
   return (await accountForUser(tx, args.userId, id))!
+}
+
+/**
+ * A person may hold a mailbox at their OWN login address. A shared address (payroll@, careers@) or
+ * someone else's is for a company administrator to create: any employee could otherwise claim it,
+ * read what is sent there, and -- if it is later named as the system sender -- send payslips and
+ * notifications as the company.
+ */
+export async function assertMayClaim(
+  tx: PoolClient, userId: string, email: string, allowAny: boolean, external = false,
+): Promise<void> {
+  if (allowAny) return
+  const own = await tx.query(`SELECT 1 FROM app_users WHERE id = $1 AND lower(email) = $2`, [userId, email])
+  if (own.rowCount) return
+  // An EXTERNAL mailbox is proved by its working credentials, so a person may connect their own
+  // address at another provider (a personal Gmail). What it must not be is an address at one of the
+  // company's own domains: with no server of ours behind it, an attacker's server could then hold
+  // payroll@ and receive -- or send as -- the company.
+  const domain = email.slice(email.lastIndexOf('@') + 1)
+  const companyDomain = await tx.query(`SELECT 1 FROM app_users WHERE lower(split_part(email, '@', 2)) = $1 LIMIT 1`, [domain])
+  if (!external || companyDomain.rowCount) {
+    throw new MailError('ADDRESS_NOT_YOURS', `${email} is not your address; ask an administrator to create a shared mailbox`)
+  }
 }
 
 export async function provisionFolders(tx: PoolClient, tid: string, accountId: string): Promise<void> {

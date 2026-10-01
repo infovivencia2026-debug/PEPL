@@ -13,6 +13,7 @@
  */
 import { connect as netConnect, type Socket } from 'node:net'
 import { connect as tlsConnect, type TLSSocket } from 'node:tls'
+import { assertMailEndpoint, smtpMayAuthenticate } from './hosts.ts'
 
 export class SmtpError extends Error {
   readonly code: string
@@ -215,8 +216,11 @@ export async function sendViaSmtp(config: SmtpConfig, args: SendArgs): Promise<v
   const clientName = config.clientName ?? 'pepl.local'
   if (args.to.length === 0) throw new SmtpError('NO_RECIPIENTS', 'no recipients')
 
+  // Re-checked at every connection: what a host name resolves to can change after it was saved.
+  await assertMailEndpoint('smtp', config.host, config.port)
   let socket = await openSocket(config, timeoutMs)
   let session = new Session(socket)
+  let upgraded = false
 
   try {
     const greeting = await session.read(timeoutMs)
@@ -232,12 +236,14 @@ export async function sendViaSmtp(config: SmtpConfig, args: SendArgs): Promise<v
       const tls = await upgrade(socket as Socket, config.host, timeoutMs)
       socket = tls
       session = new Session(tls)
+      upgraded = true
       capabilities = (await session.command(`EHLO ${clientName}`, [250], timeoutMs)).text
     }
 
     if (config.username && config.password) {
-      const encrypted = config.secure || /STARTTLS/i.test(capabilities)
-      if (!encrypted && !config.allowInsecureAuth) {
+      // From what THIS client did, never from the capability list: a server must not advertise
+      // STARTTLS once TLS is on (RFC 3207), so that list made a good connection look insecure.
+      if (!smtpMayAuthenticate({ secure: !!config.secure, upgraded, allowInsecureAuth: config.allowInsecureAuth })) {
         throw new SmtpError(
           'INSECURE_AUTH',
           `${config.host} offered no TLS; PEPL will not send a mailbox password in the clear`,

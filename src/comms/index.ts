@@ -8,7 +8,8 @@
 import { createCipheriv, createDecipheriv, randomBytes, scryptSync } from 'node:crypto'
 import type { PoolClient } from 'pg'
 import { CommsError, tenantId } from './base.ts'
-import { MailError, findAccountByEmail, provisionFolders } from '../mail/accounts.ts'
+import { MailError, assertMayClaim, findAccountByEmail, provisionFolders } from '../mail/accounts.ts'
+import { assertMailEndpoint } from '../mail/hosts.ts'
 
 export { CommsError, tenantId } from './base.ts'
 export * from './chat.ts'
@@ -168,10 +169,15 @@ export async function connectMailbox(
     imapHost: string; smtpHost: string; master: string
     imapPort?: number; imapSecure?: boolean; smtpPort?: number; smtpSecure?: boolean
     label?: string | null; displayName?: string | null
+    allowAnyAddress?: boolean
   },
 ): Promise<string> {
   const tid = await tenantId(tx)
   const email = args.email.trim().toLowerCase()
+  await assertMayClaim(tx, args.userId, email, args.allowAnyAddress === true, true)
+  // Where the server will connect is validated when the mailbox is SAVED and again at every connection.
+  await assertMailEndpoint('imap', args.imapHost, args.imapPort ?? 993)
+  await assertMailEndpoint('smtp', args.smtpHost, args.smtpPort ?? 587)
   if (await findAccountByEmail(tx, email)) {
     throw new MailError('EMAIL_TAKEN', `${email} already belongs to a mailbox in this company`)
   }

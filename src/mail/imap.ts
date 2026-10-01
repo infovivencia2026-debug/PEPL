@@ -17,6 +17,7 @@
  * sync.ts. That is the part with our semantics in it.
  */
 import { ImapFlow } from 'imapflow'
+import { assertMailEndpoint } from './hosts.ts'
 
 export class ImapError extends Error {
   readonly code: string
@@ -132,6 +133,7 @@ export async function connectImap(config: ImapConfig): Promise<Connection> {
     )
   }
 
+  await assertMailEndpoint('imap', config.host, config.port)
   const client = new ImapFlow({
     host: config.host,
     port: config.port,

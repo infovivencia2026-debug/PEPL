@@ -21,6 +21,7 @@ import { decryptSecret } from '../comms/index.ts'
 import { buildMessage, type Attachment } from './mime.ts'
 import { sendViaSmtp, SmtpError, type SmtpConfig } from './smtp.ts'
 import { MailError } from './accounts.ts'
+import { publicMailError } from './hosts.ts'
 
 export const MAX_ATTEMPTS = 5
 
@@ -157,7 +158,7 @@ async function markFailed(
             last_error = $3,
             completed_at = CASE WHEN $2 = 'abandoned' THEN now() ELSE NULL END
       WHERE id = $1`,
-    [id, abandon ? 'abandoned' : 'queued', error.slice(0, 500)],
+    [id, abandon ? 'abandoned' : 'queued', publicMailError(error)],
   )
 }
 

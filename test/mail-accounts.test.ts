@@ -69,12 +69,12 @@ describe('several mailboxes per person', () => {
     await withTenant(tenantId, async (tx) => {
       const first = await ensureAccount(tx, { userId: priyaId, email: `priya-${stamp}@acme.test` })
       expect(first.is_default).toBe(true)
-      const hr = await addInternalAddress(tx, { userId: priyaId, email: `HR-${stamp}@Acme.test`, label: 'HR desk' })
+      const hr = await addInternalAddress(tx, { userId: priyaId, email: `HR-${stamp}@Acme.test`, label: 'HR desk', allowAnyAddress: true })
       expect(hr).toMatchObject({ email: `hr-${stamp}@acme.test`, label: 'HR desk', is_default: false, provider: 'internal' })
       expect((await listFolders(tx, hr.id)).map((f) => f.role)).toEqual(['inbox', 'drafts', 'sent', 'archive', 'trash'])
 
       // one owner per address across the company
-      await expect(addInternalAddress(tx, { userId: rahulId, email: `hr-${stamp}@acme.test` })).rejects.toMatchObject({ code: 'EMAIL_TAKEN' })
+      await expect(addInternalAddress(tx, { userId: rahulId, email: `hr-${stamp}@acme.test`, allowAnyAddress: true })).rejects.toMatchObject({ code: 'EMAIL_TAKEN' })
 
       expect((await listAccounts(tx, priyaId)).map((a) => a.id)).toEqual([first.id, hr.id])
       expect((await accountForUser(tx, priyaId))!.id).toBe(first.id)

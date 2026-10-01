@@ -1,7 +1,7 @@
 /** Mail — mailbox, folders, messages, compose. */
 import type { Router } from '../router.ts'
 import {
-  HttpError, authed, ok, created, noContent, requireBody, requireModule, asUuid, asInt, emit,
+  HttpError, authed, can, ok, created, noContent, requireBody, requireModule, asUuid, asInt, emit,
 } from './deps.ts'
 import {
   deleteMessage, ensureAccount, findAccountByUser, folderByRole, getEnvelope,
@@ -76,7 +76,8 @@ export function register(router: Router): void {
       }>(ctx.req, ['email'])
       if (!b.imapHost && !b.smtpHost) {
         return created(await addInternalAddress(ctx.tx, {
-          userId: ctx.session.userId, email: b.email, label: b.label ?? null, displayName: b.displayName ?? null }))
+          userId: ctx.session.userId, email: b.email, label: b.label ?? null, displayName: b.displayName ?? null,
+          allowAnyAddress: can(ctx.auth, 'settings.write') }))
       }
       if (!b.imapHost || !b.smtpHost || !b.username || !b.password) {
         throw new HttpError(422, 'VALIDATION_FAILED', 'an external mailbox needs imapHost, smtpHost, username and password')
@@ -88,6 +89,7 @@ export function register(router: Router): void {
         imapHost: b.imapHost, imapPort: b.imapPort, imapSecure: b.imapSecure,
         smtpHost: b.smtpHost, smtpPort: b.smtpPort, smtpSecure: b.smtpSecure,
         label: b.label ?? null, displayName: b.displayName ?? null,
+        allowAnyAddress: can(ctx.auth, 'settings.write'),
       })
       await emit(ctx.tx, { action: 'mail.account.connected', entityType: 'mail_account', entityId: id,
         actorUserId: ctx.session.userId, metadata: { email: b.email.toLowerCase(), imapHost: b.imapHost } })

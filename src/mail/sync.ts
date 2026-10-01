@@ -24,6 +24,7 @@ import { connectImap, ImapError, type Connection, type ImapConfig } from './imap
 import { MailError } from './accounts.ts'
 import { parseMessage } from './parse.ts'
 import { storeParsedBody } from './attachments.ts'
+import { publicMailError } from './hosts.ts'
 
 /** One pass will not pull more than this per folder, so a first sync ends. */
 export const PAGE_SIZE = 200
@@ -88,7 +89,7 @@ export async function recordFailure(
               WHEN $3 OR consecutive_failures + 1 >= 3 THEN now() + interval '1 hour'
               ELSE quarantined_until END
       WHERE id = $1`,
-    [accountId, error.slice(0, 500), permanent],
+    [accountId, publicMailError(error), permanent],
   )
 }
 
