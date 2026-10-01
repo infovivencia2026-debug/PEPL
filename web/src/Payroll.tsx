@@ -36,6 +36,7 @@ import { BonusPage } from './pay/Bonus'
 import { PaymentStatusStrip } from './pay/Reconcile'
 import { PayslipDetails } from './PayslipDetails'
 import { LoansPanel } from './LoansPanel'
+import { ytdTotals } from './pay/ytd'
 interface FrozenInput {
   employee_id: string
   first_name: string
@@ -88,8 +89,10 @@ export function PayrollPage({
     index = run ? ((sentRuns.has(run.id) || (data.payslips.some(slip => slip.run_id === run.id) && data.payslips.filter(slip => slip.run_id === run.id).every(slip => slip.distributed_at))) ? 6 : statusIndex[run.status] ?? 0) : -1
   const slips = data.payslips.filter((s) => !run || s.run_id === run.id),
     has = (p: string) => data.permissions.includes(p)
-  const ytdGross = slips.reduce((total, slip) => total + BigInt(slip.gross_paise), 0n)
-  const ytdNet = slips.reduce((total, slip) => total + BigInt(slip.net_paise), 0n)
+  // Year to date is the financial year across ALL of the person's payslips, not the selected run.
+  const ytd = ytdTotals(data.payslips, data.today)
+  const ytdGross = ytd.gross
+  const ytdNet = ytd.net
   const requiresSeparate = data.settings.find(setting => setting.key === 'payroll.require_separate_approver')?.value !== false
   const separationBlocked = Boolean(run && requiresSeparate && run.processed_by_user_id === data.user.id)
   useEffect(() => {
@@ -260,7 +263,7 @@ export function PayrollPage({
           </Button>
         )}
       </PageHeader>
-      {data.user.scope === 'self' && <><div className="my-pay-links"><a href="#/my-tax">Tax declaration</a><a href="#/documents">Form 16 & tax documents</a>{data.user.employeeId && <a href={`#/people/${data.user.employeeId}`}>Employment profile</a>}</div><div className="stats-row"><Stat label="YTD gross" value={money(String(ytdGross))} note={`${slips.length} published payslip${slips.length === 1 ? '' : 's'}`} icon={<Wallet size={20} />} variant="mint-card" /><Stat label="YTD take-home" value={money(String(ytdNet))} note="After deductions" icon={<ShieldCheck size={20} />} /></div></>}
+      {data.user.scope === 'self' && <><div className="my-pay-links"><a href="#/my-tax">Tax declaration</a><a href="#/documents">Form 16 & tax documents</a>{data.user.employeeId && <a href={`#/people/${data.user.employeeId}`}>Employment profile</a>}</div><div className="stats-row"><Stat label="YTD gross" value={money(String(ytdGross))} note={`${ytd.count} published payslip${ytd.count === 1 ? '' : 's'} this financial year`} icon={<Wallet size={20} />} variant="mint-card" /><Stat label="YTD take-home" value={money(String(ytdNet))} note="After deductions" icon={<ShieldCheck size={20} />} /></div></>}
       {data.user.scope === 'all' && data.payroll.length > 0 && <Card title="Payroll runs" subtitle="Select a cycle to open its workbench"><div className="table-scroll"><table><thead><tr><th>Period</th><th>Status</th><th>Employees</th><th>Gross</th><th>Net</th><th>Processed by</th></tr></thead><tbody>{data.payroll.map(item => <tr key={item.id} className={item.id === run?.id ? 'selected-row' : ''} onClick={() => setSelected(item.id)}><td><button className="table-link" onClick={() => setSelected(item.id)}>{item.label} · R{item.revision}</button></td><td><Badge>{item.status}</Badge></td><td>{item.employee_count ?? '—'}</td><td>{money(item.gross_paise)}</td><td>{money(item.net_paise)}</td><td>{fullName(data.employees.find(employee => employee.user_id === item.processed_by_user_id) ?? { first_name: 'Payroll', last_name: 'processor' })}</td></tr>)}</tbody></table></div></Card>}
       {run ? (
         <>

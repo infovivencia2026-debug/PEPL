@@ -121,6 +121,7 @@ export interface Workspace {
     first_name: string
     last_name: string
     label: string
+    period_start: string
     gross_paise: string
     deductions_paise: string
     net_paise: string
