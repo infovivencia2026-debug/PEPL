@@ -82,16 +82,28 @@ export function WorkReportsPage({ data }: { data: Workspace }) {
         )
       )}
       {tab === 'Templates' && <TemplateList templates={templates ?? []} onSaved={load} />}
-      {filing && <FileReport template={filing} onClose={() => setFiling(null)} onSaved={async () => { setFiling(null); await load() }} />}
+      {filing && <FileReport template={filing} employeeId={data.user.employeeId} onClose={() => setFiling(null)} onSaved={async () => { setFiling(null); await load() }} />}
     </>
   )
 }
 
-function FileReport({ template, onClose, onSaved }: { template: Template; onClose: () => void; onSaved: () => Promise<void> }) {
+function FileReport({ template, employeeId, onClose, onSaved }: { template: Template; employeeId?: string; onClose: () => void; onSaved: () => Promise<void> }) {
   const [values, setValues] = useState<Record<string, unknown>>({})
   const [geo, setGeo] = useState<{ lat: number; lng: number } | null>(null)
   const [error, setError] = useState(''), [busy, setBusy] = useState(false)
   const missingRequired = template.fields.filter((f) => f.required && f.type !== 'geo' && (values[f.key] === undefined || values[f.key] === ''))
+  /** Uploads the photo as a document and keeps its id. The field used to keep only the FILE NAME, so
+   *  the report said a photo existed and nothing was stored. */
+  async function attach(key: string, file: File | undefined) {
+    if (!file) { setValues((cur) => ({ ...cur, [key]: '' })); return }
+    if (!employeeId) { setError('Your login has no employee record, so a photo cannot be attached.'); return }
+    setBusy(true); setError('')
+    try {
+      const bytes = new Uint8Array(await file.arrayBuffer()); let binary = ''; bytes.forEach((b) => { binary += String.fromCharCode(b) })
+      const doc = await domainApi<{ id: string }>('/documents', { ownerType: 'employee', ownerId: employeeId, fileName: file.name, contentType: file.type || 'image/jpeg', contentBase64: btoa(binary), category: 'photo' })
+      setValues((cur) => ({ ...cur, [key]: doc.id }))
+    } catch (caught) { setError(caught instanceof Error ? caught.message : 'Unable to upload the photo') } finally { setBusy(false) }
+  }
   async function save() {
     setBusy(true); setError('')
     try { await domainApi('/work-reports', { template: template.code, values, ...(geo ? { geo } : {}) }); await onSaved() } catch (e) { setError((e as Error).message) } finally { setBusy(false) }
@@ -109,7 +121,7 @@ function FileReport({ template, onClose, onSaved }: { template: Template; onClos
               <Button variant="secondary" type="button" onClick={() => navigator.geolocation?.getCurrentPosition((p) => setGeo({ lat: p.coords.latitude, lng: p.coords.longitude }))}><MapPin size={15} aria-hidden="true" />{geo ? `Captured ${geo.lat.toFixed(4)}, ${geo.lng.toFixed(4)}` : 'Capture location'}</Button>
             </div>
           )
-          if (f.type === 'photo') return <label key={f.key} className="field"><span>{f.label}</span><input type="file" accept="image/*" capture="environment" onChange={(e) => setValues({ ...values, [f.key]: e.target.files?.[0]?.name ?? '' })} /></label>
+          if (f.type === 'photo') return <label key={f.key} className="field"><span>{f.label}</span><input type="file" accept="image/*" capture="environment" onChange={(e) => void attach(f.key, e.target.files?.[0])} />{typeof v === 'string' && v && <small>Photo attached</small>}</label>
           return <label key={f.key} className="field"><span>{f.label}{f.required ? '' : ' (optional)'}</span><input type={f.type === 'number' ? 'number' : f.type === 'date' ? 'date' : 'text'} value={String(v ?? '')} onChange={(e) => setValues({ ...values, [f.key]: f.type === 'number' ? Number(e.target.value) : e.target.value })} /></label>
         })}
         {error && <ErrorBox message={error} />}
