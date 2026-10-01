@@ -59,10 +59,11 @@ export async function resolveConfig(
   const { rows: entRows } = await tx.query<{ features: Record<string, boolean>; limits: Record<string, number>; status: string }>(
     'SELECT features, limits, status FROM tenant_entitlements')
   const { rows: settingRows } = await tx.query<SettingRow>(
-    'SELECT key, value, effective_from::text FROM tenant_settings ORDER BY key, effective_from NULLS FIRST')
+    `SELECT key, value, effective_from::text FROM tenant_settings
+      ORDER BY key, coalesce(effective_from, updated_at::date), updated_at`)
   const { rows: overrideRows } = await tx.query<OverrideRow>(
     `SELECT key, value, effective_from::text, scope_type, scope_id, priority
-       FROM tenant_setting_overrides ORDER BY key, priority ASC, effective_from NULLS FIRST`)
+       FROM tenant_setting_overrides ORDER BY key, coalesce(effective_from, updated_at::date), updated_at`)
 
   const version = BigInt(verRows[0]?.version ?? '0')
   // A suspended or cancelled subscription sells nothing: every entitled module
@@ -77,14 +78,22 @@ export async function resolveConfig(
     if (appliesBy(r.effective_from, asOf)) settings.set(r.key, r.value)
   }
 
-  // Layer 5: grouped by key, already ordered by priority (lower wins).
-  const overrides = new Map<string, OverrideRow[]>()
+  // Layer 5. Rows arrive oldest-first by when they took effect (an "immediate" row counts from
+  // the day it was written). Within ONE scope the newest applicable row replaces the earlier
+  // ones; only then does priority decide between different scopes (lower wins). Taking the first
+  // match instead returned the OLDEST row of a scope.
+  const latestPerScope = new Map<string, OverrideRow>()
   for (const r of overrideRows) {
     if (!appliesBy(r.effective_from, asOf)) continue
+    latestPerScope.set(`${r.key}|${r.scope_type}|${r.scope_id}`, r)
+  }
+  const overrides = new Map<string, OverrideRow[]>()
+  for (const r of latestPerScope.values()) {
     const list = overrides.get(r.key)
     if (list) list.push(r)
     else overrides.set(r.key, [r])
   }
+  for (const list of overrides.values()) list.sort((a, b) => a.priority - b.priority)
 
   const rawValue = (key: string, scope?: Scope): ConfigValue => {
     const def = getDefinition(key)

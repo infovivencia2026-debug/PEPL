@@ -234,6 +234,46 @@ describe('effective dating and the payroll guard', () => {
   })
 })
 
+describe('which row wins when several apply', () => {
+  // The resolver walked rows oldest-first and kept the first scoped match, so a department's
+  // 2026-06 override lost to its own 2026-01 one; and an "immediate" (NULL) setting sorted before
+  // every dated row, so it lost to an OLDER dated value. The newest applicable row per scope wins,
+  // and an immediate row counts from the day it was written.
+  const DEPT = '33333333-3333-3333-3333-333333333333'
+
+  it('a later override for the same scope replaces an earlier one', async () => {
+    await withTenant(A.id, async (tx) => {
+      await setSetting(tx, { key: 'attendance.week_pattern', value: 'six_day', reason: 'old', effectiveFrom: '2026-01-01', scope: { type: 'department', id: DEPT } })
+      await setSetting(tx, { key: 'attendance.week_pattern', value: 'five_day', reason: 'new', effectiveFrom: '2026-06-01', scope: { type: 'department', id: DEPT } })
+    })
+    const scope = { department: DEPT }
+    const sep = await withTenant(A.id, (tx) => resolveConfig(tx, A.id, { asOf: '2026-09-01', scope }))
+    expect(sep.get<string>('attendance.week_pattern', scope)).toBe('five_day')
+    // ...and history is intact: before the change, the old value.
+    const march = await withTenant(A.id, (tx) => resolveConfig(tx, A.id, { asOf: '2026-03-01', scope }))
+    expect(march.get<string>('attendance.week_pattern', scope)).toBe('six_day')
+  })
+
+  it('priority still decides between DIFFERENT scopes', async () => {
+    const LOC = '44444444-4444-4444-4444-444444444444'
+    await withTenant(A.id, async (tx) => {
+      await setSetting(tx, { key: 'attendance.week_pattern', value: 'alternate_saturday', reason: 'grade', effectiveFrom: '2026-01-01', scope: { type: 'location', id: LOC, priority: 10 } })
+    })
+    const scope = { department: DEPT, location: LOC }
+    const r = await withTenant(A.id, (tx) => resolveConfig(tx, A.id, { asOf: '2026-09-01', scope }))
+    expect(r.get<string>('attendance.week_pattern', scope)).toBe('alternate_saturday')   // priority 10 beats the department's 100
+  })
+
+  it('an immediate setting written after a dated one is the newer, and wins', async () => {
+    await withTenant(A.id, async (tx) => {
+      await setSetting(tx, { key: 'attendance.correction_window_days', value: 5, effectiveFrom: '2026-01-01' })
+      await setSetting(tx, { key: 'attendance.correction_window_days', value: 9 })
+    })
+    const r = await withTenant(A.id, (tx) => resolveConfig(tx, A.id))
+    expect(r.get<number>('attendance.correction_window_days')).toBe(9)
+  })
+})
+
 describe('validation', () => {
   it('rejects a value of the wrong type', async () => {
     await expect(
