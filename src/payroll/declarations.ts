@@ -149,8 +149,14 @@ export async function submitDeclaration(
 /** Payroll has seen the proofs. From here, freeze will use it. */
 export async function verifyDeclaration(
   tx: PoolClient,
-  args: { id: string; verifiedByUserId: string },
+  args: { id: string; verifiedByUserId: string; verifierEmployeeId?: string },
 ): Promise<TaxDeclaration> {
+  // Separation of duty: the person who made a declaration may not be the one who verifies it. A
+  // payroll administrator is an employee too, and could otherwise approve their own deductions.
+  if (args.verifierEmployeeId) {
+    const own = await tx.query(`SELECT 1 FROM tax_declarations WHERE id = $1 AND employee_id = $2`, [args.id, args.verifierEmployeeId])
+    if (own.rowCount) throw new DeclarationError('SELF_VERIFICATION', 'you cannot verify your own declaration; another payroll administrator must')
+  }
   const { rows } = await tx.query<TaxDeclaration>(
     `UPDATE tax_declarations
         SET status = 'verified', verified_at = now(), verified_by_user_id = $2, updated_at = now()

@@ -128,6 +128,10 @@ describe('declaration lifecycle', () => {
       await expect(submitDeclaration(tx, A.employeeId, FY))
         .rejects.toMatchObject({ code: 'DECLARATION_NOT_EDITABLE' })
 
+      // Nobody verifies their own declaration: a payroll administrator is also an employee.
+      await expect(verifyDeclaration(tx, { id: d.id, verifiedByUserId: VERIFIER, verifierEmployeeId: A.employeeId }))
+        .rejects.toMatchObject({ code: 'SELF_VERIFICATION' })
+
       const v = await verifyDeclaration(tx, { id: d.id, verifiedByUserId: VERIFIER })
       expect(v.status).toBe('verified')
       expect(v.verified_by_user_id).toBe(VERIFIER)

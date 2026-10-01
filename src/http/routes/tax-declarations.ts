@@ -103,7 +103,7 @@ export function register(router: Router): void {
     authed('payroll.process', async (ctx) => {
       requireModule(ctx, 'payroll.enabled')
       const id = asUuid(ctx.req.params.id, 'id')
-      const declaration = await verifyDeclaration(ctx.tx, { id, verifiedByUserId: ctx.auth.userId })
+      const declaration = await verifyDeclaration(ctx.tx, { id, verifiedByUserId: ctx.auth.userId, verifierEmployeeId: ctx.auth.employeeId })
       assertScope(ctx.auth, declaration.employee_id)
       await emit(ctx.tx, {
         action: 'tax_declaration.verified', entityType: 'tax_declaration', entityId: id,
