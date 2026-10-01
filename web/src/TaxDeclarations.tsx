@@ -97,7 +97,11 @@ export function MyTaxDeclaration({ data }: { data: Workspace }) {
   }
   const submit = async () => {
     setBusy(true); setError(''); setNotice('')
-    try { await domainApi('/tax-declarations/me/submit', { fiscalYear: fy }); await load(); setNotice('Declaration submitted to payroll for verification.') }
+    try {
+      // Save what is on screen FIRST: submitting used to send only the fiscal year, so anything typed
+      // since the last "Save draft" was dropped and a stale draft went to payroll to be verified.
+      await domainApi('/tax-declarations/me', { fiscalYear: fy, regime, declared: { ...Object.fromEntries(fields.map(field => [field.key, toPaise(amounts[field.key])])), metro, parentsSenior }, proofDocumentIds: proofs }, 'PATCH')
+      await domainApi('/tax-declarations/me/submit', { fiscalYear: fy }); await load(); setNotice('Declaration submitted to payroll for verification.') }
     catch (caught) { setError(caught instanceof Error ? caught.message : 'Unable to submit your declaration') }
     finally { setBusy(false) }
   }
