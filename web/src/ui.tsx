@@ -184,17 +184,20 @@ export function Empty({
   title = 'Nothing here yet',
   text = 'New records will appear here.',
   action,
+  asPageHeading = false,
 }: {
   title?: string
   text?: string
   action?: ReactNode
+  /** The empty state IS the whole page (e.g. "not available"): its title is the page's level-1 heading. */
+  asPageHeading?: boolean
 }) {
   return (
     <div className="empty">
       <span className="empty-icon">
         <Inbox size={23} />
       </span>
-      <h3>{title}</h3>
+      <h3 aria-level={asPageHeading ? 1 : undefined}>{title}</h3>
       <p>{text}</p>
       {action}
     </div>

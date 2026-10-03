@@ -57,6 +57,7 @@ export function screenFor({
     page = (
       <Card>
         <Empty
+          asPageHeading
           title="This page isn’t available"
           text="Choose a page from your navigation to continue."
           action={

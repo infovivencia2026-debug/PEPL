@@ -1,0 +1,14 @@
+/*
+ * Keyboard focus that stays visible where a control hides its own outline.
+ *
+ * Some controls remove the native outline on the INNER element (a link stretched over a tile, an input inside a
+ * bordered wrapper) and are meant to show focus on the wrapper. Cards already do (`.card-linked`); these did not,
+ * so a keyboard user tabbing across the dashboard stat tiles, the tax declaration amounts or the mailbox search saw
+ * nothing move. The ring matches the app's existing focus ring (tokens.css).
+ */
+.stat:has(.card-target:focus-visible),
+.money-input:focus-within,
+.mail-search:focus-within {
+  outline: 3px solid #83b49f;
+  outline-offset: 2px;
+}

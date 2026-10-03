@@ -332,8 +332,13 @@ body { background: radial-gradient(ellipse at 0 0, #538575 0, transparent 48%), 
   nav a,
   header nav a,
   .top-nav a {
-    min-height: 44px;
+    min-height: 45px;
     display: flex;
+    align-items: center;
+  }
+  .card-target {
+    min-height: 45px;
+    display: inline-flex;
     align-items: center;
   }
 
@@ -467,7 +472,7 @@ kbd,
    fingertip target, and both are controls people reach for constantly. */
 @media (pointer: coarse) {
   .main-nav > .more-wrap > button {
-    min-height: 44px;
+    min-height: 45px;
   }
   .topbar-actions > .notification-button {
     min-width: 44px;

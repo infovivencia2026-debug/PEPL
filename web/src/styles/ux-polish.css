@@ -218,7 +218,7 @@
    rail, so a sandbox of a suspended company does not stack two bars. Amber
    asks, red stops — never colour alone, the wording carries it too. */
 .subscription-banner { position: fixed; left: 0; right: 0; bottom: 0; z-index: 44; padding: 9px 16px; text-align: center; font-size: 12.5px; background: #eaf3ee; color: #26564a; box-shadow: 0 -4px 12px #0b2a2614; }
-.subscription-banner a { margin-left: 6px; font-weight: 650; color: inherit; text-decoration: underline; }
+.subscription-banner a { min-height: 45px; display: inline-flex; align-items: center; margin-left: 6px; font-weight: 650; color: inherit; text-decoration: underline; }
 .subscription-banner.is-warning { background: #fcf1d9; color: #6b4f14; }
 .subscription-banner.is-stopped { background: #fbe6df; color: #8f3a22; font-weight: 600; }
 
