@@ -22,6 +22,7 @@ import { recognise, upsertCourse, nominateMandatory, listNominations, completeCo
 import { resolveConfig } from '../src/config/resolver.ts'
 import { recordPunch, recomputeDay } from '../src/attendance/index.ts'
 import { PEOPLE } from './demo-roster.ts'
+import { leaveRange } from './demo-dates.ts'
 import { seedDocuments, seedAssets, seedRecruitment, seedPerformance, seedExpenses, runAugustPayroll } from './demo-operations.ts'
 
 /**
@@ -285,13 +286,13 @@ async function main(): Promise<void> {
     // each of the team, and one from the manager himself, which routes to HR.
     const cfg = await resolveConfig(tx, tenantId)
     const el = types.find((t) => t.code === 'EL')!
-    const day = (offset: number): string => new Date(Date.now() + offset * 86_400_000).toISOString().slice(0, 10)
+    const todayIso = new Date().toISOString().slice(0, 10)
     for (const [num, from, to, reason] of [
       ['ACM-004', 21, 23, 'Family wedding in Kochi'],
       ['ACM-005', 28, 28, 'Passport appointment'],
       ['ACM-003', 35, 39, 'Annual trip — team briefed'],
     ] as const) {
-      await applyLeave(tx, cfg, { employeeId: ids[num]!, requestedByUserId: userIds[num]!, leaveTypeId: el.id, startDate: day(from), endDate: day(to), reason })
+      await applyLeave(tx, cfg, { employeeId: ids[num]!, requestedByUserId: userIds[num]!, leaveTypeId: el.id, ...leaveRange(todayIso, from, to), reason })
     }
 
     // Everything a prospect asks to see beyond the directory: files, assets, a
