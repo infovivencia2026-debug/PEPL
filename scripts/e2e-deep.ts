@@ -9,8 +9,9 @@
  * itself filters on) and opens every one.
  */
 import { chromium, type Page, type Browser } from 'playwright-core'
+import { e2eBase, signIn } from './e2e-common.ts'
 
-const BASE = process.env.DEEP_BASE ?? 'https://pepl.onrol.in'
+const BASE = e2eBase('DEEP_BASE', { mutates: false })
 const PASSWORD = 'demo-password-2026'
 const USERS = ['admin@acme.test', 'priya@acme.test', 'anil@acme.test',
   'finance@acme.test', 'arjun@acme.test', 'rahul@acme.test', 'auditor@acme.test']
@@ -57,9 +58,7 @@ const main = async () => {
 
     await page.goto(BASE, { waitUntil: 'domcontentloaded' })
     await page.waitForTimeout(700)
-    await page.fill('input[type="email"]', email)
-    await page.fill('input[type="password"]', PASSWORD)
-    await page.click('button[type="submit"]')
+    await signIn(page, email, PASSWORD)
     await page.waitForTimeout(2800)
 
     // What the app itself would allow this user to see.

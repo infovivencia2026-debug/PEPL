@@ -9,8 +9,9 @@
  * touches it.
  */
 import { chromium, type Page, type Browser } from 'playwright-core'
+import { e2eBase, signIn as fillSignIn } from './e2e-common.ts'
 
-const BASE = process.env.WF_BASE ?? 'https://pepl.onrol.in'
+const BASE = e2eBase('WF_BASE', { mutates: true })
 const PASSWORD = 'demo-password-2026'
 const fails: string[] = []
 const check = (ok: boolean, what: string, extra = '') => {
@@ -27,9 +28,7 @@ const signIn = async (browser: Browser, email: string): Promise<Page> => {
   })
   await page.goto(BASE, { waitUntil: 'domcontentloaded' })
   await page.waitForTimeout(800)
-  await page.fill('input[name="email"], input[type="email"]', email)
-  await page.fill('input[name="password"], input[type="password"]', PASSWORD)
-  await page.click('button[type="submit"]')
+  await fillSignIn(page, email, PASSWORD)
   await page.waitForTimeout(3000)
   return page
 }

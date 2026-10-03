@@ -101,9 +101,9 @@ const main = async () => {
   // ── the Account page: two fields that must not share state ────────────────
   await page.setViewportSize({ width: 1440, height: 900 })
   await page.goto(BASE, { waitUntil: 'domcontentloaded' })
-  await page.fill('input[name="email"]', EMAIL)
+  await page.getByLabel('Work email').fill(EMAIL)
   await page.fill(box, PASSWORD)
-  await page.click('button[type="submit"]')
+  await page.getByRole('button', { name: /enter your workspace/i }).click()
   await page.waitForTimeout(3500)
   await page.goto(`${BASE}/#/account`, { waitUntil: 'domcontentloaded' })
   await page.waitForSelector('input[name="currentPassword"]', { timeout: 15000 })

@@ -12,8 +12,9 @@
  */
 import { chromium, type Page } from 'playwright-core'
 import { totp, stepAt } from '../src/auth/mfa.ts'
+import { e2eBase, signIn } from './e2e-common.ts'
 
-const BASE = process.env.CONSOLE_BASE ?? 'https://pepl.onrol.in'
+const BASE = e2eBase('CONSOLE_BASE', { mutates: true })
 const EMAIL = process.env.CONSOLE_EMAIL!
 const PASSWORD = process.env.CONSOLE_PASSWORD!
 
@@ -59,9 +60,7 @@ const main = async () => {
   // ── 1. the ordinary login page sends an operator to the console ───────────
   await page.goto(BASE, { waitUntil: 'domcontentloaded' })
   await page.waitForTimeout(900)
-  await page.fill('input[type="email"]', EMAIL)
-  await page.fill('input[type="password"]', PASSWORD)
-  await page.click('button[type="submit"]')
+  await signIn(page, EMAIL, PASSWORD)
   await page.waitForTimeout(3500)
   check(/\/admin/.test(page.url()), 'the shared login sends an operator to the console', page.url())
 
@@ -81,7 +80,7 @@ const main = async () => {
   // so the QR already on their phone was stale and every retry failed.
   const codeBox = 'input[inputmode="numeric"], input[autocomplete="one-time-code"]'
   await page.fill(codeBox, '000000')
-  await page.click('button[type="submit"], form button')
+  await page.locator('form', { has: page.locator(codeBox) }).getByRole('button').first().click()
   await page.waitForTimeout(2500)
   const stayed = /\/admin/.test(page.url())
   check(stayed, 'a wrong code keeps you on the console instead of the login page', page.url())
@@ -95,7 +94,7 @@ const main = async () => {
   check(secretAfterReload === secret, 'a reload shows the SAME secret, so the QR on your phone stays valid')
 
   await page.fill(codeBox, totp(base32Decode(secret), stepAt()))
-  await page.click('button[type="submit"], form button')
+  await page.locator('form', { has: page.locator(codeBox) }).getByRole('button').first().click()
   await page.waitForTimeout(3500)
   const afterVerify = (await page.textContent('body')) ?? ''
   check(!/second factor|scan this code/i.test(afterVerify), 'a valid code opens the console')

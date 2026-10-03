@@ -8,8 +8,9 @@
  * exists, and that a tenant user is unaffected. That is what this checks.
  */
 import { chromium, type Page } from 'playwright-core'
+import { e2eBase, signIn as fillSignIn } from './e2e-common.ts'
 
-const BASE = process.env.E2E_BASE ?? 'http://127.0.0.1:3100'
+const BASE = e2eBase('E2E_BASE', { mutates: false })
 const OPS_EMAIL = process.env.E2E_OPS_EMAIL!
 const OPS_PASSWORD = process.env.E2E_OPS_PASSWORD!
 const TENANT_EMAIL = process.env.E2E_TENANT_EMAIL ?? 'admin@acme.test'
@@ -24,11 +25,9 @@ const check = (ok: boolean, what: string) => {
 
 async function signIn(page: Page, email: string, password: string) {
   await page.goto(BASE, { waitUntil: 'domcontentloaded' })
-  await page.fill('input[type="email"], input[name="email"]', email)
-  await page.fill('input[type="password"], input[name="password"]', password)
   await Promise.all([
     page.waitForLoadState('networkidle').catch(() => undefined),
-    page.click('button[type="submit"], form button'),
+    fillSignIn(page, email, password),
   ])
   await page.waitForTimeout(2500)
 }

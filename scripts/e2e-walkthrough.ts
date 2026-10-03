@@ -12,8 +12,9 @@
  */
 import { chromium, type Page, type Browser } from 'playwright-core'
 import { mkdir } from 'node:fs/promises'
+import { e2eBase, signIn as fillSignIn } from './e2e-common.ts'
 
-const BASE = process.env.WALK_BASE ?? 'https://pepl.onrol.in'
+const BASE = e2eBase('WALK_BASE', { mutates: true })
 const PASSWORD = process.env.WALK_PASSWORD ?? 'demo-password-2026'
 const OUT = 'docs/ui-checks/walkthrough'
 
@@ -34,9 +35,7 @@ const note = (f: Finding) => { findings.push(f); console.log(`  ${f.kind.padEnd(
 async function signIn(page: Page, email: string): Promise<boolean> {
   await page.goto(BASE, { waitUntil: 'domcontentloaded' })
   await page.waitForTimeout(800)
-  await page.fill('input[name="email"], input[type="email"]', email)
-  await page.fill('input[name="password"], input[type="password"]', PASSWORD)
-  await page.click('button[type="submit"]')
+  await fillSignIn(page, email, PASSWORD)
   await page.waitForTimeout(3000)
   const text = (await page.textContent('body')) ?? ''
   return !/incorrect|Sign in to take care/i.test(text)

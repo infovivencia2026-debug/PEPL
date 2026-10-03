@@ -11,6 +11,7 @@
  *   CSP_BASE=http://127.0.0.1:3199 npm run e2e:csp        (against a locally built dist/)
  */
 import { chromium, type Page } from 'playwright-core'
+import { signIn } from './e2e-common.ts'
 
 const BASE = process.env.CSP_BASE ?? 'http://127.0.0.1:3100'
 const PASSWORD = 'demo-password-2026'
@@ -80,9 +81,7 @@ const main = async (): Promise<void> => {
     await watch(page, email, () => screen)
     await page.goto(BASE, { waitUntil: 'domcontentloaded' })
     await page.waitForTimeout(700)
-    await page.fill('input[type="email"]', email)
-    await page.fill('input[type="password"]', PASSWORD)
-    await page.click('button[type="submit"]')
+    await signIn(page, email, PASSWORD)
     await page.waitForTimeout(2500)
     // A control for the watcher itself: zero violations means nothing if it cannot see one.
     // Provoke one on purpose, require that it is caught, then take it back out of the tally.
