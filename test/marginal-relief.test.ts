@@ -83,3 +83,48 @@ describe('the surcharge bands', () => {
     expect(over - under).toBeLessThanOrEqual(2_00_000 * 1.5)
   })
 })
+
+// ---------------------------------------------------------------------------------------------
+// Marginal relief on the 87A cliff is a NEW-regime provision. The old regime has a hard cliff: the
+// rebate is available up to the limit and is simply gone above it. The code applied the relief to
+// both, so old-regime income a few rupees over the limit was taxed at the amount over the limit
+// instead of at the slab rate -- under-deducting TDS. The expected figures below are worked from the
+// slab table by an independent helper, not read back from computeTds.
+// ---------------------------------------------------------------------------------------------
+describe('old regime: no marginal relief on the rebate cliff', () => {
+  const oldRules = fy.rules.old
+  /** Slab tax computed independently of computeTds, in rupees. */
+  const slabTax = (taxable: number): number => {
+    let tax = 0
+    for (const s of fy.slabs.old) {
+      const hi = s.to === null ? Infinity : s.to
+      if (taxable > s.from) tax += (Math.min(taxable, hi) - s.from) * s.rate
+    }
+    return tax
+  }
+  /** Annual tax (rupees, with cess) for an OLD-regime TAXABLE income, no declarations. */
+  const oldTaxFor = (taxable: number): number => annualTax(taxable + oldRules.standardDeduction, 'old')
+
+  it('is nil at the rebate limit', () => {
+    expect(oldTaxFor(oldRules.rebateLimit)).toBe(0)
+  })
+
+  it('is the full slab tax (not the excess) just over the limit', () => {
+    for (const over of [1, 1_000, 10_000]) {
+      const taxable = oldRules.rebateLimit + over
+      const expected = slabTax(taxable) * (1 + oldRules.cessRate)
+      expect(oldTaxFor(taxable), `${over} over`).toBeCloseTo(expected, 0)
+      // The cliff is real in the old regime: crossing it costs far more than the crossing.
+      expect(oldTaxFor(taxable)).toBeGreaterThan(over * 1.04)
+    }
+  })
+
+  it('still gets the rebate below the limit', () => {
+    expect(oldTaxFor(oldRules.rebateLimit - 1)).toBe(0)
+  })
+
+  it('and the NEW regime keeps its relief (the same crossing costs no more than itself)', () => {
+    const atLimit = fy.rules.new.rebateLimit + fy.rules.new.standardDeduction
+    expect(annualTax(atLimit + 1_000) - annualTax(atLimit)).toBeLessThanOrEqual(1_000 * 1.04 + 1)
+  })
+})

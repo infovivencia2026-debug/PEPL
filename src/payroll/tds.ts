@@ -122,7 +122,11 @@ export function computeTds(
   // at 12,00,000 the rebate wipes the tax out, and at 12,00,001 the whole bill
   // lands. Relief caps the tax at the amount by which income exceeds the
   // threshold, so crossing it can never cost more than the crossing.
-  if (rebateLimit > 0 && taxable > rebateLimit) {
+  //
+  // NEW REGIME ONLY. The old regime has a hard cliff: the rebate is available up to its limit and
+  // simply gone above it. Applying the relief there capped tax just over the limit at the amount
+  // over the limit (Rs 1 over -> Rs 1 of tax) and under-deducted TDS.
+  if (input.regime === 'new' && rebateLimit > 0 && taxable > rebateLimit) {
     const excess = taxable - rebateLimit
     if (tax > excess) tax = excess
   }
