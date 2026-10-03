@@ -120,7 +120,8 @@ describe('HTML sanitising', () => {
     const clean = sanitizeHtml(dirty)
     expect(clean).not.toMatch(/script|iframe|onclick|onerror|javascript:|url\(|<form|<input|<title|<style/i)
     expect(clean).toContain('<b>bold</b>')
-    expect(clean).toContain('style="color:red;background:"')
+    expect(clean).toContain('style="color:red"')           // the url() declaration is dropped WHOLE, not left as `background:`
+    expect(clean).not.toMatch(/url\(|background/)
     expect(clean).toContain('<a href="https://acme.com/x" rel="noopener noreferrer" target="_blank">good</a>')
     expect(clean).toContain('<img src="https://acme.com/logo.png" alt="logo" />')
     expect(clean).toContain('<td bgcolor="#eee">cell</td>')
@@ -137,7 +138,7 @@ describe('HTML sanitising', () => {
   it('handles the classic bypasses', () => {
     expect(sanitizeHtml('<img src="java&#115;cript:alert(1)">')).toBe('<img />')
     expect(sanitizeHtml('<a href="  JavaScript:alert(1)">x</a>')).toBe('<a>x</a>')
-    expect(sanitizeHtml('<p style="width:expression(alert(1))">x</p>')).toBe('<p style="width:">x</p>')
+    expect(sanitizeHtml('<p style="width:expression(alert(1))">x</p>')).toBe('<p>x</p>')   // the declaration, and the then-empty style, are dropped
     expect(sanitizeHtml('<svg onload="alert(1)"><circle/></svg><b>ok</b>')).toBe('<b>ok</b>')
     expect(sanitizeHtml('<scr<script>ipt>alert(1)</script>')).not.toContain('<script')
     expect(sanitizeHtml(null)).toBe('')

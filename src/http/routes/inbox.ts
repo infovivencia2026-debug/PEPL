@@ -1,6 +1,7 @@
 /** Approvals and tasks — the unified inbox. */
 import type { Router } from '../router.ts'
 import { settleDecision } from '../../approvals/settle.ts'
+import { scopeFor, type AuthzContext } from '../../authz/permissions.ts'
 import {
   listTemplates, getTemplate, createTemplate, updateTemplate, retireTemplate, resolveAssignees,
   type TemplateItemInput, type Trigger,
@@ -23,6 +24,17 @@ import {
   taskInbox,
   emit,
 } from './deps.ts'
+
+/**
+ * A checklist template applies to everyone it is triggered for, so changing one is a company-wide
+ * act. task.assign is also what lets a manager hand a task to a report -- at `reports` scope -- and that
+ * must not extend to rewriting the company's onboarding and offboarding lists.
+ */
+function companyWideTemplates(ctx: { auth: AuthzContext }): void {
+  if (scopeFor(ctx.auth, 'task.assign') !== 'all') {
+    throw new HttpError(403, 'PERMISSION_DENIED', 'checklist templates are company-wide; they are managed by HR')
+  }
+}
 
 export function register(router: Router): void {
   router.get('/api/v1/inbox',
@@ -119,6 +131,7 @@ export function register(router: Router): void {
         { title: 'Issue laptop', assigneeRule: 'it', dueOffsetDays: 1 },
         { title: 'Introduce the team', assigneeRule: 'manager', dueOffsetDays: 2 } ] } },
     authed('task.assign', async (ctx) => {
+      companyWideTemplates(ctx)
       const b = requireBody<{ name: string; trigger: Trigger; items: TemplateItemInput[] }>(ctx.req, ['name', 'trigger', 'items'])
       if (!Array.isArray(b.items)) throw new HttpError(422, 'VALIDATION_FAILED', 'items must be an array')
       const t = await createTemplate(ctx.tx, { name: b.name, trigger: b.trigger, items: b.items })
@@ -131,6 +144,7 @@ export function register(router: Router): void {
     { summary: 'Rename, retrigger or replace the items of a checklist', tag: 'inbox', permission: 'task.assign',
       requestExample: { items: [{ title: 'Collect PAN', assigneeRule: 'hr' }] } },
     authed('task.assign', async (ctx) => {
+      companyWideTemplates(ctx)
       const id = asUuid(ctx.req.params.id, 'id')
       const b = requireBody<{ name?: string; trigger?: Trigger; items?: TemplateItemInput[] }>(ctx.req, [])
       if (b.items !== undefined && !Array.isArray(b.items)) throw new HttpError(422, 'VALIDATION_FAILED', 'items must be an array')
@@ -143,6 +157,7 @@ export function register(router: Router): void {
   router.post('/api/v1/task-templates/:id/retire',
     { summary: 'Retire a checklist; tasks already created from it are untouched', tag: 'inbox', permission: 'task.assign' },
     authed('task.assign', async (ctx) => {
+      companyWideTemplates(ctx)
       const id = asUuid(ctx.req.params.id, 'id')
       await retireTemplate(ctx.tx, id)
       await emit(ctx.tx, { action: 'work.template.retired', entityType: 'task_template', entityId: id, actorUserId: ctx.auth.userId })

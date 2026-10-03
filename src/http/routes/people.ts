@@ -208,11 +208,14 @@ export function register(router: Router): void {
 
   router.post('/api/v1/employees/:id/bank-accounts',
     { summary: 'Record the account salary is paid into; the previous one is superseded, never edited', tag: 'people',
-      permission: 'employee.write',
+      permission: 'compensation.write',
       requestExample: { beneficiaryName: 'Priya Sharma', accountNumber: '50100123456789', ifsc: 'HDFC0001234', bankName: 'HDFC Bank' } },
-    authed('employee.write', async (ctx) => {
+    // Where a salary is paid is a payroll decision: compensation.write, which hr_admin deliberately does
+    // NOT hold. It was employee.write, so general HR could redirect anyone's pay to an account of their
+    // choosing -- while payroll, who own the bank file, were refused.
+    authed('compensation.write', async (ctx) => {
       const id = asUuid(ctx.req.params.id, 'id')
-      assertScope(ctx.auth, id, 'employee.write')
+      assertScope(ctx.auth, id, 'compensation.write')
       const b = requireBody<{ beneficiaryName: string; accountNumber: string; ifsc: string; bankName?: string; effectiveFrom?: string }>(
         ctx.req, ['beneficiaryName', 'accountNumber', 'ifsc'])
       const account = await setBankAccount(ctx.tx, {

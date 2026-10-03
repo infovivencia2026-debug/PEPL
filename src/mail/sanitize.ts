@@ -30,16 +30,48 @@ const ALLOWED_ATTRS = new Set([
 
 const SAFE_URL = /^(?:https?:|mailto:|tel:|cid:|data:image\/(?:png|jpe?g|gif|webp);base64,|#|\/(?!\/))/i
 
-/** Removes anything in a style attribute that could load a URL or run. */
+/**
+ * Turns an attribute value into what the BROWSER will see: HTML character references decoded.
+ *
+ * A browser decodes entities in an attribute BEFORE it interprets the value, so checking the raw text
+ * checks something the browser never sees: `&#117;rl(...)` is `url(...)` and `/&#47;evil.com` is
+ * `//evil.com` (a protocol-relative link). Numeric references may omit their semicolon; the handful of
+ * named ones that spell syntax characters are listed. Anything unlisted is left as it is.
+ */
+const NAMED: Record<string, string> = {
+  amp: '&', lt: '<', gt: '>', quot: '"', apos: "'", colon: ':', sol: '/', bsol: '\\', lpar: '(', rpar: ')',
+  tab: '\t', newline: '\n', semi: ';', comma: ',', period: '.', lowbar: '_', num: '#', percnt: '%',
+}
+export function decodeEntities(v: string): string {
+  return v.replace(/&(?:#(\d{1,7});?|#[xX]([0-9a-fA-F]{1,6});?|([A-Za-z]{2,8});)/g, (whole, dec: string, hex: string, name: string) => {
+    if (name) return NAMED[name.toLowerCase()] ?? whole
+    const code = dec ? Number(dec) : parseInt(hex, 16)
+    return code > 0 && code <= 0x10ffff ? String.fromCodePoint(code) : ''
+  })
+}
+
+/** CSS escapes (`\72` / `\000072 ` / `\u`) resolved, and comments removed, as the CSS parser will. */
+function cssUnescape(v: string): string {
+  return v
+    .replace(/\/\*[\s\S]*?(?:\*\/|$)/g, '')
+    .replace(/\\([0-9a-fA-F]{1,6})\s?/g, (_m, h: string) => { const c = parseInt(h, 16); return c > 0 && c <= 0x10ffff ? String.fromCodePoint(c) : '' })
+    .replace(/\\([\s\S])/g, '$1')
+}
+
+/** Anything in a declaration that can fetch a resource, run script or escape its box. */
+const DANGEROUS_CSS = /url\s*\(|(?:-webkit-)?image-set\s*\(|(?<![a-z-])image\s*\(|cross-fade\s*\(|element\s*\(|paint\s*\(|(?<![a-z-])src\s*\(|attr\s*\(|expression\s*\(|@import|behavior\s*:|binding\s*:|javascript:/i
+
+/**
+ * Keeps only declarations that cannot load or run anything. Works on the DECODED, UNESCAPED text, so
+ * `u\72l(` and `&#117;rl(` are seen as the `url(` they are; a declaration is dropped whole, not patched.
+ */
 function cleanStyle(style: string): string {
-  return style
-    // to the end of the declaration, so nested parentheses cannot leave a tail behind
-    .replace(/url\s*\([^;]*/gi, '')
-    .replace(/expression\s*\([^;]*/gi, '')
-    .replace(/@import[^;]*;?/gi, '')
-    .replace(/behavior\s*:[^;]*;?/gi, '')
-    .replace(/-moz-binding\s*:[^;]*;?/gi, '')
-    .replace(/position\s*:\s*fixed/gi, 'position:static')
+  return cssUnescape(style)
+    .split(';')
+    .map((d) => d.trim())
+    .filter((d) => d && !DANGEROUS_CSS.test(d))
+    .map((d) => d.replace(/position\s*:\s*fixed/gi, 'position:static'))
+    .join(';')
 }
 
 const ATTR_RE = /([a-zA-Z_:][-a-zA-Z0-9_:.]*)(?:\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'=<>`]+)))?/g
@@ -49,14 +81,18 @@ function cleanAttributes(raw: string, tag: string): string {
   for (const m of raw.matchAll(ATTR_RE)) {
     const name = m[1]!.toLowerCase()
     if (!ALLOWED_ATTRS.has(name) || name.startsWith('on')) continue
-    let value = (m[2] ?? m[3] ?? m[4] ?? '').replace(/[\x00-\x1f]/g, '')
+    // What the browser will see: references decoded first, THEN checked, then re-encoded on output.
+    let value = decodeEntities(m[2] ?? m[3] ?? m[4] ?? '').replace(/[\x00-\x1f\x7f]/g, '')
     if (name === 'href' || name === 'src') {
       if (!SAFE_URL.test(value.trim())) continue
       if (name === 'src' && tag !== 'img') continue
     }
-    if (name === 'style') value = cleanStyle(value)
+    if (name === 'style') {
+      value = cleanStyle(value)
+      if (!value) continue
+    }
     if (name === 'target') value = '_blank'
-    out.push(`${name}="${value.replace(/&(?!#?\w+;)/g, '&amp;').replace(/"/g, '&quot;')}"`)
+    out.push(`${name}="${value.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;')}"`)
   }
   if (tag === 'a' && out.some((a) => a.startsWith('href='))) out.push('rel="noopener noreferrer"', 'target="_blank"')
   // de-duplicate (target may appear twice for an anchor)

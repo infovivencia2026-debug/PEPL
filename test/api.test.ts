@@ -744,15 +744,17 @@ describe('announcements live in the chat channel', () => {
 describe('a fresh tenant can onboard a person without the demo seed', () => {
   it('bank account: recorded once, superseded not edited, masked on read, scope-checked', async () => {
     const hr = await loginAs(ids.hr!)
+    const pay = await loginAs(ids.payroll!)   // payroll owns where salary is paid; general HR does not
     const emp = await loginAs(ids.employee!)
-    const bad = await api('POST', `/api/v1/employees/${ids.otherEmp}/bank-accounts`, { token: hr, body: { beneficiaryName: 'Sneha', accountNumber: '123', ifsc: 'nope' } })
+    const bad = await api('POST', `/api/v1/employees/${ids.otherEmp}/bank-accounts`, { token: pay, body: { beneficiaryName: 'Sneha', accountNumber: '123', ifsc: 'nope' } })
     expect(bad.status).toBe(422)
+    expect((await api('POST', `/api/v1/employees/${ids.otherEmp}/bank-accounts`, { token: hr, body: { beneficiaryName: 'Sneha', accountNumber: '50100123456789', ifsc: 'HDFC0001234' } })).status).toBe(403)
     const first = await api<{ id: string; account_masked: string; is_primary: boolean }>('POST', `/api/v1/employees/${ids.otherEmp}/bank-accounts`,
-      { token: hr, body: { beneficiaryName: 'Sneha Iyer', accountNumber: '50100123456789', ifsc: 'hdfc0001234', bankName: 'HDFC' } })
+      { token: pay, body: { beneficiaryName: 'Sneha Iyer', accountNumber: '50100123456789', ifsc: 'hdfc0001234', bankName: 'HDFC' } })
     expect(first.status).toBe(201)
     expect(first.body.account_masked).toBe('••••••••6789')
     const second = await api<{ id: string }>('POST', `/api/v1/employees/${ids.otherEmp}/bank-accounts`,
-      { token: hr, body: { beneficiaryName: 'Sneha Iyer', accountNumber: '000987654321', ifsc: 'ICIC0000123' } })
+      { token: pay, body: { beneficiaryName: 'Sneha Iyer', accountNumber: '000987654321', ifsc: 'ICIC0000123' } })
     expect(second.status).toBe(201)
     const live = await api<{ accounts: { id: string; is_primary: boolean }[] }>('GET', `/api/v1/employees/${ids.otherEmp}/bank-accounts`, { token: hr })
     expect(live.body.accounts.map((a) => a.id)).toEqual([second.body.id])

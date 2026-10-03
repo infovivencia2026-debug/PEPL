@@ -1,19 +1,33 @@
 /** Integrations hub: API keys, webhooks, connections. */
 import type { Router } from '../router.ts'
 import { HttpError, authed, ok, created, noContent, requireBody, requireModule, asUuid, emit } from './deps.ts'
-import { ROLE_PERMISSIONS } from '../../authz/permissions.ts'
+import { ROLE_PERMISSIONS, scopeFor, type AuthzContext, type Permission } from '../../authz/permissions.ts'
 import { ACTIONS } from '../../audit/index.ts'
 import { createApiKey, listApiKeys, revokeApiKey, createWebhook, listWebhooks, setWebhookStatus, recentDeliveries, upsertConnection, listConnections, removeConnection, CONNECTION_KINDS } from '../../control-plane/integrations.ts'
 
+/**
+ * The roles this caller may give an API key: only those whose every permission the caller already holds,
+ * at least as widely. A key is a stand-in for a person, so it may not out-rank the person who made it --
+ * a custom role with just integration.manage could otherwise mint a payroll_admin key. org_admin is never
+ * grantable to a key, whoever asks.
+ */
+function grantableRoles(auth: AuthzContext): string[] {
+  const rank = { self: 0, reports: 1, all: 2 } as const
+  return Object.entries(ROLE_PERMISSIONS)
+    .filter(([name, def]) => name !== 'org_admin' && def.permissions.every((p) =>
+      auth.permissions.has(p) && rank[scopeFor(auth, p as Permission)] >= rank[def.scope]))
+    .map(([name]) => name)
+}
+
 export function register(router: Router): void {
   router.get('/api/v1/integrations/api-keys', { summary: 'API keys (prefix, role, last used); the secret is never shown again', tag: 'integrations', permission: 'integration.manage' },
-    authed('integration.manage', async (ctx) => { requireModule(ctx, 'integrations.enabled'); return ok({ keys: await listApiKeys(ctx.tx), roles: Object.keys(ROLE_PERMISSIONS).filter((r) => r !== 'org_admin') }) }))
+    authed('integration.manage', async (ctx) => { requireModule(ctx, 'integrations.enabled'); return ok({ keys: await listApiKeys(ctx.tx), roles: grantableRoles(ctx.auth) }) }))
   router.post('/api/v1/integrations/api-keys', { summary: 'Create a key as a service user with a role. Use it as Authorization: Bearer pk_… — every permission and scope rule applies', tag: 'integrations', permission: 'integration.manage',
     requestExample: { name: 'Tally sync', role: 'finance', expiresAt: '2027-03-31T00:00:00Z' } },
     authed('integration.manage', async (ctx) => {
       requireModule(ctx, 'integrations.enabled')
       const b = requireBody<{ name: string; role: string; expiresAt?: string }>(ctx.req, ['name', 'role'])
-      const r = await createApiKey(ctx.tx, { name: b.name, role: b.role, expiresAt: b.expiresAt ? new Date(b.expiresAt).toISOString() : null, createdByUserId: ctx.auth.userId, allowedRoles: Object.keys(ROLE_PERMISSIONS) })
+      const r = await createApiKey(ctx.tx, { name: b.name, role: b.role, expiresAt: b.expiresAt ? new Date(b.expiresAt).toISOString() : null, createdByUserId: ctx.auth.userId, allowedRoles: grantableRoles(ctx.auth) })
       await emit(ctx.tx, { action: 'security.api_key.created', entityType: 'api_key', entityId: r.key.id, actorUserId: ctx.auth.userId, metadata: { name: r.key.name, role: b.role } })
       return created(r)
     }))
