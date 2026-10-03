@@ -172,7 +172,11 @@ export async function act(
   const tid = await tenantId(tx)
 
   const { rows: reqRows } = await tx.query<{ status: string; current_step: number; requested_by_user_id: string }>(
-    `SELECT status, current_step, requested_by_user_id FROM approval_requests WHERE id = $1`,
+    // FOR UPDATE: one decision at a time per request. A plain SELECT let two callers read "pending"
+    // together and both act -- two approvals (and two history rows), or an approve and a withdraw each
+    // written as if it had won. The second caller now waits for the first to commit, re-reads the row
+    // as the first left it, and takes the idempotent "already closed" path below.
+    `SELECT status, current_step, requested_by_user_id FROM approval_requests WHERE id = $1 FOR UPDATE`,
     [args.requestId],
   )
   const req = reqRows[0]
