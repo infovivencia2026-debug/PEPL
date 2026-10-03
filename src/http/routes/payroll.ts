@@ -40,7 +40,7 @@ export function register(router: Router): void {
     { summary: 'Payroll periods, newest first, with the run in each', tag: 'payroll', permission: 'payroll.read' },
     authed('payroll.read', async (ctx) => {
       requireModule(ctx, 'payroll.enabled')
-      assertOrgWide(ctx.auth)
+      assertOrgWide(ctx.auth, 'payroll.read')
       return ok({ periods: await listPayrollPeriods(ctx.tx) })
     }))
 
@@ -146,7 +146,7 @@ export function register(router: Router): void {
   router.get('/api/v1/payroll/runs/:id/validation',
     { summary: 'Blockers and warnings for a calculated run', tag: 'payroll', permission: 'payroll.read' },
     authed('payroll.read', async (ctx) => {
-      assertOrgWide(ctx.auth)
+      assertOrgWide(ctx.auth, 'payroll.read')
       const runId = asUuid(ctx.req.params.id, 'id')
       // persist:false. This used to advance the run to `validated` as a side effect
       // of a GET, so anyone holding payroll.read -- every employee, an auditor --
@@ -214,7 +214,7 @@ export function register(router: Router): void {
   router.get('/api/v1/payroll/runs/:id',
     { summary: 'Run status and totals', tag: 'payroll', permission: 'payroll.read' },
     authed('payroll.read', async (ctx) => {
-      assertOrgWide(ctx.auth)
+      assertOrgWide(ctx.auth, 'payroll.read')
       return ok({ run: await getRun(ctx.tx, asUuid(ctx.req.params.id, 'id')) })
     }))
 
@@ -223,7 +223,7 @@ export function register(router: Router): void {
       permission: 'payroll.read' },
     authed('payroll.read', async (ctx) => {
       // Per-person, per-component old and new amounts: everyone's salary.
-      assertOrgWide(ctx.auth)
+      assertOrgWide(ctx.auth, 'payroll.read')
       return ok({ delta: await delta(ctx.tx, asUuid(ctx.req.params.id, 'id')) })
     }))
 
@@ -245,7 +245,7 @@ export function register(router: Router): void {
     { summary: 'Payslips, own by default', tag: 'payroll', permission: 'payroll.read' },
     authed('payroll.read', async (ctx) => {
       const employeeId = ctx.req.query.get('employeeId') ?? ctx.auth.employeeId
-      assertScope(ctx.auth, employeeId ?? undefined)
+      assertScope(ctx.auth, employeeId ?? undefined, 'payroll.read')
       const limit = asInt(ctx.req.query.get('limit') ?? 24, 'limit', { min: 1, max: 200 })
       const offset = asInt(ctx.req.query.get('offset') ?? 0, 'offset', { min: 0, max: 100_000 })
       const { rows } = await ctx.tx.query(
@@ -272,8 +272,8 @@ export function register(router: Router): void {
       if (!slip[0]) throw new HttpError(404, 'NOT_FOUND', 'no such payslip')
       // A draft is the payroll team's to read: its numbers can still change. An employee sees
       // their own once the run is locked, like everything else about their pay.
-      if (slip[0].status === 'locked') assertScope(ctx.auth, slip[0].employee_id)
-      else assertOrgWide(ctx.auth)
+      if (slip[0].status === 'locked') assertScope(ctx.auth, slip[0].employee_id, 'payroll.read')
+      else assertOrgWide(ctx.auth, 'payroll.read')
 
       const { rows } = await ctx.tx.query(
         `SELECT component_code, component_type, amount_paise::text, calc_note
@@ -299,8 +299,8 @@ export function register(router: Router): void {
            FROM payslips s JOIN payroll_runs r ON (r.tenant_id, r.id) = (s.tenant_id, s.run_id)
           WHERE s.id = $1`, [id])
       if (!rows[0]) throw new HttpError(404, 'NOT_FOUND', 'no such payslip')
-      if (rows[0].status === 'locked') assertScope(ctx.auth, rows[0].employee_id)
-      else assertOrgWide(ctx.auth)
+      if (rows[0].status === 'locked') assertScope(ctx.auth, rows[0].employee_id, 'payroll.read')
+      else assertOrgWide(ctx.auth, 'payroll.read')
 
       const pdf = await payslipPdf(ctx.tx, id)
       // A payslip carries net pay, so reading one is a tier-3 reveal.

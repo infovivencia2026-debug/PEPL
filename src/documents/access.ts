@@ -21,7 +21,7 @@
  * HR letter about themselves or a company policy.
  */
 import type { PoolClient } from 'pg'
-import { AuthzError, assertScope, can, type AuthzContext } from '../authz/permissions.ts'
+import { AuthzError, assertScope, can, scopeFor, type AuthzContext } from '../authz/permissions.ts'
 import type { DocumentMeta, OwnerType } from './index.ts'
 
 type Subject = Pick<DocumentMeta, 'owner_type' | 'owner_id' | 'is_confidential' | 'uploaded_by_user_id'>
@@ -34,7 +34,7 @@ export async function assertOwnerVisible(
 ): Promise<void> {
   switch (owner.type) {
     case 'employee':
-      if (owner.id) assertScope(auth, owner.id)
+      if (owner.id) assertScope(auth, owner.id, 'document.read')
       return
     case 'tenant':
       return
@@ -69,7 +69,7 @@ function confidentialityAllows(auth: AuthzContext, doc: Subject): boolean {
   // Only personnel and company files carry the flag in a way that matters: a ticket or a
   // conversation is already limited to its own people.
   if (doc.owner_type !== 'employee' && doc.owner_type !== 'tenant') return true
-  if (auth.scope === 'all') return true
+  if (scopeFor(auth, 'document.read') === 'all') return true
   // The subject of a personnel document may read it; a manager may not.
   return doc.owner_type === 'employee' && !!auth.employeeId && doc.owner_id === auth.employeeId
 }
@@ -85,7 +85,7 @@ export async function assertCanDelete(tx: PoolClient, auth: AuthzContext, doc: S
   const mayRemoveOthers =
     doc.owner_type === 'ticket' ? can(auth, 'ticket.assign')
       : doc.owner_type === 'conversation' ? false
-        : auth.scope === 'all'
+        : scopeFor(auth, 'document.write') === 'all'
   if (!mayRemoveOthers) {
     throw new AuthzError('PERMISSION_DENIED', 'only the person who uploaded this document, or a company-wide role, can delete it', 403)
   }

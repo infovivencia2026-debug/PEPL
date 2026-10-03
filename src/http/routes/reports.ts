@@ -6,6 +6,7 @@
  */
 import type { Router } from '../router.ts'
 import { HttpError, authed, ok, asDate, emit } from './deps.ts'
+import { scopeFor } from '../../authz/permissions.ts'
 import { headcount, attrition, leaveBalances, salaryRegister, statutorySummary, type Report } from '../../reports/index.ts'
 import type { Ctx } from '../context.ts'
 import { musterRoll, musterCsv } from '../../attendance/muster.ts'
@@ -26,7 +27,7 @@ function deliver(ctx: Ctx, name: string, report: Report) {
   return ok({ columns: report.columns, rows: report.rows })
 }
 function companyWideMoney(ctx: Ctx): void {
-  if (!ctx.auth.permissions.has('payroll.read') || ctx.auth.scope !== 'all') {
+  if (!ctx.auth.permissions.has('payroll.read') || scopeFor(ctx.auth, 'payroll.read') !== 'all') {
     throw new HttpError(403, 'PERMISSION_DENIED', 'this report needs payroll.read at company scope')
   }
 }

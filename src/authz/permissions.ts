@@ -188,7 +188,14 @@ export interface AuthzContext {
   employeeId?: string
   roles: string[]
   permissions: Set<string>
+  /** The widest scope of any role. For display and coarse checks only: authorise DATA with scopeFor(). */
   scope: DataScope
+  /**
+   * The scope each permission was granted at: the widest among the roles that grant THAT permission.
+   * One scope for the whole user made [manager, employee] hold payroll.read over their team --
+   * `manager` is `reports`-scoped but does not grant payroll.read; `employee` grants it at `self`.
+   */
+  permissionScope: Map<string, DataScope>
   /** Employee ids this user manages, resolved once per request. */
   reportIds: Set<string>
 }
@@ -202,22 +209,29 @@ export function buildContext(input: {
   reportIds?: string[]
 }): AuthzContext {
   const permissions = new Set<string>()
+  const permissionScope = new Map<string, DataScope>()
   let scope: DataScope = 'self'
+  const rank = { self: 0, reports: 1, all: 2 } as const
   const widen = (s: DataScope): void => {
-    const rank = { self: 0, reports: 1, all: 2 } as const
     if (rank[s] > rank[scope]) scope = s
+  }
+  const grant = (p: string, s: DataScope): void => {
+    permissions.add(p)
+    const had = permissionScope.get(p)
+    if (had === undefined || rank[s] > rank[had]) permissionScope.set(p, s)
   }
 
   for (const role of input.roles) {
     const def = ROLE_PERMISSIONS[role]
     if (!def) continue
-    for (const p of def.permissions) permissions.add(p)
+    for (const p of def.permissions) grant(p, def.scope)
     widen(def.scope)
   }
   for (const custom of input.customRoles ?? []) {
-    for (const p of custom.permissions) permissions.add(p)
     // Department scope arrives with its people already in reportIds.
-    widen(custom.data_scope === 'department' ? 'reports' : custom.data_scope)
+    const s: DataScope = custom.data_scope === 'department' ? 'reports' : custom.data_scope
+    for (const p of custom.permissions) grant(p, s)
+    widen(s)
   }
 
   return {
@@ -227,6 +241,7 @@ export function buildContext(input: {
     roles: input.roles,
     permissions,
     scope,
+    permissionScope,
     reportIds: new Set(input.reportIds ?? []),
   }
 }
@@ -236,6 +251,11 @@ export function assertPermission(ctx: AuthzContext, permission: Permission): voi
   if (!ctx.permissions.has(permission)) {
     throw new AuthzError('PERMISSION_DENIED', `this action requires ${permission}`)
   }
+}
+
+/** The scope this user holds `permission` at (self when they do not hold it at all). */
+export function scopeFor(ctx: AuthzContext, permission: Permission): DataScope {
+  return ctx.permissionScope.get(permission) ?? 'self'
 }
 
 export function can(ctx: AuthzContext, permission: Permission): boolean {
@@ -248,10 +268,12 @@ export function can(ctx: AuthzContext, permission: Permission): boolean {
  * Returns 404 rather than 403 for a record outside the caller's scope: telling
  * someone a record exists but is forbidden is itself a disclosure.
  */
-export function assertScope(ctx: AuthzContext, targetEmployeeId: string | undefined): void {
+export function assertScope(ctx: AuthzContext, targetEmployeeId: string | undefined, permission?: Permission): void {
   if (!targetEmployeeId) return
-  if (ctx.scope === 'all') return
-  if (ctx.scope === 'reports') {
+  // Pass the permission whose DATA is being read: it carries its own scope. Without one, the widest.
+  const scope = permission ? scopeFor(ctx, permission) : ctx.scope
+  if (scope === 'all') return
+  if (scope === 'reports') {
     if (targetEmployeeId === ctx.employeeId || ctx.reportIds.has(targetEmployeeId)) return
     throw new AuthzError('NOT_FOUND', 'no such record', 404)
   }
@@ -271,8 +293,10 @@ export function assertScope(ctx: AuthzContext, targetEmployeeId: string | undefi
  * mappings readable by any of them. Anything that is about the company rather than
  * a person asks THIS.
  */
-export function assertOrgWide(ctx: AuthzContext): void {
-  if (ctx.scope !== 'all') {
+export function assertOrgWide(ctx: AuthzContext, permission?: Permission): void {
+  // With a permission: is THAT permission held company-wide? ([employee, hr_admin] has company scope
+  // from hr_admin but payroll.read only at self.)
+  if ((permission ? scopeFor(ctx, permission) : ctx.scope) !== 'all') {
     throw new AuthzError('PERMISSION_DENIED', 'this needs company-wide access', 403)
   }
 }

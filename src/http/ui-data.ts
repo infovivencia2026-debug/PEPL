@@ -1,5 +1,5 @@
 import type { Ctx } from './context.ts'
-import { can } from '../authz/permissions.ts'
+import { can, scopeFor } from '../authz/permissions.ts'
 import { inbox } from '../approvals/index.ts'
 import { balance } from '../leave/ledger.ts'
 import { taskInbox } from '../work/tasks.ts'
@@ -91,12 +91,12 @@ export async function workspaceData(c: Ctx, date?: string) {
       )
     : []
   const payroll =
-    modules.payroll && can(c.auth, 'payroll.read') && c.auth.scope === 'all'
+    modules.payroll && can(c.auth, 'payroll.read') && scopeFor(c.auth, 'payroll.read') === 'all'
       ? await read(`SELECT r.id,r.status,r.revision,r.employee_count,r.gross_paise::text,r.deductions_paise::text,r.net_paise::text,r.processed_by_user_id,p.label,p.period_start::text,p.period_end::text,p.pay_date::text
  FROM payroll_runs r JOIN payroll_periods p ON p.id=r.period_id AND p.tenant_id=r.tenant_id ORDER BY p.period_start DESC,r.revision DESC LIMIT 36`)
       : []
   const periods =
-    modules.payroll && can(c.auth, 'payroll.process') && c.auth.scope === 'all'
+    modules.payroll && can(c.auth, 'payroll.process') && scopeFor(c.auth, 'payroll.process') === 'all'
       ? await read(
           'SELECT id,label,period_start::text,period_end::text,pay_date::text FROM payroll_periods ORDER BY period_start DESC LIMIT 36',
         )

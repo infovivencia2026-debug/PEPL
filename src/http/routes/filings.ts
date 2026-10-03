@@ -47,7 +47,7 @@ export function register(router: Router): void {
       tag: 'payroll', permission: 'payroll.read' },
     authed('payroll.read', async (ctx) => {
       const id = asUuid(ctx.req.params.id, 'id')
-      assertScope(ctx.auth, id)
+      assertScope(ctx.auth, id, 'payroll.read')
       const fy = ctx.req.query.get('fy') ?? ''
       if (!FY.test(fy)) throw new HttpError(422, 'VALIDATION_FAILED', 'fy must look like 2026-27')
       // Slabs of the year the certificate is for, not this year's.
@@ -73,7 +73,7 @@ export function register(router: Router): void {
       tag: 'payroll', permission: 'payroll.read' },
     authed('payroll.read', async (ctx) => {
       const id = asUuid(ctx.req.params.id, 'id')
-      assertScope(ctx.auth, id)
+      assertScope(ctx.auth, id, 'payroll.read')
       const { rows } = await ctx.tx.query<{ uan: string | null; pf_member_id: string | null; esi_number: string | null; pan: string | null }>(
         `SELECT ${IDS} FROM employee_statutory_ids WHERE employee_id = $1`, [id])
       const row = rows[0]
@@ -94,7 +94,7 @@ export function register(router: Router): void {
       requestExample: { uan: '100123456789', pan: 'ABCDE1234F', esiNumber: '3101234567', pfMemberId: 'TNMAS00123450000000123' } },
     authed('compensation.write', async (ctx) => {
       const id = asUuid(ctx.req.params.id, 'id')
-      assertScope(ctx.auth, id)
+      assertScope(ctx.auth, id, 'compensation.write')
       const b = requireBody<{ uan?: string | null; pfMemberId?: string | null; esiNumber?: string | null; pan?: string | null }>(ctx.req, [])
       const norm = (v: unknown): string | null => (typeof v === 'string' && v.trim() ? v.trim().toUpperCase() : null)
       // A masked display value (bullets, asterisks) is not an identifier. The form used to be filled

@@ -87,7 +87,7 @@ export function register(router: Router): void {
       permission: 'employee.read' },
     authed('employee.read', async (ctx) => {
       const id = asUuid(ctx.req.params.id, 'id')
-      assertScope(ctx.auth, id)
+      assertScope(ctx.auth, id, 'employee.read')
       const { rows } = await ctx.tx.query(
         `SELECT * FROM current_employee_profile WHERE employee_id = $1`, [id])
       const row = rows[0]
@@ -107,7 +107,7 @@ export function register(router: Router): void {
       permission: 'employee.read' },
     authed('employee.read', async (ctx) => {
       const id = asUuid(ctx.req.params.id, 'id')
-      assertScope(ctx.auth, id)
+      assertScope(ctx.auth, id, 'employee.read')
       const asOf = asDate(ctx.req.query.get('date'), 'date')
       const knownAt = ctx.req.query.get('knownAt') ?? undefined
       const profile = await profileAt(ctx.tx, id, asOf, knownAt)
@@ -125,7 +125,7 @@ export function register(router: Router): void {
       requestExample: { department: 'Engineering', designation: 'Lead Developer', effectiveFrom: '2026-10-01', reason: 'promotion' } },
     authed('employee.write', async (ctx) => {
       const id = asUuid(ctx.req.params.id, 'id')
-      assertScope(ctx.auth, id)
+      assertScope(ctx.auth, id, 'employee.write')
       const b = requireBody<{ department: string; designation: string; managerEmployeeId?: string | null; locationCode?: string | null; gradeCode?: string | null; effectiveFrom: string; reason?: string }>(
         ctx.req, ['department', 'designation', 'effectiveFrom'])
       const recordId = await changeAssignment(ctx.tx, {
@@ -150,7 +150,7 @@ export function register(router: Router): void {
       requestExample: { dateOfBirth: '1994-06-12', workEmail: 'priya@acme.com', phone: '+91 98765 43210', employmentType: 'permanent', pfApplicable: true, customFields: { tshirt_size: 'M' } } },
     authed('employee.read', async (ctx) => {
       const id = asUuid(ctx.req.params.id, 'id')
-      assertScope(ctx.auth, id)
+      assertScope(ctx.auth, id, 'employee.read')
       const b = requireBody<Record<string, unknown>>(ctx.req, []) as EmployeePatch
       // An employee may fix their own contact details; everything else is HR (employee.write).
       if (!can(ctx.auth, 'employee.write')) {
@@ -194,7 +194,7 @@ export function register(router: Router): void {
     { summary: 'Bank accounts on file (masked); ?history=true includes superseded ones', tag: 'people', permission: 'employee.read' },
     authed('employee.read', async (ctx) => {
       const id = asUuid(ctx.req.params.id, 'id')
-      assertScope(ctx.auth, id)
+      assertScope(ctx.auth, id, 'employee.read')
       const accounts = await listBankAccounts(ctx.tx, id, ctx.req.query.get('history') === 'true')
       // The full account number is for the person and for an audited reveal; everyone else gets the masked form.
       const own = ctx.auth.employeeId === id
@@ -212,7 +212,7 @@ export function register(router: Router): void {
       requestExample: { beneficiaryName: 'Priya Sharma', accountNumber: '50100123456789', ifsc: 'HDFC0001234', bankName: 'HDFC Bank' } },
     authed('employee.write', async (ctx) => {
       const id = asUuid(ctx.req.params.id, 'id')
-      assertScope(ctx.auth, id)
+      assertScope(ctx.auth, id, 'employee.write')
       const b = requireBody<{ beneficiaryName: string; accountNumber: string; ifsc: string; bankName?: string; effectiveFrom?: string }>(
         ctx.req, ['beneficiaryName', 'accountNumber', 'ifsc'])
       const account = await setBankAccount(ctx.tx, {
@@ -230,7 +230,7 @@ export function register(router: Router): void {
     { summary: 'Whether this person has a login, and its roles', tag: 'people', permission: 'employee.read' },
     authed('employee.read', async (ctx) => {
       const id = asUuid(ctx.req.params.id, 'id')
-      assertScope(ctx.auth, id)
+      assertScope(ctx.auth, id, 'employee.read')
       return ok(await loginFor(ctx.tx, id))
     }))
 
@@ -239,7 +239,7 @@ export function register(router: Router): void {
       permission: 'employee.write', requestExample: { email: 'priya@acme.com', roles: ['employee'] } },
     authed('employee.write', async (ctx) => {
       const id = asUuid(ctx.req.params.id, 'id')
-      assertScope(ctx.auth, id)
+      assertScope(ctx.auth, id, 'employee.write')
       const b = requireBody<{ email: string; roles?: string[] }>(ctx.req, ['email'])
       if (b.roles?.length && !can(ctx.auth, 'roles.write')) {
         throw new HttpError(403, 'PERMISSION_DENIED', 'assigning roles other than employee needs roles.write')
@@ -355,7 +355,7 @@ export function register(router: Router): void {
       permission: 'employee.read' },
     authed('employee.read', async (ctx) => {
       const id = asUuid(ctx.req.params.id, 'id')
-      assertScope(ctx.auth, id)
+      assertScope(ctx.auth, id, 'employee.read')
       const limit = asInt(ctx.req.query.get('limit') ?? 100, 'limit', { min: 1, max: 500 })
       const offset = asInt(ctx.req.query.get('offset') ?? 0, 'offset', { min: 0 })
       const { rows } = await ctx.tx.query(

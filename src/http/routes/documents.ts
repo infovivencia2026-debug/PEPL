@@ -5,6 +5,7 @@ import {
   HttpError, authed, ok, created, noContent, requireBody, requireModule, asUuid,
   assertScope, emit,
 } from './deps.ts'
+import { scopeFor } from '../../authz/permissions.ts'
 import {
   deleteDocument, getDocument, listDocuments, putDocument, readDocument,
   MAX_BYTES, type OwnerType,
@@ -32,7 +33,7 @@ export function register(router: Router): void {
       // Omitting the filter used to list the newest hundred documents in the company for anyone.
       // A listing names WHOSE documents it is, unless the caller is company-wide -- and even then
       // a ticket's or a conversation's files are read through that ticket or conversation.
-      const companyWide = ctx.auth.scope === 'all'
+      const companyWide = scopeFor(ctx.auth, 'document.read') === 'all'
       if (!kind && !companyWide) {
         throw new HttpError(422, 'VALIDATION_FAILED', 'ownerType is required')
       }
@@ -86,16 +87,16 @@ export function register(router: Router): void {
       }
       if (type === 'employee') {
         if (!owner) throw new HttpError(422, 'VALIDATION_FAILED', 'ownerId is required for an employee document')
-        assertScope(ctx.auth, owner)
+        assertScope(ctx.auth, owner, 'document.write')
         // A person may add their own proofs and bills; letters about them come from HR.
-        if (ctx.auth.scope === 'self' && !category.selfUpload) {
+        if (scopeFor(ctx.auth, 'document.write') === 'self' && !category.selfUpload) {
           throw new HttpError(403, 'PERMISSION_DENIED',
             `"${category.label}" is issued by HR, not uploaded by the employee`, { category: category.key })
         }
       }
       // A company-wide document (policies, handbooks) is not something a person
       // with self-scope publishes, whatever else document.write lets them upload.
-      if (type === 'tenant' && ctx.auth.scope !== 'all') {
+      if (type === 'tenant' && scopeFor(ctx.auth, 'document.write') !== 'all') {
         throw new HttpError(403, 'PERMISSION_DENIED', 'only company-wide roles can publish company documents')
       }
 

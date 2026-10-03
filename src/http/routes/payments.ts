@@ -24,7 +24,7 @@ const FORMATS: readonly BankFormat[] = [
 export function register(router: Router): void {
   router.get('/api/v1/payroll/ledger-mappings', { summary: 'Which accounting head each payroll component posts to (defaults seeded)', tag: 'payments', permission: 'payroll.read' },
     authed('payroll.read', async (ctx) => {
-      assertOrgWide(ctx.auth)
+      assertOrgWide(ctx.auth, 'payroll.read')
       return ok({ mappings: await listMappings(ctx.tx) })
     }))
   router.post('/api/v1/payroll/ledger-mappings', { summary: 'Set a component\'s debit/credit heads (Tally ledger names or ERP codes); *:earning etc. are the defaults by type', tag: 'payments', permission: 'payroll.process',
@@ -34,7 +34,7 @@ export function register(router: Router): void {
   router.get('/api/v1/payroll/runs/:id/journal', { summary: 'Accounting journal for a locked run (?format=json|csv|tally) — balanced, by cost centre', tag: 'payments', permission: 'payroll.read' },
     authed('payroll.read', async (ctx) => {
       requireModule(ctx, 'payroll.enabled')
-      assertOrgWide(ctx.auth)
+      assertOrgWide(ctx.auth, 'payroll.read')
       const j = await buildJournal(ctx.tx, asUuid(ctx.req.params.id, 'id'))
       const fmt = ctx.req.query.get('format') ?? 'json'
       if (fmt === 'csv') return ok({ fileName: `journal-${j.period}.csv`, contentType: 'text/csv; charset=utf-8', rows: j.lines.length, contentBase64: Buffer.from(journalCsv(j)).toString('base64'), balanced: j.balanced, unmapped: j.unmapped })
@@ -57,7 +57,7 @@ export function register(router: Router): void {
 
   router.get('/api/v1/payroll/runs/:id/payment-status', { summary: 'Settled / failed / pending instructions for a run, with failures to re-pay', tag: 'payments', permission: 'payroll.read' },
     authed('payroll.read', async (ctx) => {
-      assertOrgWide(ctx.auth)
+      assertOrgWide(ctx.auth, 'payroll.read')
       return ok(await paymentStatus(ctx.tx, asUuid(ctx.req.params.id, 'id')))
     }))
 
