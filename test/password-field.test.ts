@@ -78,9 +78,15 @@ describe('the component itself', () => {
 })
 
 describe('the stylesheet', () => {
-  it('is imported last, so it wins without reordering the cascade', () => {
+  it('is imported after everything that could override it, without reordering the cascade', () => {
     const entry = readFileSync('web/src/styles.css', 'utf8').trim().split('\n').filter((l) => l.startsWith('@import'))
-    expect(entry.at(-1)).toContain('password-field.css')
+    const names = entry.map((l) => /styles\/([a-z0-9-]+\.css)/.exec(l)![1]!)
+    const after = names.slice(names.indexOf('password-field.css') + 1)
+    // It used to be literally last. Two small sheets that style OTHER things now follow it (the shared page
+    // title, and focus rings on tiles and wrappers); what matters is that nothing after it can override it.
+    expect(names.includes('password-field.css')).toBe(true)
+    expect(after.every((f) => ['focus.css', 'page-title.css'].includes(f)), after.join(', ')).toBe(true)
+    for (const f of after) expect(readFileSync(`web/src/styles/${f}`, 'utf8'), f).not.toMatch(/password|\.field\b/)
   })
 
   it('keeps the field look the login box relies on', () => {
