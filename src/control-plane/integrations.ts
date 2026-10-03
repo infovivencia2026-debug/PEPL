@@ -13,7 +13,7 @@
  * Five attempts with backoff; twenty consecutive failures disable the hook.
  */
 import { createHash, createHmac, randomBytes, timingSafeEqual } from 'node:crypto'
-import { parseOutboundUrl, assertResolvesPublic } from '../net/outbound-url.ts'
+import { parseOutboundUrl, assertResolvesPublic, safePost } from '../net/outbound-url.ts'
 import type { PoolClient } from 'pg'
 import { encryptSecret, decryptSecret } from '../comms/index.ts'
 import { ACTIONS } from '../audit/index.ts'
@@ -130,20 +130,10 @@ export async function enqueueWebhookEvents(tx: PoolClient): Promise<number> {
 }
 
 export type Poster = (url: string, body: string, headers: Record<string, string>) => Promise<{ ok: boolean; status: number; error?: string }>
-export const httpPoster: Poster = async (url, body, headers) => {
-  // Re-checked HERE as well as on save: what a hostname resolves to is not
-  // fixed, and a customer who owns the name can repoint it after we accepted
-  // it. This is the check that actually protects the network.
-  try {
-    await assertResolvesPublic(parseOutboundUrl(url))
-  } catch (e) {
-    return { ok: false, status: 0, error: (e as Error).message }
-  }
-  try {
-    const r = await fetch(url, { method: 'POST', headers: { 'content-type': 'application/json', ...headers }, body, signal: AbortSignal.timeout(10_000) })
-    return { ok: r.ok, status: r.status, error: r.ok ? undefined : (await r.text()).slice(0, 300) }
-  } catch (e) { return { ok: false, status: 0, error: (e as Error).message.slice(0, 300) } }
-}
+// Re-checked at delivery AND at every redirect hop (safePost): what a hostname resolves to is not
+// fixed, a customer who owns the name can repoint it, and a public URL can redirect inward.
+export const httpPoster: Poster = (url, body, headers) =>
+  safePost(url, { headers: { 'content-type': 'application/json', ...headers }, body })
 const BACKOFF_MINUTES = [1, 5, 30, 120, 720]
 export const MAX_DELIVERY_ATTEMPTS = BACKOFF_MINUTES.length
 

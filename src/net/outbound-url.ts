@@ -132,3 +132,52 @@ export async function assertResolvesPublic(
     }
   }
 }
+
+/**
+ * POST to a customer-supplied URL, validating the URL AND every redirect destination.
+ *
+ * fetch() follows redirects by itself, so a URL that passed `parseOutboundUrl` could answer
+ * `302 -> http://169.254.169.254/...` (the cloud metadata service) or a private address and be
+ * followed with no second check. Redirects are therefore followed here, by hand, each hop run through
+ * the same shape and resolution checks, up to MAX_REDIRECTS.
+ *
+ * What comes back is deliberately thin: the status, and a fixed phrase for a failure. The response BODY
+ * is never returned or stored -- it used to become the delivery error, i.e. a read of whatever the
+ * server could reach -- and a network error never repeats the address or port it failed on.
+ */
+export const MAX_REDIRECTS = 3
+
+export async function safePost(
+  url: string,
+  init: { headers: Record<string, string>; body: string },
+  opts: { timeoutMs?: number } = {},
+): Promise<{ ok: boolean; status: number; error?: string }> {
+  let target = url
+  let method = 'POST'
+  let body: string | undefined = init.body
+  const deadline = AbortSignal.timeout(opts.timeoutMs ?? 10_000)
+  for (let hop = 0; hop <= MAX_REDIRECTS; hop++) {
+    try {
+      await assertResolvesPublic(parseOutboundUrl(target))
+    } catch (e) {
+      return { ok: false, status: 0, error: (e as Error).message }
+    }
+    let r: Response
+    try {
+      r = await fetch(target, { method, headers: init.headers, body, redirect: 'manual', signal: deadline })
+    } catch {
+      return { ok: false, status: 0, error: 'the destination could not be reached' }
+    }
+    await r.body?.cancel().catch(() => undefined)        // never read the body
+    if (r.status >= 300 && r.status < 400 && r.headers.has('location')) {
+      let next: URL
+      try { next = new URL(r.headers.get('location')!, target) } catch { return { ok: false, status: r.status, error: 'the redirect target is not a URL' } }
+      target = next.toString()
+      // 301/302/303 turn a POST into a GET without a body; 307/308 repeat it as it was.
+      if ([301, 302, 303].includes(r.status)) { method = 'GET'; body = undefined }
+      continue
+    }
+    return { ok: r.ok, status: r.status, error: r.ok ? undefined : `the destination answered HTTP ${r.status}` }
+  }
+  return { ok: false, status: 0, error: 'too many redirects' }
+}

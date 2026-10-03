@@ -11,7 +11,7 @@
  * Nothing is sent without the person's opt-in and the company's provider.
  */
 import type { PoolClient } from 'pg'
-import { parseOutboundUrl, assertResolvesPublic } from '../net/outbound-url.ts'
+import { parseOutboundUrl, assertResolvesPublic, safePost } from '../net/outbound-url.ts'
 import { encryptSecret, decryptSecret } from './index.ts'
 
 export class WhatsAppError extends Error {
@@ -78,19 +78,9 @@ export function buildPayload(p: Provider, m: Outbound): { url: string; body: unk
 }
 
 export type Sender = (url: string, body: unknown, bearer: string | null) => Promise<{ ok: boolean; status: number; error?: string }>
-export const httpSender: Sender = async (url, body, bearer) => {
-  // Re-checked at send time, not only when the endpoint was saved: a hostname
-  // the customer owns can be repointed at an internal address afterwards.
-  try {
-    await assertResolvesPublic(parseOutboundUrl(url))
-  } catch (e) {
-    return { ok: false, status: 0, error: (e as Error).message }
-  }
-  try {
-    const r = await fetch(url, { method: 'POST', headers: { 'content-type': 'application/json', ...(bearer ? { authorization: `Bearer ${bearer}` } : {}) }, body: JSON.stringify(body), signal: AbortSignal.timeout(10_000) })
-    return { ok: r.ok, status: r.status, error: r.ok ? undefined : (await r.text()).slice(0, 300) }
-  } catch (e) { return { ok: false, status: 0, error: (e as Error).message.slice(0, 300) } }
-}
+export const httpSender: Sender = (url, body, bearer) =>
+  // Validated at send time and at every redirect hop, not only when the endpoint was saved.
+  safePost(url, { headers: { 'content-type': 'application/json', ...(bearer ? { authorization: `Bearer ${bearer}` } : {}) }, body: JSON.stringify(body) })
 
 /** The delivery pass: pending notifications for opted-in people, through the company's provider. */
 export async function deliverWhatsApp(tx: PoolClient, args: { master: string | undefined; send?: Sender; limit?: number }): Promise<{ sent: number; failed: number; skipped: number }> {
