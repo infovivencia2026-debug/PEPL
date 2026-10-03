@@ -67,6 +67,14 @@ export async function handleEvents(
     }))
     return
   }
+  // A session that has passed the password but not the second factor is not signed in yet.
+  if (session.mfaPending) {
+    res.writeHead(401, { 'content-type': 'application/json' })
+    res.end(JSON.stringify({
+      error: { code: 'MFA_REQUIRED', message: 'finish signing in with your authenticator code first' },
+    }))
+    return
+  }
 
   res.writeHead(200, {
     'content-type': 'text/event-stream; charset=utf-8',

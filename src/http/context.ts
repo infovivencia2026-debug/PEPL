@@ -50,8 +50,12 @@ function bearer(req: Req): string {
  * `permission` is asserted before the handler runs; scope checks belong inside,
  * where the target employee is known.
  */
-/** Routes a not-yet-verified (or not-yet-enrolled) session may still reach. */
-const MFA_ALLOWED = /^\/api\/v1\/auth\/(mfa(\/|$)|logout$|me$)/
+/**
+ * Routes a not-yet-verified (or not-yet-enrolled) session may still reach: exactly what finishing
+ * sign-in or enrolling needs, and nothing else. This used to be `mfa(/|$)` -- every path UNDER /mfa --
+ * which let a password-only session call /mfa/reset/:userId and strip a colleague's second factor.
+ */
+const MFA_ALLOWED = /^\/api\/v1\/auth\/(mfa|mfa\/(setup|enable|verify)|logout|me)$/
 const ADMIN_ROLES = new Set(['org_admin', 'hr_admin', 'payroll_admin', 'finance'])
 
 export function authed(permission: Permission | null, handler: AuthedHandler) {
