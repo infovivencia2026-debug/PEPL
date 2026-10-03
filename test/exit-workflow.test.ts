@@ -26,6 +26,11 @@ import { readDocument } from '../src/documents/index.ts'
 import type { EngineOptions } from '../src/payroll/engine.ts'
 
 const L = (r: number): number => r * 100
+/**
+ * The company date every resignation in this file is made on. It was the real clock (the column default), so the
+ * notice arithmetic below -- earliest last day = submitted + 30 -- held on some days of the year and not others.
+ */
+const TODAY = '2026-09-14'
 let A: Tenant
 let manager: string; let managerUser: string; let hrUser: string; let empUser: string
 let statutoryId: string
@@ -58,15 +63,15 @@ afterAll(async () => { await closePools(); await controlPool.end() })
 describe('resignation', () => {
   it('is submitted once, notifies manager and HR, can be withdrawn, and HR can decline with a reason', async () => {
     await withTenant(A.id, async (tx) => {
-      const r = await submitResignation(tx, { employeeId: A.employeeId, requestedLastDay: '2026-10-15', reason: 'Relocating', reasonCategory: 'relocation' })
+      const r = await submitResignation(tx, { employeeId: A.employeeId, today: TODAY, requestedLastDay: '2026-10-05', reason: 'Relocating', reasonCategory: 'relocation' })
       expect(r.status).toBe('submitted')
       expect(r.notice_period_days).toBe(30)
       expect(r.earliest_last_day > r.requested_last_day).toBe(true)                 // asked to leave before notice completes
-      await expect(submitResignation(tx, { employeeId: A.employeeId, requestedLastDay: '2026-12-31', reason: 'again' })).rejects.toMatchObject({ code: 'RESIGNATION_OPEN' })
+      await expect(submitResignation(tx, { employeeId: A.employeeId, today: TODAY, requestedLastDay: '2026-12-31', reason: 'again' })).rejects.toMatchObject({ code: 'RESIGNATION_OPEN' })
       const told = (await tx.query<{ user_id: string }>(`SELECT user_id FROM notifications WHERE event_type = 'exit.resignation.submitted'`)).rows.map((x) => x.user_id).sort()
       expect(told).toEqual([hrUser, managerUser].sort())
       await withdrawResignation(tx, r.id, A.employeeId)
-      const again = await submitResignation(tx, { employeeId: A.employeeId, requestedLastDay: '2026-12-31', reason: 'Better opportunity', reasonCategory: 'better_opportunity' })
+      const again = await submitResignation(tx, { employeeId: A.employeeId, today: TODAY, requestedLastDay: '2026-12-31', reason: 'Better opportunity', reasonCategory: 'better_opportunity' })
       await declineResignation(tx, again.id, 'retained with a counter-offer', hrUser)
       const o = await exitOverview(tx, A.employeeId)
       expect(o.separation).toBeNull()
@@ -79,7 +84,7 @@ describe('acceptance, clearance, settlement, letter', () => {
   let sepId = ''
   it('HR accepts: separation with notice, five clearances, checklist tasks; recoveries roll up; HR signs last', async () => {
     await withTenant(A.id, async (tx) => {
-      const r = await submitResignation(tx, { employeeId: A.employeeId, requestedLastDay: '2026-10-31', reason: 'Moving on' })
+      const r = await submitResignation(tx, { employeeId: A.employeeId, today: TODAY, requestedLastDay: '2026-10-31', reason: 'Moving on' })
       const a = await acceptResignation(tx, { resignationId: r.id, actorUserId: hrUser })
       sepId = a.separation.id
       expect(a.separation).toMatchObject({ reason: 'resignation', last_working_day: '2026-10-31', notice_days_required: 30, status: 'initiated' })

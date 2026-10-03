@@ -18,6 +18,10 @@ import { instantiateTemplate } from '../work/tasks.ts'
 import { notify } from '../comms/index.ts'
 import { putDocument, type DocumentMeta } from '../documents/index.ts'
 import { PdfPage, renderPdf, PAGE_HEIGHT } from '../pdf/document.ts'
+import { today as localToday } from '../lib/timezone.ts'
+
+/** The company calendar used when a caller does not pass one (the product is built for India). */
+const DEFAULT_COMPANY_ZONE = 'Asia/Kolkata'
 
 export class ExitWorkflowError extends Error {
   readonly code: string
@@ -54,22 +58,27 @@ export async function listResignations(tx: PoolClient, args: { employeeIds?: str
 
 /** The employee resigns. The requested last day may be earlier than notice allows — HR decides whether to waive. */
 export async function submitResignation(
-  tx: PoolClient, args: { employeeId: string; requestedLastDay: string; reason: string; reasonCategory?: Resignation['reason_category'] },
+  tx: PoolClient,
+  // `today` is the COMPANY's calendar date. It was read from the database (CURRENT_DATE, UTC): for the
+  // 5.5 hours after midnight in India that is still yesterday, so a last day already past was accepted
+  // and the resignation was stamped submitted a day early, with notice counted from it. Business dates
+  // follow the company's calendar; timestamps stay UTC instants.
+  args: { employeeId: string; requestedLastDay: string; reason: string; reasonCategory?: Resignation['reason_category']; today?: string },
 ): Promise<Resignation> {
   const tid = await tenantId(tx)
   const emp = (await tx.query<{ status: string; notice_period_days: number }>(`SELECT status, notice_period_days FROM employees WHERE id = $1`, [args.employeeId])).rows[0]
   if (!emp) throw new ExitWorkflowError('NOT_FOUND', 'no such employee')
   if (emp.status === 'exited') throw new ExitWorkflowError('ALREADY_EXITED', 'this employee has already left')
   if (!args.reason?.trim()) throw new ExitWorkflowError('VALIDATION_FAILED', 'a reason is required')
-  const today = (await tx.query<{ d: string }>('SELECT CURRENT_DATE::text AS d')).rows[0]!.d
+  const today = args.today ?? localToday(DEFAULT_COMPANY_ZONE)
   if (args.requestedLastDay < today) throw new ExitWorkflowError('VALIDATION_FAILED', 'the last day cannot be in the past')
   const open = await tx.query(`SELECT 1 FROM resignations WHERE employee_id = $1 AND status = 'submitted'`, [args.employeeId])
   if (open.rowCount) throw new ExitWorkflowError('RESIGNATION_OPEN', 'a resignation is already awaiting HR')
   const sep = await tx.query(`SELECT 1 FROM employee_separations WHERE employee_id = $1 AND status IN ('initiated','in_payroll')`, [args.employeeId])
   if (sep.rowCount) throw new ExitWorkflowError('SEPARATION_OPEN', 'an exit is already in progress for this employee')
   const { rows } = await tx.query<{ id: string }>(
-    `INSERT INTO resignations (tenant_id, employee_id, requested_last_day, reason, reason_category) VALUES ($1,$2,$3,$4,$5) RETURNING id`,
-    [tid, args.employeeId, args.requestedLastDay, args.reason.trim().slice(0, 4000), args.reasonCategory ?? 'other'])
+    `INSERT INTO resignations (tenant_id, employee_id, submitted_on, requested_last_day, reason, reason_category) VALUES ($1,$2,$3,$4,$5,$6) RETURNING id`,
+    [tid, args.employeeId, today, args.requestedLastDay, args.reason.trim().slice(0, 4000), args.reasonCategory ?? 'other'])
   // the manager and HR hear about it
   const people = await tx.query<{ id: string }>(
     `SELECT u.id FROM app_users u WHERE u.status = 'active' AND (
@@ -223,7 +232,7 @@ export async function getExitInterview(tx: PoolClient, separationId: string): Pr
  * as the employee's document (category 'relieving') and linked on the
  * separation; issuing again returns the existing letter.
  */
-export async function issueRelievingLetter(tx: PoolClient, args: { separationId: string; actorUserId: string; signatory?: string }): Promise<DocumentMeta> {
+export async function issueRelievingLetter(tx: PoolClient, args: { separationId: string; actorUserId: string; signatory?: string; today?: string }): Promise<DocumentMeta> {
   const { rows } = await tx.query<{
     employee_id: string; status: string; last_working_day: string; letter: string | null
     employee_number: string; first_name: string; last_name: string | null; date_of_joining: string; company: string
@@ -249,7 +258,7 @@ export async function issueRelievingLetter(tx: PoolClient, args: { separationId:
   const page = new PdfPage()
   let y = PAGE_HEIGHT - 72
   page.text(s.company, 72, y, { font: 'bold', size: 16 }); y -= 36
-  page.text(`Date: ${fmt(new Date().toISOString().slice(0, 10))}`, 72, y); y -= 28
+  page.text(`Date: ${fmt(args.today ?? localToday(DEFAULT_COMPANY_ZONE))}`, 72, y); y -= 28
   page.text('TO WHOMSOEVER IT MAY CONCERN', 72, y, { font: 'bold', size: 12 }); y -= 28
   page.text('RELIEVING AND EXPERIENCE LETTER', 72, y, { font: 'bold', size: 12 }); y -= 32
   const lines = [

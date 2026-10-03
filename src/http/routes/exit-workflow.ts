@@ -6,6 +6,7 @@ import {
   listClearances, clearArea, recordExitInterview, getExitInterview, issueRelievingLetter, exitOverview, CLEARANCE_AREAS, type ClearanceArea,
 } from '../../people/exit-workflow.ts'
 import { scopeIds } from '../ui-data.ts'
+import { today as localToday } from '../../lib/timezone.ts'
 
 export function register(router: Router): void {
   router.post('/api/v1/resignations',
@@ -14,7 +15,7 @@ export function register(router: Router): void {
     authed('employee.read', async (ctx) => {
       if (!ctx.auth.employeeId) throw new HttpError(422, 'NO_EMPLOYEE_RECORD', 'this user has no employee record')
       const b = requireBody<{ requestedLastDay: string; reason: string; reasonCategory?: string }>(ctx.req, ['requestedLastDay', 'reason'])
-      const r = await submitResignation(ctx.tx, { employeeId: ctx.auth.employeeId, requestedLastDay: asDate(b.requestedLastDay, 'requestedLastDay'), reason: b.reason, reasonCategory: b.reasonCategory as never })
+      const r = await submitResignation(ctx.tx, { employeeId: ctx.auth.employeeId, requestedLastDay: asDate(b.requestedLastDay, 'requestedLastDay'), reason: b.reason, reasonCategory: b.reasonCategory as never, today: localToday(ctx.config.get<string>('attendance.timezone')) })
       await emit(ctx.tx, { action: 'exit.resignation.submitted', entityType: 'resignation', entityId: r.id, subjectEmployeeId: r.employee_id, actorUserId: ctx.auth.userId, metadata: { requestedLastDay: r.requested_last_day, category: r.reason_category } })
       return created(r)
     }))
@@ -119,7 +120,7 @@ export function register(router: Router): void {
     authed('employee.write', async (ctx) => {
       const id = asUuid(ctx.req.params.id, 'id')
       const b = requireBody<{ signatory?: string }>(ctx.req, [])
-      const doc = await issueRelievingLetter(ctx.tx, { separationId: id, actorUserId: ctx.auth.userId, signatory: b.signatory })
+      const doc = await issueRelievingLetter(ctx.tx, { separationId: id, actorUserId: ctx.auth.userId, signatory: b.signatory, today: localToday(ctx.config.get<string>('attendance.timezone')) })
       await emit(ctx.tx, { action: 'exit.letter.issued', entityType: 'separation', entityId: id, subjectEmployeeId: doc.owner_id ?? undefined, actorUserId: ctx.auth.userId, metadata: { documentId: doc.id } })
       return created(doc)
     }))
