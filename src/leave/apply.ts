@@ -13,7 +13,7 @@
 import type { PoolClient } from 'pg'
 import type { ResolvedConfig } from '../config/resolver.ts'
 import { countLeaveDays, holidaysBetween } from './days.ts'
-import { consume } from './ledger.ts'
+import { balance, consume } from './ledger.ts'
 import { raiseWithPolicy } from '../approvals/policy.ts'
 import { applyCorrection } from '../attendance/index.ts'
 import { notify } from '../comms/index.ts'
@@ -91,6 +91,26 @@ export async function applyLeave(
     `SELECT 1 FROM leave_requests WHERE employee_id = $1 AND status IN ('pending','approved') AND start_date <= $3 AND end_date >= $2`,
     [input.employeeId, startDate, endDate])
   if (overlap.rowCount) throw new LeaveApplyError(409, 'LEAVE_OVERLAP', 'a request already covers part of these dates')
+
+  // The balance, as approval will judge it -- the same ledger and the same company setting -- checked
+  // now rather than after the whole chain has spent its time. Requests still PENDING for this type and
+  // leave year are already spoken for (approved ones are in the ledger), so two requests that each fit
+  // alone cannot together overdraw. Taken under the employee lock above, so they cannot race.
+  if (!cfg.get<boolean>('leave.allow_negative_balance')) {
+    const year = leaveCycleYear(startDate, cycleStart)
+    const bal = await balance(tx, input.employeeId, input.leaveTypeId, year)
+    const pendingDays = (await tx.query<{ start_date: string; total_days: string }>(
+      `SELECT start_date::text, total_days::text FROM leave_requests
+        WHERE employee_id = $1 AND leave_type_id = $2 AND status = 'pending'`, [input.employeeId, input.leaveTypeId])).rows
+      .filter((r) => leaveCycleYear(r.start_date, cycleStart) === year)
+      .reduce((n, r) => n + Number(r.total_days), 0)
+    const available = bal.available - pendingDays
+    if (available < counted.totalDays) {
+      throw new LeaveApplyError(422, 'INSUFFICIENT_BALANCE',
+        `you have ${Math.max(0, available)} day(s) available for this leave type; ${counted.totalDays} requested`,
+        { available: Math.max(0, available), requested: counted.totalDays })
+    }
+  }
 
   // day_parts records exactly the days charged, so approval marks those and only those.
   const dayParts: Record<string, string> = {}
