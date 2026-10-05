@@ -368,6 +368,13 @@ export function validateRun(
     }
   }
 
+  // Nobody earning anything is not a payroll, it is missing data (typically no attendance loaded, so every
+  // employee froze as fully on loss of pay). One person on full LOP is ordinary and only warned about below.
+  if (rows.length > 0 && rows.every((r) => r.computed.grossPaise === 0n)) {
+    blockers.push({ code: 'ZERO_PAYROLL', employeeId: '*',
+      message: 'every employee has zero gross pay; load attendance (or check the frozen inputs) before approving' })
+  }
+
   for (const { input, computed, previousNetPaise } of rows) {
     const id = input.employeeId
 

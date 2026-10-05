@@ -134,6 +134,11 @@ export async function inviteEmployee(
     if (existing.status !== 'active') {
       throw new OnboardError('LOGIN_NOT_ACTIVE', 'this login is not active; a set-password link would do nothing')
     }
+    // Roles asked for that the login does not already hold cannot be applied here. Answering success would
+    // tell the caller (and the audit trail) that a role was granted when nothing changed.
+    if (args.roles?.some((r) => !existing.roles.includes(r))) {
+      throw new OnboardError('ROLES_NOT_APPLIED', 'this person already has a login; change its roles from the roles screen, then re-issue the link')
+    }
     if (existing.roles.some((r) => r !== 'employee') && !args.allowPrivilegedReissue) {
       throw new OnboardError('PRIVILEGED_LOGIN', 'this login holds elevated roles; re-issuing its set-password link needs roles.write')
     }

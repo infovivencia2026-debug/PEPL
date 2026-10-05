@@ -309,6 +309,7 @@ const STATUS_BY_CODE: Record<string, number> = {
   SELF_VERIFICATION: 403,
   NOT_ASSIGNEE: 403,
   LOGIN_NOT_ACTIVE: 409,
+  ROLES_NOT_APPLIED: 409,
   NOT_READY: 503,
   RATE_LIMITED: 429,
   // documents

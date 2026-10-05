@@ -261,7 +261,7 @@ export function register(router: Router): void {
       })
       await emit(ctx.tx, {
         action: 'people.login.invited', entityType: 'user', entityId: r.userId, subjectEmployeeId: id,
-        actorUserId: ctx.auth.userId, metadata: { email: r.email, created: r.created, roles: b.roles ?? ['employee'] },
+        actorUserId: ctx.auth.userId, metadata: { email: r.email, created: r.created, roles: r.created ? (b.roles?.length ? b.roles : ['employee']) : undefined },
       })
       // The link is in the response only for a login that has just been created, when nobody
       // else can be locked out by it. For an existing login it goes to that person's mailbox

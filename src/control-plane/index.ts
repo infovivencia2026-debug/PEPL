@@ -9,6 +9,7 @@
 import pg from 'pg'
 import { config } from '../config.ts'
 import { REGISTRY } from '../config-registry/index.ts'
+import { PT_STATES } from '../../db/reference/pt-slabs.ts'
 import { applyPresetAtProvisioning, assertKnownOrganisationType } from './presets.ts'
 
 export class ControlPlaneError extends Error {
@@ -145,6 +146,14 @@ export async function provisionTenant(
           break
         case 'preset':
           if (input.organisationType) await applyPresetAtProvisioning(client, tenantId, input.organisationType)
+          // The state a company is created in is also the state it files professional tax under. Left unset,
+          // PT resolved to zero for every employee and nothing said so.
+          if (input.stateCode && PT_STATES.some((s) => s.code === input.stateCode)) {
+            await client.query(
+              `INSERT INTO tenant_settings (tenant_id, key, value, effective_from, reason) VALUES ($1, 'payroll.pt_state_code', $2::jsonb, NULL, 'provisioning')
+               ON CONFLICT (tenant_id, key, effective_from) DO NOTHING`,
+              [tenantId, JSON.stringify(input.stateCode)])
+          }
           break
         case 'config_version':
           await client.query(

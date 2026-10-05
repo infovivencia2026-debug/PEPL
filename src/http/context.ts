@@ -55,7 +55,7 @@ function bearer(req: Req): string {
  * sign-in or enrolling needs, and nothing else. This used to be `mfa(/|$)` -- every path UNDER /mfa --
  * which let a password-only session call /mfa/reset/:userId and strip a colleague's second factor.
  */
-const MFA_ALLOWED = /^\/api\/v1\/auth\/(mfa|mfa\/(setup|enable|verify)|logout|me)$/
+const MFA_ALLOWED = /^\/api\/v1\/auth\/(mfa|mfa\/(setup|enable|verify)|logout)$/
 const ADMIN_ROLES = new Set(['org_admin', 'hr_admin', 'payroll_admin', 'finance'])
 
 export function authed(permission: Permission | null, handler: AuthedHandler) {

@@ -25,10 +25,10 @@ export async function pushAvailability(): Promise<{ registration: ServiceWorkerR
   if (!('Notification' in window) || !('PushManager' in window) || !('serviceWorker' in navigator)) return null
   try {
     const [{ publicKey }, registration] = await Promise.all([
-      domainApi<{ publicKey: string }>('/push/vapid-public-key'),
+      domainApi<{ publicKey: string | null }>('/push/vapid-public-key'),
       navigator.serviceWorker.ready,
     ])
-    return { registration, publicKey }
+    return publicKey ? { registration, publicKey } : null
   } catch (error) {
     if (error instanceof ApiError && (error.status === 503 || error.isModuleUnavailable)) return null
     throw error

@@ -33,6 +33,7 @@ const SEEDED = new Set(Object.keys(ROLE_PERMISSIONS))
 
 function checkRole(i: { name?: string; permissions?: string[]; dataScope?: RoleScope; departmentCodes?: string[] }): void {
   if (i.name !== undefined) {
+    if (typeof i.name !== 'string') throw new RoleError('VALIDATION_FAILED', 'name must be text')
     const n = i.name.trim()
     if (!n || n.length > 60) throw new RoleError('VALIDATION_FAILED', 'name is 1–60 characters')
     if (SEEDED.has(n)) throw new RoleError('VALIDATION_FAILED', `"${n}" is a seeded role name`)
@@ -44,6 +45,9 @@ function checkRole(i: { name?: string; permissions?: string[]; dataScope?: RoleS
   }
   if (i.dataScope !== undefined && !['all', 'reports', 'self', 'department'].includes(i.dataScope)) {
     throw new RoleError('VALIDATION_FAILED', 'dataScope is all, reports, self or department')
+  }
+  if (i.departmentCodes !== undefined && (!Array.isArray(i.departmentCodes) || i.departmentCodes.some((c) => typeof c !== 'string'))) {
+    throw new RoleError('VALIDATION_FAILED', 'departmentCodes must be a list of department codes')
   }
   if (i.dataScope === 'department' && !(i.departmentCodes?.length)) {
     throw new RoleError('VALIDATION_FAILED', 'a department-scoped role needs departmentCodes')

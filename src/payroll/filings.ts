@@ -191,7 +191,7 @@ export function ecrFile(rows: readonly FilingRow[], opts: EcrOptions): Filing {
       wholeRupees(r.grossPaise),
       wholeRupees(r.pfWagePaise),
       wholeRupees(epsWage),
-      wholeRupees(r.pfWagePaise),        // EDLI wages track EPF wages
+      wholeRupees(epsWage),              // EDLI wages share the EPS ceiling (Rs 15,000), not the full EPF wage
       wholeRupees(r.pfEmployeePaise),
       wholeRupees(eps),
       wholeRupees(epfEmployer),
@@ -212,6 +212,12 @@ export function ecrFile(rows: readonly FilingRow[], opts: EcrOptions): Filing {
   }
 }
 
+/** Calendar days in a 'YYYY-MM' period; 30 when the period is not in that shape. */
+const daysInPeriod = (period: string): number => {
+  const m = /^(\d{4})-(\d{2})$/.exec(period)
+  return m ? new Date(Date.UTC(Number(m[1]), Number(m[2]), 0)).getUTCDate() : 30
+}
+
 /** ESIC monthly contribution: insurance number, name, days, wages, contribution. */
 export function esiFile(
   rows: readonly FilingRow[],
@@ -228,7 +234,7 @@ export function esiFile(
         reason: 'no ESI insurance number on file' })
       continue
     }
-    const days = Math.max(0, (opts.workingDays ?? 30) - Math.round(r.lopDays))
+    const days = Math.max(0, (opts.workingDays ?? daysInPeriod(opts.period)) - Math.round(r.lopDays))
     out.push([r.esiNumber, csv(r.name.toUpperCase()), days, rupees(r.grossPaise), 0, ''].join(','))
     total += r.esiEmployeePaise + r.esiEmployerPaise
   }

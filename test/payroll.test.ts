@@ -376,6 +376,17 @@ describe('validation gates the run', () => {
     const r = validateRun([{ input: bad, computed: computePayroll(bad, OPTS) }], { variancePct: 25 })
     expect(r.blockers.map((b) => b.code)).toContain('NO_SALARY_STRUCTURE')
   })
+
+  // A new company with no attendance loaded froze every employee as fully on loss of pay, and the run
+  // could be approved and locked at Rs 0 gross: everyone then saw an empty payslip.
+  it('blocks a run in which nobody earns anything, but not one person on full loss of pay', () => {
+    const full = input({ lopDays: input().calendarDays })
+    const none = validateRun([{ input: full, computed: computePayroll(full, OPTS) }, { input: full, computed: computePayroll(full, OPTS) }], { variancePct: 25 })
+    expect(none.blockers.map((b) => b.code)).toContain('ZERO_PAYROLL')
+    const ok = input()
+    const some = validateRun([{ input: full, computed: computePayroll(full, OPTS) }, { input: ok, computed: computePayroll(ok, OPTS) }], { variancePct: 25 })
+    expect(some.blockers.map((b) => b.code)).not.toContain('ZERO_PAYROLL')
+  })
 })
 
 describe('a locked run is immutable in the DATABASE, not just the service', () => {

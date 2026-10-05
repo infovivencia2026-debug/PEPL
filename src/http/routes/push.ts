@@ -13,13 +13,15 @@ import { vapidFromEnv } from '../../comms/web-push.ts'
 
 export function register(router: Router): void {
   router.get('/api/v1/push/vapid-public-key',
-    { summary: 'The server key a browser needs to subscribe; 503 when push is not configured',
+    { summary: 'The server key a browser needs to subscribe; publicKey is null when push is not configured',
       tag: 'comms' },
     authed(null, async (ctx) => {
       requireModule(ctx, 'notifications.enabled')
       const keys = vapidFromEnv()
       if (!keys || !ctx.config.get<boolean>('notifications.push_enabled')) {
-        throw new HttpError(503, 'PUSH_NOT_CONFIGURED', 'push notifications are not available here')
+        // Not an error: a company that has not set push up is a normal state, and a 5xx on every settings
+        // page load is noise in the browser console and in monitoring.
+        return ok({ publicKey: null })
       }
       return ok({ publicKey: keys.publicKey })
     }))

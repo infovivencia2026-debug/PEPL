@@ -35,7 +35,7 @@ describe('ECR', () => {
     const fields = f.content.trimEnd().split('#~#')
     expect(fields).toHaveLength(11)
     // UAN, NAME, gross, EPF wages, EPS wages (capped at 15,000), EDLI wages, EE, EPS, EPF-ER, NCP, refund
-    expect(fields.slice(0, 6)).toEqual(['100123456789', 'PRIYA SHARMA', '40000', '20000', '15000', '20000'])
+    expect(fields.slice(0, 6)).toEqual(['100123456789', 'PRIYA SHARMA', '40000', '20000', '15000', '15000'])
     expect(fields[6]).toBe('1800')                       // employee 12% of the 15k-capped base
     // The BOOKED pension figure, not a recomputation. This function floors and
     // the engine rounds, so deriving it here reported 1249 against a payslip
@@ -81,6 +81,13 @@ describe('ESI, PT, 24Q', () => {
     expect(f.rows).toBe(1)
     expect(f.omitted).toHaveLength(1)
     expect(f.totalPaise).toBe(P(800))
+  })
+
+  it('ESI days default to the calendar days of the period: a fully paid 31-day month reports 31', () => {
+    const one = (period: string) => esiFile([row({ esiEmployeePaise: P(150), esiEmployerPaise: P(650), grossPaise: P(20_000) })], { period, code: 'C' }).content.split('\n')[1]
+    expect(one('2026-10')).toBe('3101234567,PRIYA SHARMA,31,20000.00,0,')
+    expect(one('2026-09')).toBe('3101234567,PRIYA SHARMA,30,20000.00,0,')
+    expect(one('2028-02')).toBe('3101234567,PRIYA SHARMA,29,20000.00,0,')
   })
 
   it('PT groups by slab with a total line', () => {
