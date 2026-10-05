@@ -64,7 +64,17 @@ const main = async () => {
   // Fresh dates each run. A fixed range makes the SECOND run fail with
   // LEAVE_OVERLAP -- correct behaviour from the product, and a false alarm
   // from the harness.
-  const day = new Date(Date.now() + (30 + Math.floor(Math.random() * 300)) * 86_400_000)
+  // A weekday inside the current leave cycle (the calendar year): a weekend has no working days to deduct, and
+  // next year's cycle has accrued nothing yet, so the product rightly refuses both.
+  const pickDay = (): Date => {
+    const now = new Date()
+    for (let tries = 0; tries < 200; tries++) {
+      const d = new Date(now.getTime() + (3 + Math.floor(Math.random() * 120)) * 86_400_000)
+      if (d.getUTCFullYear() === now.getUTCFullYear() && d.getUTCDay() % 6 !== 0) return d
+    }
+    return now
+  }
+  const day = pickDay()
   const iso = (d: Date) => d.toISOString().slice(0, 10)
   const applied = await api(rahul, 'POST', '/api/v1/leave/requests', {
     leaveTypeId: casual?.id, startDate: iso(day), endDate: iso(day), reason: 'Family function',

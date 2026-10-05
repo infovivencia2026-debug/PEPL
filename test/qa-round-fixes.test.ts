@@ -81,3 +81,21 @@ describe('a company created in a state files professional tax under it', () => {
     expect(rows[0]?.value).toBe('KA')
   })
 })
+
+describe('purging a tenant leaves nothing that references it', () => {
+  it('billing counters go with the tenant, so a backup taken afterwards restores cleanly', async () => {
+    const { provisionTenant } = await import('../src/control-plane/index.ts')
+    const { purgeTenant } = await import('../src/control-plane/sandbox.ts')
+    const r = await provisionTenant({
+      legalName: 'Purge Probe Pvt Ltd', displayName: 'Purge Probe', planCode: 'growth', adminEmail: `purge-${Date.now()}@probe.test`, adminName: 'Purge Probe',
+    })
+    await controlPool.query(`INSERT INTO control_plane.invoice_counters (tenant_id, next) VALUES ($1, 2)`, [r.tenantId])
+    await controlPool.query(`INSERT INTO control_plane.credit_note_counters (tenant_id, next) VALUES ($1, 2)`, [r.tenantId])
+    await purgeTenant(r.tenantId)
+    // A row whose parent is gone is an orphan: pg_restore cannot re-add the foreign key over it.
+    const { rows } = await controlPool.query(`
+      SELECT (SELECT count(*) FROM control_plane.invoice_counters WHERE tenant_id = $1)::int AS inv,
+             (SELECT count(*) FROM control_plane.credit_note_counters WHERE tenant_id = $1)::int AS cn`, [r.tenantId])
+    expect(rows[0]).toEqual({ inv: 0, cn: 0 })
+  })
+})

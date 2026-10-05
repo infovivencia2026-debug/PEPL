@@ -101,7 +101,13 @@ export async function purgeTenant(tenantId: string): Promise<void> {
     await client.query('BEGIN')
     await client.query(`SET LOCAL session_replication_role = replica`)
     for (const t of tables) await client.query(`DELETE FROM "${t.table_name}" WHERE tenant_id = $1`, [tenantId])
-    for (const t of ['subscriptions', 'provisioning_jobs', 'support_access_grants', 'audit_seals', 'group_members']) await client.query(`DELETE FROM control_plane.${t} WHERE tenant_id = $1`, [tenantId])
+    // Every control-plane table that names the tenant, found rather than listed: a hand-kept list missed the
+    // invoice and credit-note tables, leaving orphans that stop a later backup from restoring. platform_audit
+    // stays -- it is the record that the tenant existed and was purged.
+    const { rows: cp } = await client.query<{ table_name: string }>(
+      `SELECT table_name FROM information_schema.columns
+        WHERE table_schema = 'control_plane' AND column_name = 'tenant_id' AND table_name <> 'platform_audit'`)
+    for (const t of cp) await client.query(`DELETE FROM control_plane."${t.table_name}" WHERE tenant_id = $1`, [tenantId])
     await client.query(`DELETE FROM control_plane.group_admins WHERE group_id IN (SELECT id FROM control_plane.groups WHERE owner_tenant_id = $1)`, [tenantId])
     await client.query(`DELETE FROM control_plane.groups WHERE owner_tenant_id = $1`, [tenantId])
     await client.query(`UPDATE tenants SET sandbox_of = NULL WHERE sandbox_of = $1`, [tenantId])
