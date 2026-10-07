@@ -133,6 +133,7 @@ export const ACTIONS: Readonly<Record<string, ActionDef>> = Object.freeze({
   'leave.request.rejected': { category: 'leave', severity: 'info' },
 
   'payroll.run.locked': { category: 'payroll', severity: 'critical' },
+  'payroll.opening_ytd.recorded': { category: 'payroll', severity: 'notice' },
   'payroll.period.created': { category: 'payroll', severity: 'notice' },
   'payroll.period.changed': { category: 'payroll', severity: 'notice' },
   'payroll.period.deleted': { category: 'payroll', severity: 'notice', requiresReason: true },

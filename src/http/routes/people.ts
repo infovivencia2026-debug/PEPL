@@ -24,6 +24,7 @@ import { hold } from '../../approvals/pending.ts'
 import { listBankAccounts, setBankAccount, loginFor, inviteEmployee } from '../../people/onboard.ts'
 import { updateEmployee, listFieldDefinitions, defineField, retireField, SELF_EDITABLE, type EmployeePatch } from '../../people/profile.ts'
 import { notify } from '../../comms/index.ts'
+import { likeTerm } from '../../lib/like.ts'
 
 function publicUrl(req: { headers: Record<string, string | string[] | undefined> }): string {
   return process.env.PEPL_PUBLIC_URL
@@ -51,7 +52,7 @@ export function register(router: Router): void {
                  OR employee_number ILIKE '%' || $2 || '%')
           ORDER BY employee_number
           LIMIT $3`,
-        [scopeIds, search, limit])
+        [scopeIds, likeTerm(search), limit])
       return ok({ employees: rows })
     }))
 

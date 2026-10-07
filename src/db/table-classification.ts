@@ -59,6 +59,8 @@ export const APPEND_ONLY_TABLES: readonly string[] = [
   'attendance_corrections', 'approval_actions', 'ticket_events',
   // The thread of a ticket is what was said; editing or deleting it rewrites a grievance.
   'ticket_messages',
+  // Opening year-to-date figures a TDS projection is built on: a correction is a new row, the latest wins.
+  'payroll_opening_ytd',
   // Lockout counters. If the runtime role could UPDATE or DELETE them, one compromised
   // request would reset every brute-force limit -- and the limit is what stops guessing.
   'login_attempts',

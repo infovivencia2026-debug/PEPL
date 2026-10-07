@@ -18,10 +18,10 @@
  * Nothing here can read inside a tenant: the control connection provisions and
  * bills, and employee data stays behind RLS where the app role lives.
  */
-import { controlDb, changePlan, setSubscriptionStatus } from '../src/control-plane/index.ts'
+import { controlDb, setSubscriptionStatus } from '../src/control-plane/index.ts'
 import {
   signup, listPlans, listInvoices, markInvoicePaid, voidInvoice,
-  billingSummary, closePeriods, runDunning, priceFor, updateBillingDetails,
+  billingSummary, switchPlan, closePeriods, runDunning, priceFor, updateBillingDetails,
 } from '../src/control-plane/billing.ts'
 import { invoicePdf, supplierFromEnv } from '../src/control-plane/invoice-pdf.ts'
 import { issueCreditNote, listCreditNotes } from '../src/control-plane/credit-notes.ts'
@@ -119,7 +119,7 @@ const COMMANDS: Record<string, (p: string[], f: Record<string, string>) => Promi
     })
     // signup always opens a 14-day trial. A sold deal starts paying now.
     if (f.activate !== undefined) {
-      await changePlan(tenantId, planCode)
+      await switchPlan(tenantId, planCode)
       await setSubscriptionStatus(tenantId, 'active')
       await controlDb.query(
         `UPDATE control_plane.subscriptions SET trial_ends_on = NULL WHERE tenant_id = $1`, [tenantId])
@@ -138,7 +138,7 @@ Give these to the customer and have them change the password at first sign-in.`)
     const t = await resolveTenant(p[0] ?? '')
     const code = p[1]
     if (!code) throw new Error(`usage: ops plan <company> <${(await listPlans()).map((x) => x.code).join('|')}>`)
-    await changePlan(t.id, code)
+    await switchPlan(t.id, code)
     console.log(`${t.name} is now on ${code}.`)
   },
 

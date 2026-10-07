@@ -23,7 +23,9 @@ describe('styles.css', () => {
     // title is applied after all of them so no screen-specific heading rule can drift from it again.
     expect(imports.indexOf('refinements.css')).toBeLessThan(imports.indexOf('viewport.css'))
     expect(imports.indexOf('viewport.css')).toBeLessThan(imports.indexOf('composition.css'))
-    expect(imports.at(-1)).toBe('page-title.css')
+    expect(imports.indexOf('accessibility.css')).toBeLessThan(imports.indexOf('page-title.css'))
+    expect(imports.indexOf('page-title.css')).toBeLessThan(imports.indexOf('password-field.css'))
+    expect(imports.at(-1)).toBe('password-field.css')
   })
   it('has nothing but @import rules after the comment (an @import after a rule is ignored by browsers)', () => {
     const body = sheet.replace(/\/\*[\s\S]*?\*\//g, '').split('\n').map((l) => l.trim()).filter(Boolean)

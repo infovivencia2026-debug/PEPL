@@ -1,0 +1,8 @@
+/*
+ * Focus rings that would otherwise be clipped.
+ *
+ * Dashboard tiles sit inside `.widget-content`, which hides overflow. The usual outside ring on a linked card
+ * (`.card-linked`, focused through the `.card-target` link stretched across it) is cut off at the tile edge, so a
+ * keyboard user saw the ring on three sides or none. Inside a widget the ring is drawn inward instead.
+ */
+.widget-content .card-linked:has(.card-target:focus-visible) { outline-offset: -3px; }

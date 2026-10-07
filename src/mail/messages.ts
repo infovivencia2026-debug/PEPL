@@ -12,6 +12,7 @@
 import { randomUUID } from 'node:crypto'
 import { sanitizeHtml } from './sanitize.ts'
 import { htmlToText } from './mime.ts'
+import { likeTerm } from '../lib/like.ts'
 import type { PoolClient } from 'pg'
 import {
   MailError, folderByRole, findAccountByEmail, tenantId, type MailAccount,
@@ -63,7 +64,7 @@ export async function listEnvelopes(
                               OR preview ILIKE '%' || $3 || '%')
       ORDER BY received_at DESC, id DESC
       LIMIT $4`,
-    [args.folderId, args.before ?? null, args.search ?? null, limit + 1],
+    [args.folderId, args.before ?? null, likeTerm(args.search), limit + 1],
   )
   return { envelopes: rows.slice(0, limit), hasMore: rows.length > limit }
 }

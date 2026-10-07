@@ -99,3 +99,47 @@ describe('purging a tenant leaves nothing that references it', () => {
     expect(rows[0]).toEqual({ inv: 0, cn: 0 })
   })
 })
+
+describe('every error can be traced', () => {
+  it('a 404 for an unknown route carries the same requestId in the body as in the header', async () => {
+    const { createServer } = await import('node:http')
+    const { createHandler } = await import('../src/http/router.ts')
+    const { buildRouter } = await import('../src/http/app.ts')
+    const server = createServer(createHandler(buildRouter()))
+    await new Promise<void>((r) => server.listen(0, '127.0.0.1', r))
+    try {
+      const res = await fetch(`http://127.0.0.1:${(server.address() as { port: number }).port}/api/v1/no-such-route-audit`)
+      const body = await res.json() as { error: { code: string; requestId?: string } }
+      expect(res.status).toBe(404)
+      expect(body.error.code).toBe('ROUTE_NOT_FOUND')
+      expect(body.error.requestId).toBeTruthy()
+      expect(body.error.requestId).toBe(res.headers.get('x-request-id'))
+    } finally { server.close() }
+  })
+})
+
+describe('search terms are literal', () => {
+  it('likeTerm escapes %, _ and backslash, and drops an empty term', async () => {
+    const { likeTerm } = await import('../src/lib/like.ts')
+    const BS = String.fromCharCode(92)   // a backslash, spelled so no shell or heredoc can eat it
+    expect(likeTerm('100%')).toBe(`100${BS}%`)
+    expect(likeTerm('a_b')).toBe(`a${BS}_b`)
+    expect(likeTerm(`c:${BS}x`)).toBe(`c:${BS}${BS}x`)
+    expect(likeTerm('  ')).toBeNull()
+    expect(likeTerm(null)).toBeNull()
+  })
+
+  it('a % in a database search matches nobody, instead of everybody', async () => {
+    const { likeTerm } = await import('../src/lib/like.ts')
+    const { rows } = await controlPool.query(
+      `SELECT count(*)::int AS n FROM employees WHERE tenant_id = $1 AND first_name ILIKE '%' || $2 || '%'`, [A.id, likeTerm('%')])
+    expect(rows[0].n).toBe(0)
+  })
+
+  it('every ILIKE search in the app goes through it', async () => {
+    const { readFileSync } = await import('node:fs')
+    for (const [file, pattern] of [['src/http/routes/people.ts', /likeTerm\(search\)/], ['src/authz/admin.ts', /likeTerm\(opts\.q\)/], ['src/mail/messages.ts', /likeTerm\(args\.search\)/]] as const) {
+      expect(readFileSync(file, 'utf8'), file).toMatch(pattern)
+    }
+  })
+})

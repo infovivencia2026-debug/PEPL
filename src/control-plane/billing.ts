@@ -128,6 +128,8 @@ export interface BillingSummary {
   billing_email: string | null
   /** Place of supply for GST; without it an invoice cannot pick CGST+SGST over IGST. */
   billing_state_code: string | null
+  /** Set by switchPlan when it moved a company out of its trial: the paid period starts today. */
+  activatedFromTrial?: boolean
   /** What the next invoice would be at today's headcount. */
   estimate: { subtotal_paise: string; gst_paise: string; total_paise: string }
   outstanding: { count: number; total_paise: string; oldest_due_on: string | null }
@@ -247,6 +249,7 @@ export async function switchPlan(tenantId: string, planCode: string): Promise<Bi
   // new plan with nothing invoiced for it. The subscription row is locked first, so two
   // switches for the same company queue instead of both reading the same period.
   const client = await controlDb.connect()
+  let activatedFromTrial = false
   try {
     await client.query('BEGIN')
     const sub = (await client.query<{
@@ -285,9 +288,12 @@ export async function switchPlan(tenantId: string, planCode: string): Promise<Bi
     await client.query(
       `UPDATE control_plane.subscriptions
           SET plan_code = $2, status = CASE WHEN status = 'trialing' THEN 'active' ELSE status END, trial_ends_on = NULL,
-              period_plan_code = $3, period_covered_plan_code = $4
+              period_plan_code = $3, period_covered_plan_code = $4,
+              -- A conversion starts the paid period today, a full month long. The trial's own dates are not paid time.
+              current_period_start = CASE WHEN $5 THEN CURRENT_DATE ELSE current_period_start END,
+              current_period_end   = CASE WHEN $5 THEN (CURRENT_DATE + interval '1 month')::date ELSE current_period_end END
         WHERE tenant_id = $1`,
-      [tenantId, planCode, periodPlan, trialing ? null : (toppedUp ? planCode : (sub!.period_covered_plan_code ?? null))])
+      [tenantId, planCode, periodPlan, trialing ? null : (toppedUp ? planCode : (sub!.period_covered_plan_code ?? null)), Boolean(sub && trialing)])
     await projectEntitlements(client, tenantId)
 
     if (sub && prorata && toppedUp) {
@@ -308,13 +314,14 @@ export async function switchPlan(tenantId: string, planCode: string): Promise<Bi
       `INSERT INTO control_plane.platform_audit (action, tenant_id, detail) VALUES ('subscription.plan_changed', $1, $2::jsonb)`,
       [tenantId, JSON.stringify({ planCode, employees })])
     await client.query('COMMIT')
+    activatedFromTrial = Boolean(sub && trialing)
   } catch (err) {
     await client.query('ROLLBACK').catch(() => {})
     throw err
   } finally {
     client.release()
   }
-  return billingSummary(tenantId)
+  return { ...(await billingSummary(tenantId)), activatedFromTrial }
 }
 
 export interface Invoice {

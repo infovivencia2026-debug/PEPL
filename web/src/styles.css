@@ -31,6 +31,7 @@
 @import './styles/pay.css';
 @import './styles/ux-polish.css';
 
-@import './styles/password-field.css';
 @import './styles/focus.css';
+@import './styles/accessibility.css';
 @import './styles/page-title.css';
+@import './styles/password-field.css';

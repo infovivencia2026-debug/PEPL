@@ -28,6 +28,7 @@ import {
   computeTds, requireRecentMfa,
 } from './deps.ts'
 import { componentFlags } from '../../payroll/structures.ts'
+import { recordOpeningYtd, listOpeningYtd } from '../../payroll/opening-ytd.ts'
 import { loadRunOptions, periodEndOf } from '../../payroll/run-options.ts'
 import { approveWithGuards } from '../../payroll/approve-run.ts'
 import { freezeRowProblems } from '../../payroll/freeze-rows.ts'
@@ -315,5 +316,36 @@ export function register(router: Router): void {
         sizeBytes: pdf.bytes.length,
         contentBase64: pdf.bytes.toString('base64'),
       })
+    }))
+  router.get('/api/v1/employees/:id/opening-ytd',
+    { summary: 'Opening year-to-date figures entered for an employee (newest first)', tag: 'payroll', permission: 'payroll.read' },
+    authed('payroll.read', async (ctx) => {
+      assertOrgWide(ctx.auth, 'payroll.read')
+      return ok({ entries: await listOpeningYtd(ctx.tx, asUuid(ctx.req.params.id, 'id')) })
+    }))
+
+  router.post('/api/v1/employees/:id/opening-ytd',
+    { summary: 'Record what an employee earned and paid in tax BEFORE their first PEPL run, so TDS is projected on the real year. Append-only: a correction is a new entry',
+      tag: 'payroll', permission: 'payroll.process',
+      requestExample: { fiscalYear: '2026-27', taxablePaise: 30000000, tdsPaise: 1200000, reason: 'Apr-Sep from the previous payroll system' } },
+    authed('payroll.process', async (ctx) => {
+      assertOrgWide(ctx.auth, 'payroll.process')
+      const id = asUuid(ctx.req.params.id, 'id')
+      const b = requireBody<{ fiscalYear: string; taxablePaise: number | string; tdsPaise: number | string; reason: string }>(
+        ctx.req, ['fiscalYear', 'taxablePaise', 'tdsPaise', 'reason'])
+      const paise = (v: unknown, name: string): bigint => {
+        const n = typeof v === 'string' ? Number(v) : v
+        if (typeof n !== 'number' || !Number.isSafeInteger(n) || n < 0) throw new HttpError(422, 'VALIDATION_FAILED', `${name} is a whole number of paise, zero or more`)
+        return BigInt(n)
+      }
+      const row = await recordOpeningYtd(ctx.tx, {
+        employeeId: id, fiscalYear: b.fiscalYear, taxablePaise: paise(b.taxablePaise, 'taxablePaise'), tdsPaise: paise(b.tdsPaise, 'tdsPaise'),
+        reason: String(b.reason ?? ''), enteredBy: ctx.auth.userId,
+      })
+      await emit(ctx.tx, {
+        action: 'payroll.opening_ytd.recorded', entityType: 'employee', entityId: id, subjectEmployeeId: id, actorUserId: ctx.auth.userId,
+        metadata: { fiscalYear: row.fiscal_year, taxablePaise: row.taxable_paise, tdsPaise: row.tds_paise, reason: row.reason },
+      })
+      return created(row)
     }))
 }

@@ -24,10 +24,10 @@ import {
   platformLogin, requirePlatformSession, resolvePlatformSession, revokePlatformSession,
   beginPlatformMfa, verifyPlatformMfa, listPlatformUsers, PlatformAuthError,
 } from '../../control-plane/platform-auth.ts'
-import { controlDb, changePlan, setSubscriptionStatus } from '../../control-plane/index.ts'
+import { controlDb, setSubscriptionStatus } from '../../control-plane/index.ts'
 import {
   signup, listPlans, listInvoices, markInvoicePaid, voidInvoice,
-  billingSummary, closePeriods, runDunning, priceFor, updateBillingDetails,
+  billingSummary, switchPlan, closePeriods, runDunning, priceFor, updateBillingDetails,
 } from '../../control-plane/billing.ts'
 import { issueCreditNote, listCreditNotes } from '../../control-plane/credit-notes.ts'
 import { listPresets } from '../../control-plane/presets.ts'
@@ -170,7 +170,7 @@ export function register(router: Router): void {
         stateCode: b.stateCode, planCode, organisationType: b.organisationType,
       })
       if (b.activate) {
-        await changePlan(tenantId, planCode)
+        await switchPlan(tenantId, planCode)
         await setSubscriptionStatus(tenantId, 'active')
         await controlDb.query(
           `UPDATE control_plane.subscriptions SET trial_ends_on = NULL WHERE tenant_id = $1`, [tenantId])
@@ -187,7 +187,7 @@ export function register(router: Router): void {
     staff(async (req, session) => {
       const id = asUuid(req.params.id, 'id')
       const b = requireBody<{ planCode: string }>(req, ['planCode'])
-      const summary = await changePlan(id, b.planCode).then(() => billingSummary(id))
+      const summary = await switchPlan(id, b.planCode).then(() => billingSummary(id))
       await controlDb.query(
         `INSERT INTO control_plane.platform_audit (action, tenant_id, detail) VALUES ('platform.plan.changed', $1, $2::jsonb)`,
         [id, JSON.stringify({ by: session.user.email, planCode: b.planCode })])

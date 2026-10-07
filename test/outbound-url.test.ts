@@ -92,3 +92,24 @@ describe('the address ranges themselves', () => {
     }
   })
 })
+
+describe('IPv6 spellings that carry a private IPv4 address', () => {
+  // Node normalises some of these and not others, and a literal URL can be written in any of them.
+  it('blocks IPv4-mapped and IPv4-compatible forms however they are written', () => {
+    for (const ip of ['::ffff:127.0.0.1', '::ffff:7f00:1', '0:0:0:0:0:ffff:7f00:1', '0000:0000:0000:0000:0000:ffff:7f00:0001',
+      '::127.0.0.1', '::7f00:1', '::ffff:0:7f00:1', '::ffff:10.0.0.5', '::ffff:a9fe:a9fe']) {
+      expect(isBlockedAddress(ip), ip).toBe(true)
+    }
+  })
+  it('blocks NAT64 (64:ff9b::/96), 6to4 (2002::/16) and Teredo (2001::/32), which can reach any IPv4 address', () => {
+    for (const ip of ['64:ff9b::7f00:1', '64:ff9b::808:808', '64:ff9b:0:0:0:0:a00:1', '2002:7f00:1::', '2002:808:808::1', '2001:0:4136:e378:8000:63bf:3fff:fdd2']) {
+      expect(isBlockedAddress(ip), ip).toBe(true)
+    }
+  })
+  it('blocks the whole link-local and site-local ranges and multicast, not just fe80', () => {
+    for (const ip of ['fe80::1', 'fe90::1', 'febf::1', 'fec0::1', 'ff02::1', 'ff0e::1']) expect(isBlockedAddress(ip), ip).toBe(true)
+  })
+  it('still allows ordinary public IPv6, including a mapped public IPv4', () => {
+    for (const ip of ['2606:4700::1111', '2a00:1450:4001:81b::200e', '::ffff:8.8.8.8', '2001:4860:4860::8888']) expect(isBlockedAddress(ip), ip).toBe(false)
+  })
+})

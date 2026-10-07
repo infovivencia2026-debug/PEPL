@@ -8,6 +8,7 @@
  */
 import type { PoolClient } from 'pg'
 import { PERMISSIONS, ROLE_PERMISSIONS, type RoleScope } from './permissions.ts'
+import { likeTerm } from '../lib/like.ts'
 
 export class RoleError extends Error {
   readonly code: string
@@ -145,7 +146,7 @@ export async function listUsers(tx: PoolClient, opts: { q?: string; limit?: numb
         AND ($1::text IS NULL OR u.email ILIKE '%' || $1 || '%' OR u.full_name ILIKE '%' || $1 || '%' OR e.employee_number ILIKE '%' || $1 || '%')
       GROUP BY u.id, u.email, u.full_name, u.status, u.employee_id, e.employee_number, u.last_login_at
       ORDER BY u.full_name
-      LIMIT $2`, [opts.q?.trim() || null, Math.min(opts.limit ?? 200, 1000)])
+      LIMIT $2`, [likeTerm(opts.q), Math.min(opts.limit ?? 200, 1000)])
   return rows
 }
 

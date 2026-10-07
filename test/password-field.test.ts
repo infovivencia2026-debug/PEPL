@@ -82,11 +82,10 @@ describe('the stylesheet', () => {
     const entry = readFileSync('web/src/styles.css', 'utf8').trim().split('\n').filter((l) => l.startsWith('@import'))
     const names = entry.map((l) => /styles\/([a-z0-9-]+\.css)/.exec(l)![1]!)
     const after = names.slice(names.indexOf('password-field.css') + 1)
-    // It used to be literally last. Two small sheets that style OTHER things now follow it (the shared page
-    // title, and focus rings on tiles and wrappers); what matters is that nothing after it can override it.
+    // Literally last: the sheets that style other things (focus rings, accessibility, the shared page title)
+    // come before it, so nothing can override the password box.
     expect(names.includes('password-field.css')).toBe(true)
-    expect(after.every((f) => ['focus.css', 'page-title.css'].includes(f)), after.join(', ')).toBe(true)
-    for (const f of after) expect(readFileSync(`web/src/styles/${f}`, 'utf8'), f).not.toMatch(/password|\.field\b/)
+    expect(after, 'password-field.css must be the last import').toEqual([])
   })
 
   it('keeps the field look the login box relies on', () => {

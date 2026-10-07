@@ -244,7 +244,15 @@ export async function yearToDate(
     [employeeId, fyStart, periodStart.toISOString().slice(0, 10)],
   )
   const r = rows[0]!
-  return { taxablePaise: BigInt(r.gross) - BigInt(r.pf), tdsPaise: BigInt(r.tds), runs: Number(r.runs) }
+  // Figures from before the first PEPL run (migration 110): the latest entry for this year is the one in force.
+  const opening = (await tx.query<{ taxable: string; tds: string }>(
+    `SELECT taxable_paise::text AS taxable, tds_paise::text AS tds FROM payroll_opening_ytd
+      WHERE employee_id = $1 AND fiscal_year = $2 ORDER BY created_at DESC, id LIMIT 1`, [employeeId, fy])).rows[0]
+  return {
+    taxablePaise: BigInt(r.gross) - BigInt(r.pf) + BigInt(opening?.taxable ?? 0),
+    tdsPaise: BigInt(r.tds) + BigInt(opening?.tds ?? 0),
+    runs: Number(r.runs),
+  }
 }
 
 /** Only before calculation, and only from inputs_frozen. Audited by the caller. */

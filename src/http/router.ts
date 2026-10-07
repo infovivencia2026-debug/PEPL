@@ -523,7 +523,7 @@ export function createHandler(router: Router, options: HandlerOptions = {}) {
     try {
       const hit = router.match(req.method ?? 'GET', url.pathname)
       if (!hit) {
-        send(404, { error: { code: 'ROUTE_NOT_FOUND', message: `no route for ${req.method} ${url.pathname}` } })
+        send(404, { error: { code: 'ROUTE_NOT_FOUND', message: `no route for ${req.method} ${url.pathname}`, requestId } })
         return
       }
 

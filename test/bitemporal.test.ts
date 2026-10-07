@@ -168,7 +168,9 @@ describe('transaction time: what did we believe, and when', () => {
     )
 
     // 2. Payroll for August locks. Whatever we believed at this instant is what it paid.
-    const lockedAt = new Date()
+    // The instant comes from the DATABASE's clock, which is what stamped the row: a Node clock a few ms
+    // ahead or behind it would make "what we believed at lock time" depend on the machine.
+    const lockedAt = (await controlPool.query<{ t: Date }>('SELECT clock_timestamp() AS t')).rows[0]!.t
     await new Promise((r) => setTimeout(r, 20))
 
     // 3. Afterwards we discover the CTC was keyed wrong and correct it.

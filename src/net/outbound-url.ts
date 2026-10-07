@@ -42,25 +42,59 @@ export function isBlockedAddress(ip: string): boolean {
     return false
   }
   if (v === 6) {
-    const s = ip.toLowerCase().replace(/^\[|\]$/g, '')
-    if (s === '::1' || s === '::') return true
-    if (s.startsWith('fe80')) return true             // link-local
-    if (/^f[cd]/.test(s)) return true                 // unique local fc00::/7
-    // IPv4-mapped. Node normalises `::ffff:127.0.0.1` to `::ffff:7f00:1`, so
-    // matching only the dotted form let loopback straight through -- the test
-    // for it failed on exactly that.
-    const mapped = s.match(/^::ffff:(.+)$/)
-    if (mapped) {
-      const tail = mapped[1]!
-      if (tail.includes('.')) return isBlockedAddress(tail)
-      const [hi = '0', lo = '0'] = tail.split(':')
-      const n = (parseInt(hi, 16) << 16) | parseInt(lo, 16)
-      if (Number.isNaN(n)) return true  // unparseable: refuse rather than allow
-      return isBlockedAddress([(n >>> 24) & 255, (n >>> 16) & 255, (n >>> 8) & 255, n & 255].join('.'))
-    }
+    const h = expandV6(ip.replace(/^\[|\]$/g, ''))
+    if (!h) return true                               // unparseable: refuse rather than allow
+    const [h0 = 0, h1 = 0, h2 = 0, , h4 = 0, h5 = 0, h6 = 0, h7 = 0] = h
+    const dotted = (hi: number, lo: number): string => [hi >>> 8, hi & 255, lo >>> 8, lo & 255].join('.')
+    if (h.every((x) => x === 0)) return true                       // ::
+    if (h.slice(0, 7).every((x) => x === 0) && h7 === 1) return true // ::1
+    if ((h0 & 0xffc0) === 0xfe80) return true                      // link-local fe80::/10 (fe80 to febf)
+    if ((h0 & 0xffc0) === 0xfec0) return true                      // site-local fec0::/10, deprecated but routable inside
+    if ((h0 & 0xfe00) === 0xfc00) return true                      // unique local fc00::/7
+    if ((h0 & 0xff00) === 0xff00) return true                      // multicast
+    // Forms that EMBED an IPv4 address in the last 32 bits. However the literal was written, judge the
+    // address inside it: ::ffff:a.b.c.d (mapped), ::a.b.c.d (compatible), ::ffff:0:a.b.c.d (SIIT).
+    if (h.slice(0, 5).every((x) => x === 0) && (h5 === 0xffff || h5 === 0)) return isBlockedAddress(dotted(h6, h7))
+    if (h.slice(0, 4).every((x) => x === 0) && h4 === 0xffff && h5 === 0) return isBlockedAddress(dotted(h6, h7))
+    // Translation and tunnelling prefixes reach ANY IPv4 address through a gateway, so there is no safe
+    // subset to allow: NAT64 64:ff9b::/96 (and the local-use 64:ff9b:1::/48), 6to4 2002::/16, Teredo 2001::/32.
+    if (h0 === 0x64 && h1 === 0xff9b && (h2 === 0 || h2 === 1)) return true
+    if (h0 === 0x2002) return true
+    if (h0 === 0x2001 && h1 === 0) return true
     return false
   }
   return false
+}
+
+/** Eight 16-bit groups of an IPv6 literal, with `::` and a dotted IPv4 tail expanded; null if malformed. */
+export function expandV6(ip: string): number[] | null {
+  let s = ip.toLowerCase()
+  const zone = s.indexOf('%')
+  if (zone >= 0) s = s.slice(0, zone)
+  const tail = s.match(/^(.*:)(\d+\.\d+\.\d+\.\d+)$/)
+  if (tail) {
+    const o = tail[2]!.split('.').map(Number)
+    if (o.length !== 4 || o.some((x) => !(x >= 0 && x <= 255))) return null
+    s = `${tail[1]}${((o[0]! << 8) | o[1]!).toString(16)}:${((o[2]! << 8) | o[3]!).toString(16)}`
+  }
+  const halves = s.split('::')
+  if (halves.length > 2) return null
+  const parse = (part: string): number[] | null => {
+    if (part === '') return []
+    const out: number[] = []
+    for (const g of part.split(':')) {
+      if (!/^[0-9a-f]{1,4}$/.test(g)) return null
+      out.push(parseInt(g, 16))
+    }
+    return out
+  }
+  const head = parse(halves[0]!)
+  const rest = halves.length === 2 ? parse(halves[1]!) : []
+  if (!head || !rest) return null
+  if (halves.length === 1) return head.length === 8 ? head : null
+  const fill = 8 - head.length - rest.length
+  if (fill < 1) return null
+  return [...head, ...Array<number>(fill).fill(0), ...rest]
 }
 
 const loopbackHost = (host: string): boolean =>
